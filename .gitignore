@@ -3,3 +3,5 @@ dist/
 .cache/
 
 *.egg-info
+
+vesin-single-build.cpp

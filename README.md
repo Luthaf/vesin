@@ -61,6 +61,16 @@ cmake --build .
 cmake --install .
 ```
 
+Alternatively, run
+
+```bash
+./create-single-cpp.py
+```
+
+Copy `vesin-single-build.cpp` and `include/vesin.h` in your project, and compile
+the code in C++17 or higher mode.
+
+
 ### Usage
 
 Compile with `-I $INSTALL_PREFIX/include`, and link with `-L $INSTALL_PREFIX/lib

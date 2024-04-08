@@ -127,8 +127,8 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
-    box_(std::move(box)),
-    cells_shape_({0, 0, 0})
+    cells_shape_({0, 0, 0}),
+    box_(std::move(box))
 {
     auto distances_between_faces = box_.distances_between_faces();
 
@@ -216,9 +216,9 @@ void CellList::add_point(size_t index, Vector position) {
 
 template <typename Function>
 void CellList::foreach_pair(Function callback) {
-    for (int32_t cell_i_x=0; cell_i_x<cells_shape_[0]; cell_i_x++) {
-    for (int32_t cell_i_y=0; cell_i_y<cells_shape_[1]; cell_i_y++) {
-    for (int32_t cell_i_z=0; cell_i_z<cells_shape_[2]; cell_i_z++) {
+    for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
+    for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
+    for (int32_t cell_i_z=0; cell_i_z<static_cast<int32_t>(cells_shape_[2]); cell_i_z++) {
         auto& current_cell = this->get_cell({cell_i_x, cell_i_y, cell_i_z});
         // look through each neighboring cell
         for (int32_t delta_x=-n_search_[0]; delta_x<=n_search_[0]; delta_x++) {

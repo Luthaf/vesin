@@ -90,7 +90,7 @@ TEST_CASE("Non-periodic") {
         {0.149, 1.865, 0.635},
     };
 
-    double box[3][3] = {0};
+    double box[3][3] = {{0}};
 
     // reference computed with ASE
     auto expected_pairs = std::vector<std::array<size_t, 2>>{
@@ -257,6 +257,7 @@ TEST_CASE("Slanted box") {
         &neighbors,
         &error_message
     );
+    REQUIRE(status == EXIT_SUCCESS);
 
     REQUIRE(neighbors.length == 90);
     auto previously_missing = std::vector<std::array<int32_t, 3>>{

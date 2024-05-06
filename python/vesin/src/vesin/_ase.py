@@ -4,7 +4,7 @@ except ImportError:
     ase = None
 
 
-from ._neighbors import NeighborsList
+from ._neighbors import NeighborList
 
 
 def ase_neighbor_list(quantities, a, cutoff, self_interaction=False):
@@ -34,7 +34,7 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False):
             "are not supported"
         )
 
-    nl = NeighborsList(cutoff=cutoff, full_list=True)
+    nl = NeighborList(cutoff=cutoff, full_list=True)
     return nl.compute(
         points=a.positions,
         box=a.cell[:],

@@ -62,9 +62,9 @@ private:
     Cell& get_cell(std::array<int32_t, 3> index);
 };
 
-/// Wrapper around `VesinNeighborsList` that behaves like a std::vector,
+/// Wrapper around `VesinNeighborList` that behaves like a std::vector,
 /// automatically growing memory allocations.
-class GrowableNeighborsList {
+class GrowableNeighborList {
 public:
     VesinNeighborList& neighbors;
     size_t capacity;

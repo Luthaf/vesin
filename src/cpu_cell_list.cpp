@@ -28,7 +28,7 @@ void vesin::cpu::neighbors(
 
     // the cell list creates too many pairs, we only need to keep the
     // one where the distance is actually below the cutoff
-    auto neighbors = GrowableNeighborsList{raw_neighbors, raw_neighbors.length, options};
+    auto neighbors = GrowableNeighborList{raw_neighbors, raw_neighbors.length, options};
     neighbors.reset();
 
     cell_list.foreach_pair([&](size_t first, size_t second, CellShift shift) {
@@ -268,7 +268,7 @@ CellList::Cell& CellList::get_cell(std::array<int32_t, 3> index) {
 /* ========================================================================== */
 
 
-void GrowableNeighborsList::set_pair(size_t index, size_t first, size_t second) {
+void GrowableNeighborList::set_pair(size_t index, size_t first, size_t second) {
     if (index >= this->capacity) {
         this->grow();
     }
@@ -277,7 +277,7 @@ void GrowableNeighborsList::set_pair(size_t index, size_t first, size_t second) 
     this->neighbors.pairs[index][1] = second;
 }
 
-void GrowableNeighborsList::set_shift(size_t index, vesin::CellShift shift) {
+void GrowableNeighborList::set_shift(size_t index, vesin::CellShift shift) {
     if (index >= this->capacity) {
         this->grow();
     }
@@ -287,7 +287,7 @@ void GrowableNeighborsList::set_shift(size_t index, vesin::CellShift shift) {
     this->neighbors.shifts[index][2] = shift[2];
 }
 
-void GrowableNeighborsList::set_distance(size_t index, double distance) {
+void GrowableNeighborList::set_distance(size_t index, double distance) {
     if (index >= this->capacity) {
         this->grow();
     }
@@ -295,7 +295,7 @@ void GrowableNeighborsList::set_distance(size_t index, double distance) {
     this->neighbors.distances[index] = distance;
 }
 
-void GrowableNeighborsList::set_vector(size_t index, vesin::Vector vector) {
+void GrowableNeighborList::set_vector(size_t index, vesin::Vector vector) {
     if (index >= this->capacity) {
         this->grow();
     }
@@ -333,7 +333,7 @@ static scalar_t* alloc(scalar_t* ptr, size_t size, size_t new_size) {
     return ptr;
 }
 
-void GrowableNeighborsList::grow() {
+void GrowableNeighborList::grow() {
     auto new_size = neighbors.length * 2;
     if (new_size == 0) {
         new_size = 1;
@@ -364,7 +364,7 @@ void GrowableNeighborsList::grow() {
     this->capacity = new_size;
 }
 
-void GrowableNeighborsList::reset() {
+void GrowableNeighborList::reset() {
     // set all allocated data to zero
     auto size = this->neighbors.length;
     std::memset(this->neighbors.pairs, 0, size * sizeof(size_t[2]));

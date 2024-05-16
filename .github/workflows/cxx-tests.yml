@@ -1,0 +1,104 @@
+name: C++ tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    # Check all PR
+
+concurrency:
+  group: cxx-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  rust-tests:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
+    container: ${{ matrix.container }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-20.04
+            compiler: GCC - Valgrind
+            cc: gcc-13
+            cxx: g++-13
+            do-valgrind: true
+            setup-dependencies: |
+              sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+              sudo apt-get update
+              sudo apt-get install -y gcc-13 g++-13
+
+          - os: ubuntu-20.04
+            compiler: Clang
+            cc: clang-18
+            cxx: clang++-18
+            setup-dependencies: |
+              wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+              sudo apt-get update
+              sudo apt-add-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main"
+              sudo apt-get install -y clang-18
+
+          # check the build on a stock Ubuntu 20.04, which uses cmake 3.16
+          - os: ubuntu-20.04
+            compiler: GCC
+            cc: gcc
+            cxx: g++
+            container: ubuntu:20.04
+            setup-dependencies: |
+              apt update
+              apt install -y software-properties-common
+              apt install -y cmake make gcc g++ git curl
+
+          - os: macos-14
+            compiler: Clang
+            cc: clang
+            cxx: clang++
+
+          - os: windows-2019
+            compiler: MSVC
+            cc: cl.exe
+            cxx: cl.exe
+            cmake-extra-args:
+              - -G "Visual Studio 16 2019" -A x64
+
+          - os: windows-2019
+            compiler: MinGW
+            cc: gcc.exe
+            cxx: g++.exe
+            cmake-extra-args:
+              - -G "MinGW Makefiles"
+
+    steps:
+      - name: setup dependencies
+        run: ${{ matrix.setup-dependencies }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install valgrind
+        if: matrix.do-valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: configure cmake
+        shell: bash
+        run: |
+          mkdir build && cd build
+          cmake ${{ join(matrix.cmake-extra-args, ' ') }} \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+              -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+              -DVESIN_BUILD_TESTS=ON \
+              ..
+
+      - name: build
+        run: |
+          cd build
+          cmake --build . --config Debug --parallel 2
+
+      - name: run tests
+        run: |
+          cd build
+          ctest --output-on-failure --build-config Debug --parallel 2

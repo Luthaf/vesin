@@ -1,2 +1,6 @@
 include pyproject.toml
 include LICENSE
+
+recursive-include src *
+recursive-include include *
+include CMakeLists.txt

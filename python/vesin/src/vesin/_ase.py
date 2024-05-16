@@ -13,7 +13,7 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False):
 
     """
     if ase is None:
-        raise ImportError("")
+        raise ImportError("could not import ase, this function requires ase")
 
     if self_interaction:
         raise ValueError("self_interaction=True is not implemented")
@@ -22,7 +22,7 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False):
         raise ValueError("only a single float cutoff is supported")
 
     if not isinstance(a, ase.Atoms):
-        raise TypeError("TODO")
+        raise TypeError(f"`a` should be ase.Atoms, got {type(a)} instead")
 
     if a.pbc[0] and a.pbc[1] and a.pbc[2]:
         periodic = True

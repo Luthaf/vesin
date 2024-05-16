@@ -36,7 +36,6 @@ def merge_files(path, output):
         ALREADY_SEEN.add(path)
 
     if path == "include/vesin.h":
-        # TODO
         output.write('#include "vesin.h"\n')
         return
 

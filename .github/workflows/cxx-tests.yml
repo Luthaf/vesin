@@ -91,6 +91,7 @@ jobs:
               -DCMAKE_C_COMPILER=${{ matrix.cc }} \
               -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
               -DVESIN_BUILD_TESTS=ON \
+              -DCMAKE_VERBOSE_MAKEFILE=ON \
               ..
 
       - name: build

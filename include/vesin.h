@@ -4,6 +4,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(VESIN_SHARED)
+    #if defined(VESIN_EXPORTS)
+        #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+            #define VESIN_API __attribute__((visibility("default")))
+        #elif defined(_MSC_VER)
+            #define VESIN_API __declspec(dllexport)
+        #else
+            #define VESIN_API
+        #endif
+    #else
+        #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+            #define VESIN_API __attribute__((visibility("default")))
+        #elif defined(_MSC_VER)
+            #define VESIN_API __declspec(dllimport)
+        #else
+            #define VESIN_API
+        #endif
+    #endif
+#else
+    #define VESIN_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -54,7 +76,7 @@ enum VesinDevice {
 ///
 /// Under periodic boundary conditions, two atoms can be part of multiple pairs,
 /// each pair having a different periodic shift.
-typedef struct VesinNeighborList {
+typedef struct VESIN_API VesinNeighborList {
 #ifdef __cplusplus
     VesinNeighborList():
         length(0),
@@ -90,7 +112,7 @@ typedef struct VesinNeighborList {
 
 /// Free all allocated memory inside a `VesinNeighborList`, according the it's
 /// `device`.
-void vesin_free(VesinNeighborList* neighbors);
+void VESIN_API vesin_free(VesinNeighborList* neighbors);
 
 /// Compute a neighbor list.
 ///
@@ -113,7 +135,7 @@ void vesin_free(VesinNeighborList* neighbors);
 /// @param error_message Pointer to a `char*` that wil be set to the error
 ///     message if this function fails. This does not need to be freed when no
 ///     longer needed.
-int vesin_neighbors(
+int VESIN_API vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],

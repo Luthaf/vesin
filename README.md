@@ -68,8 +68,11 @@ Alternatively, run
 ```
 
 Copy `vesin-single-build.cpp` and `include/vesin.h` in your project, and compile
-the code in C++17 or higher mode.
-
+the code in C++17 or higher mode. In this case, you'll need to define
+`VESIN_SHARED` whenever you include the header to use the code as a shared
+library, and additionally define `VESIN_EXPORTS` when building the shared
+library itself. If you are using the code as a static library, you don't have to
+do anything.
 
 ### Usage
 

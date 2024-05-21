@@ -7,7 +7,8 @@ endif()
 
 project(vesin C CXX)
 
-option(VESIN_BUILD_TESTS "build unit tests" OFF)
+option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
+option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 
 add_library(vesin
     src/vesin.cpp
@@ -20,6 +21,17 @@ target_include_directories(vesin PUBLIC
 )
 
 target_compile_features(vesin PRIVATE cxx_std_17)
+
+set_target_properties(vesin PROPERTIES
+    # hide non-exported symbols by default
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
+target_compile_definitions(vesin PRIVATE VESIN_EXPORTS)
+if (BUILD_SHARED_LIBS)
+    target_compile_definitions(vesin PUBLIC VESIN_SHARED)
+endif()
 
 if (VESIN_BUILD_TESTS)
     enable_testing()

@@ -4,3 +4,4 @@ include LICENSE
 recursive-include src *
 recursive-include include *
 include CMakeLists.txt
+include VERSION

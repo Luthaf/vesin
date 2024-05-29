@@ -76,7 +76,7 @@ class bdist_egg_disabled(bdist_egg):
 
 if __name__ == "__main__":
     setup(
-        version="0.1.0",
+        version=open("VERSION").read().strip(),
         ext_modules=[
             # only declare the extension, it is built & copied as required by cmake
             # in the build_ext command

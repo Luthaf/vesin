@@ -5,7 +5,10 @@ if (POLICY CMP0077)
     cmake_policy(SET CMP0077 NEW)
 endif()
 
-project(vesin C CXX)
+file(READ "VERSION" VESIN_VERSION)
+string(STRIP ${VESIN_VERSION} VESIN_VERSION)
+
+project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
 
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)

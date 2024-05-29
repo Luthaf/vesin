@@ -1,5 +1,7 @@
 # Vesin: fast neighbor lists for atomistic systems
 
+![Tests](https://img.shields.io/github/check-runs/Luthaf/vesin/main?logo=github&label=tests)
+
 This is a work in progress!
 
 ## Python API

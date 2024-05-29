@@ -107,7 +107,7 @@ static std::tuple<int32_t, int32_t> divmod(int32_t a, size_t b) {
     auto quotient = a / b_32;
     auto remainder = a % b_32;
     if (remainder < 0) {
-        remainder += b;
+        remainder += b_32;
         quotient -= 1;
     }
     return std::make_tuple(quotient, remainder);
@@ -128,7 +128,7 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
     cells_shape_({0, 0, 0}),
-    box_(std::move(box))
+    box_(box)
 {
     auto distances_between_faces = box_.distances_between_faces();
 
@@ -188,9 +188,9 @@ void CellList::add_point(size_t index, Vector position) {
 
     // find the cell in which this atom should go
     auto cell_index = std::array<int32_t, 3>{
-        static_cast<int32_t>(std::floor(fractional[0] * cells_shape_[0])),
-        static_cast<int32_t>(std::floor(fractional[1] * cells_shape_[1])),
-        static_cast<int32_t>(std::floor(fractional[2] * cells_shape_[2])),
+        static_cast<int32_t>(std::floor(fractional[0] * static_cast<double>(cells_shape_[0]))),
+        static_cast<int32_t>(std::floor(fractional[1] * static_cast<double>(cells_shape_[1]))),
+        static_cast<int32_t>(std::floor(fractional[2] * static_cast<double>(cells_shape_[2]))),
     };
 
     // deal with pbc by wrapping the atom inside if it was outside of the
@@ -199,8 +199,8 @@ void CellList::add_point(size_t index, Vector position) {
     // auto (shift, cell_index) =
     if (box_.periodic()) {
         auto result = divmod(cell_index, cells_shape_);
-        shift = CellShift{std::move(std::get<0>(result))};
-        cell_index = std::move(std::get<1>(result));
+        shift = CellShift{std::get<0>(result)};
+        cell_index = std::get<1>(result);
     } else {
         shift = CellShift({0, 0, 0});
         cell_index = std::array<int32_t, 3>{
@@ -219,7 +219,7 @@ void CellList::foreach_pair(Function callback) {
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
     for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
     for (int32_t cell_i_z=0; cell_i_z<static_cast<int32_t>(cells_shape_[2]); cell_i_z++) {
-        auto& current_cell = this->get_cell({cell_i_x, cell_i_y, cell_i_z});
+        const auto& current_cell = this->get_cell({cell_i_x, cell_i_y, cell_i_z});
         // look through each neighboring cell
         for (int32_t delta_x=-n_search_[0]; delta_x<=n_search_[0]; delta_x++) {
         for (int32_t delta_y=-n_search_[1]; delta_y<=n_search_[1]; delta_y++) {
@@ -307,30 +307,30 @@ void GrowableNeighborList::set_vector(size_t index, vesin::Vector vector) {
 
 template <typename scalar_t, size_t N>
 static scalar_t (*alloc(scalar_t (*ptr)[N], size_t size, size_t new_size))[N] {
-    ptr = reinterpret_cast<scalar_t (*)[N]>(std::realloc(ptr, new_size * sizeof(scalar_t[N])));
+    auto* new_ptr = reinterpret_cast<scalar_t (*)[N]>(std::realloc(ptr, new_size * sizeof(scalar_t[N])));
 
-    if (ptr == nullptr) {
+    if (new_ptr == nullptr) {
         throw std::bad_alloc();
     }
 
     // initialize with a bit pattern that maps to NaN for double
-    std::memset(ptr + size, 0b11111111, (new_size - size) * sizeof(scalar_t[N]));
+    std::memset(new_ptr + size, 0b11111111, (new_size - size) * sizeof(scalar_t[N]));
 
-    return ptr;
+    return new_ptr;
 }
 
 template <typename scalar_t>
 static scalar_t* alloc(scalar_t* ptr, size_t size, size_t new_size) {
-    ptr = reinterpret_cast<scalar_t*>(std::realloc(ptr, new_size * sizeof(scalar_t)));
+    auto* new_ptr = reinterpret_cast<scalar_t*>(std::realloc(ptr, new_size * sizeof(scalar_t)));
 
-    if (ptr == nullptr) {
+    if (new_ptr == nullptr) {
         throw std::bad_alloc();
     }
 
     // initialize with a bit pattern that maps to NaN for double
-    std::memset(ptr + size, 0b11111111, (new_size - size) * sizeof(scalar_t));
+    std::memset(new_ptr + size, 0b11111111, (new_size - size) * sizeof(scalar_t));
 
-    return ptr;
+    return new_ptr;
 }
 
 void GrowableNeighborList::grow() {
@@ -339,7 +339,7 @@ void GrowableNeighborList::grow() {
         new_size = 1;
     }
 
-    auto new_pairs = alloc<size_t, 2>(neighbors.pairs, neighbors.length, new_size);
+    auto* new_pairs = alloc<size_t, 2>(neighbors.pairs, neighbors.length, new_size);
 
     int32_t (*new_shifts)[3] = nullptr;
     if (options.return_shifts) {
@@ -385,7 +385,7 @@ void GrowableNeighborList::reset() {
     this->neighbors.length = 0;
 
     // allocate/deallocate pointers as required
-    auto shifts = this->neighbors.shifts;
+    auto* shifts = this->neighbors.shifts;
     if (this->options.return_shifts && shifts == nullptr) {
         shifts = alloc<int32_t, 3>(shifts, 0, capacity);
     } else if (!this->options.return_shifts && shifts != nullptr) {
@@ -393,7 +393,7 @@ void GrowableNeighborList::reset() {
         shifts = nullptr;
     }
 
-    auto distances = this->neighbors.distances;
+    auto* distances = this->neighbors.distances;
     if (this->options.return_distances && distances == nullptr) {
         distances = alloc<double>(distances, 0, capacity);
     } else if (!this->options.return_distances && distances != nullptr) {
@@ -401,7 +401,7 @@ void GrowableNeighborList::reset() {
         distances = nullptr;
     }
 
-    auto vectors = this->neighbors.vectors;
+    auto* vectors = this->neighbors.vectors;
     if (this->options.return_vectors && vectors == nullptr) {
         vectors = alloc<double, 3>(vectors, 0, capacity);
     } else if (!this->options.return_vectors && vectors != nullptr) {

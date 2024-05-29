@@ -7,7 +7,7 @@ namespace vesin {
 
 class BoundingBox {
 public:
-    BoundingBox(Matrix matrix, bool periodic): matrix_(std::move(matrix)), periodic_(periodic) {
+    BoundingBox(Matrix matrix, bool periodic): matrix_(matrix), periodic_(periodic) {
         if (periodic) {
             this->inverse_ = matrix_.inverse();
         } else {

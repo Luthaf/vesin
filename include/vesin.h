@@ -45,7 +45,7 @@ typedef struct VesinOptions {
     bool return_distances;
     /// Should the returned `VesinNeighborList` contain `vector`?
     bool return_vectors;
-} VesinOptions;
+};
 
 /// Device on which the data can be
 enum VesinDevice {
@@ -108,7 +108,7 @@ typedef struct VESIN_API VesinNeighborList {
     double (*vectors)[3];
 
     // TODO: custom memory allocators?
-} VesinNeighborList;
+};
 
 /// Free all allocated memory inside a `VesinNeighborList`, according the it's
 /// `device`.

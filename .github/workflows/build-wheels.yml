@@ -1,0 +1,118 @@
+name: Build Python wheels
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+    # Check all PR
+
+concurrency:
+  group: wheels-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build-wheels:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    strategy:
+      matrix:
+        include:
+          - name: x86_64 Linux
+            os: ubuntu-22.04
+            cibw_arch: x86_64
+          - name: x86_64 macOS
+            os: macos-13
+            cibw_arch: x86_64
+          - name: M1 macOS
+            os: macos-14
+            cibw_arch: arm64
+          - name: x86_64 Windows
+            os: windows-2019
+            # TODO: add a 32-bit windows builder?
+            cibw_arch: AMD64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install dependencies
+        run: python -m pip install cibuildwheel
+
+      - name: build wheel
+        run: python -m cibuildwheel .
+        env:
+          CIBW_BUILD: cp312-*
+          CIBW_SKIP: "*musllinux*"
+          CIBW_ARCHS: ${{ matrix.cibw_arch }}
+          CIBW_BUILD_FRONTEND: build
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux2014_x86_64
+
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.cibw_arch }}
+          path: ./wheelhouse/*.whl
+
+  build-sdist:
+    runs-on: ubuntu-22.04
+    name: sdist
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: build sdist
+        run: |
+          pip install build
+          python -m build --sdist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  merge-and-release:
+    name: Merge and release wheels/sdists
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheel-*
+          merge-multiple: true
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          name: sdist
+
+      - name: Re-upload a single wheels artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: |
+            dist/*
+
+      - name: upload to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          prerelease: ${{ contains(github.ref, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

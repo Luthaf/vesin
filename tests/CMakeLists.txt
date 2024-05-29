@@ -1,5 +1,7 @@
 include(FetchContent)
 
+# Override options with variables
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 FetchContent_Declare(Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git

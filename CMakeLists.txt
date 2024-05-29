@@ -1,10 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
 
-if (POLICY CMP0077)
-    # Override options with variables
-    cmake_policy(SET CMP0077 NEW)
-endif()
-
 file(READ "VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 

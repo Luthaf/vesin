@@ -10,8 +10,15 @@ string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
 project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
 
+if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
+    set(VESIN_MAIN_PROJECT ON)
+else()
+    set(VESIN_MAIN_PROJECT OFF)
+endif()
+
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
+option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 
 add_library(vesin
     src/vesin.cpp
@@ -44,10 +51,12 @@ endif()
 #------------------------------------------------------------------------------#
 # Installation configuration
 #------------------------------------------------------------------------------#
-install(TARGETS vesin
-    ARCHIVE DESTINATION "lib"
-    LIBRARY DESTINATION "lib"
-    RUNTIME DESTINATION "bin"
-)
+if (VESIN_INSTALL)
+    install(TARGETS vesin
+        ARCHIVE DESTINATION "lib"
+        LIBRARY DESTINATION "lib"
+        RUNTIME DESTINATION "bin"
+    )
 
-install(DIRECTORY "include" DESTINATION "include")
+    install(DIRECTORY "include" DESTINATION "include")
+endif()

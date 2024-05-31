@@ -13,13 +13,13 @@ CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 @pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
 @pytest.mark.parametrize("cutoff", [float(i) for i in range(1, 10)])
-def test_neighbors(system, quantities, cutoff):
+def test_neighbors(system, cutoff):
     atoms = ase.io.read(f"{CURRENT_DIR}/data/{system}.xyz")
 
-    ase_nl = ase.neighborlist.neighbor_list(quantities, atoms, cutoff)
+    ase_nl = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
     ase_nl = [(i, j, S, D) for i, j, S, D in zip(*ase_nl)]
 
-    vesin_nl = vesin.ase_neighbor_list(quantities, atoms, cutoff)
+    vesin_nl = vesin.ase_neighbor_list("ijSD", atoms, cutoff)
     vesin_nl = [(i, j, S, D) for i, j, S, D in zip(*vesin_nl)]
 
     assert len(ase_nl) == len(vesin_nl)

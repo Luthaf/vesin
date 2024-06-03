@@ -1,18 +1,25 @@
-import ase
+import os
+
 import ase.build
+import ase.io
 import ase.neighborlist
 import numpy as np
+import pytest
 
 import vesin
 
+CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
-def test_neighbors():
-    atoms = ase.build.make_supercell(ase.build.bulk("Si", "diamond"), 3 * np.eye(3))
 
-    ase_nl = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff=3.5)
+@pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
+@pytest.mark.parametrize("cutoff", [float(i) for i in range(1, 10)])
+def test_neighbors(system, cutoff):
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/{system}.xyz")
+
+    ase_nl = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
     ase_nl = [(i, j, S, D) for i, j, S, D in zip(*ase_nl)]
 
-    vesin_nl = vesin.ase_neighbor_list("ijSD", atoms, cutoff=3.5)
+    vesin_nl = vesin.ase_neighbor_list("ijSD", atoms, cutoff)
     vesin_nl = [(i, j, S, D) for i, j, S, D in zip(*vesin_nl)]
 
     assert len(ase_nl) == len(vesin_nl)

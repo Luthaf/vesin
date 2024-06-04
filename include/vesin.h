@@ -35,7 +35,7 @@ typedef struct VesinOptions {
     /// Spherical cutoff, only pairs below this cutoff will be included
     double cutoff;
     /// Should the returned neighbor list be a full list (include both `i -> j`
-    /// and `j -> i` pairs) or a half list (include only `i -> j`).
+    /// and `j -> i` pairs) or a half list (include only `i -> j`)?
     bool full;
     // TODO: sort option?
 

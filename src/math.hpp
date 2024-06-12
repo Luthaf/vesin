@@ -110,6 +110,6 @@ inline Vector operator*(Vector vector, Matrix matrix) {
     };
 }
 
-}
+} // namespace vesin
 
 #endif

@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 import os
 
+HERE = os.path.dirname(os.path.realpath(__file__))
 ALREADY_SEEN = set()
 
 
 def find_file(path):
     candidates = [
-        os.path.join("src", path),
-        os.path.join("include", path),
+        os.path.join(HERE, "src", path),
+        os.path.join(HERE, "include", path),
     ]
     for candidate in candidates:
         if os.path.exists(candidate):
@@ -35,7 +36,7 @@ def merge_files(path, output):
     else:
         ALREADY_SEEN.add(path)
 
-    if path == "include/vesin.h":
+    if path.endswith("include/vesin.h"):
         output.write('#include "vesin.h"\n')
         return
 

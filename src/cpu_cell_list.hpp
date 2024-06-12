@@ -91,6 +91,7 @@ public:
     void grow();
 };
 
-}}
+} // namespace vesin
+} // namespace cpu
 
 #endif

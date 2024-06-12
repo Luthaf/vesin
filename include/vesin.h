@@ -31,7 +31,7 @@ extern "C" {
 #endif
 
 /// Options for a neighbor list calculation
-typedef struct VesinOptions {
+struct VesinOptions {
     /// Spherical cutoff, only pairs below this cutoff will be included
     double cutoff;
     /// Should the returned neighbor list be a full list (include both `i -> j`
@@ -76,7 +76,7 @@ enum VesinDevice {
 ///
 /// Under periodic boundary conditions, two atoms can be part of multiple pairs,
 /// each pair having a different periodic shift.
-typedef struct VESIN_API VesinNeighborList {
+struct VESIN_API VesinNeighborList {
 #ifdef __cplusplus
     VesinNeighborList():
         length(0),
@@ -112,7 +112,7 @@ typedef struct VESIN_API VesinNeighborList {
 
 /// Free all allocated memory inside a `VesinNeighborList`, according the it's
 /// `device`.
-void VESIN_API vesin_free(VesinNeighborList* neighbors);
+void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 
 /// Compute a neighbor list.
 ///
@@ -141,8 +141,8 @@ int VESIN_API vesin_neighbors(
     const double box[3][3],
     bool periodic,
     VesinDevice device,
-    VesinOptions options,
-    VesinNeighborList* neighbors,
+    struct VesinOptions options,
+    struct VesinNeighborList* neighbors,
     const char** error_message
 );
 

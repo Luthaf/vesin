@@ -98,7 +98,6 @@ inline CellShift operator-(CellShift a, CellShift b) {
 }
 
 
-
-}
+} // namespace vesin
 
 #endif

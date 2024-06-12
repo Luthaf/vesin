@@ -46,6 +46,14 @@ atoms = ase.Atoms(...)
 i, j, S, d = ase_neighbor_list("ijSd", atoms, cutoff=4.2)
 ```
 
+### Benchmarks
+
+Benchmark result for increasingly large diamond supercells, on Apple M1 Max CPU.
+You can run this benchmark on your system with th script at
+`benchmarks/benchmark.py`.
+
+![Benchmarks](./docs/src/benchmark.png)
+
 
 ## C/C++ API
 

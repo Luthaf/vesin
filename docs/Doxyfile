@@ -1,4 +1,4 @@
-# Doxyfile 1.9.8
+# Doxyfile 1.11.0
 
 # This file describes the settings to be used by the documentation system
 # doxygen (www.doxygen.org) for a project.
@@ -62,6 +62,12 @@ PROJECT_BRIEF          =
 # the logo to the output directory.
 
 PROJECT_LOGO           =
+
+# With the PROJECT_ICON tag one can specify an icon that is included in the tabs
+# when the HTML document is shown. Doxygen will copy the logo to the output
+# directory.
+
+PROJECT_ICON           =
 
 # The OUTPUT_DIRECTORY tag is used to specify the (relative or absolute) path
 # into which the generated documentation will be written. If a relative path is
@@ -358,7 +364,7 @@ MARKDOWN_SUPPORT       = YES
 # to that level are automatically included in the table of contents, even if
 # they do not have an id attribute.
 # Note: This feature currently applies only to Markdown headings.
-# Minimum value: 0, maximum value: 99, default value: 5.
+# Minimum value: 0, maximum value: 99, default value: 6.
 # This tag requires that the tag MARKDOWN_SUPPORT is set to YES.
 
 TOC_INCLUDE_HEADINGS   = 5
@@ -386,8 +392,8 @@ AUTOLINK_SUPPORT       = YES
 # to include (a tag file for) the STL sources as input, then you should set this
 # tag to YES in order to let doxygen match functions declarations and
 # definitions whose arguments contain STL classes (e.g. func(std::string);
-# versus func(std::string) {}). This also make the inheritance and collaboration
-# diagrams that involve STL classes more complete and accurate.
+# versus func(std::string) {}). This also makes the inheritance and
+# collaboration diagrams that involve STL classes more complete and accurate.
 # The default value is: NO.
 
 BUILTIN_STL_SUPPORT    = NO
@@ -399,9 +405,9 @@ BUILTIN_STL_SUPPORT    = NO
 CPP_CLI_SUPPORT        = NO
 
 # Set the SIP_SUPPORT tag to YES if your project consists of sip (see:
-# https://www.riverbankcomputing.com/software/sip/intro) sources only. Doxygen
-# will parse them like normal C++ but will assume all classes use public instead
-# of private inheritance when no explicit protection keyword is present.
+# https://www.riverbankcomputing.com/software) sources only. Doxygen will parse
+# them like normal C++ but will assume all classes use public instead of private
+# inheritance when no explicit protection keyword is present.
 # The default value is: NO.
 
 SIP_SUPPORT            = NO
@@ -960,8 +966,8 @@ INPUT_ENCODING         = UTF-8
 # character encoding on a per file pattern basis. Doxygen will compare the file
 # name with each pattern and apply the encoding instead of the default
 # INPUT_ENCODING) if there is a match. The character encodings are a list of the
-# form: pattern=encoding (like *.php=ISO-8859-1). See cfg_input_encoding
-# "INPUT_ENCODING" for further information on supported encodings.
+# form: pattern=encoding (like *.php=ISO-8859-1).
+# See also: INPUT_ENCODING for further information on supported encodings.
 
 INPUT_FILE_ENCODING    =
 
@@ -977,10 +983,10 @@ INPUT_FILE_ENCODING    =
 # default file extension mappings.
 #
 # If left blank the following patterns are tested:*.c, *.cc, *.cxx, *.cxxm,
-# *.cpp, *.cppm, *.c++, *.c++m, *.java, *.ii, *.ixx, *.ipp, *.i++, *.inl, *.idl,
-# *.ddl, *.odl, *.h, *.hh, *.hxx, *.hpp, *.h++, *.ixx, *.l, *.cs, *.d, *.php,
-# *.php4, *.php5, *.phtml, *.inc, *.m, *.markdown, *.md, *.mm, *.dox (to be
-# provided as doxygen C comment), *.py, *.pyw, *.f90, *.f95, *.f03, *.f08,
+# *.cpp, *.cppm, *.ccm, *.c++, *.c++m, *.java, *.ii, *.ixx, *.ipp, *.i++, *.inl,
+# *.idl, *.ddl, *.odl, *.h, *.hh, *.hxx, *.hpp, *.h++, *.ixx, *.l, *.cs, *.d,
+# *.php, *.php4, *.php5, *.phtml, *.inc, *.m, *.markdown, *.md, *.mm, *.dox (to
+# be provided as doxygen C comment), *.py, *.pyw, *.f90, *.f95, *.f03, *.f08,
 # *.f18, *.f, *.for, *.vhd, *.vhdl, *.ucf, *.qsf and *.ice.
 
 FILE_PATTERNS          = *.c \
@@ -1178,7 +1184,8 @@ FORTRAN_COMMENT_AFTER  = 72
 SOURCE_BROWSER         = NO
 
 # Setting the INLINE_SOURCES tag to YES will include the body of functions,
-# classes and enums directly into the documentation.
+# multi-line macros, enums or list initialized variables directly into the
+# documentation.
 # The default value is: NO.
 
 INLINE_SOURCES         = NO
@@ -1249,46 +1256,6 @@ USE_HTAGS              = NO
 # The default value is: YES.
 
 VERBATIM_HEADERS       = YES
-
-# If the CLANG_ASSISTED_PARSING tag is set to YES then doxygen will use the
-# clang parser (see:
-# http://clang.llvm.org/) for more accurate parsing at the cost of reduced
-# performance. This can be particularly helpful with template rich C++ code for
-# which doxygen's built-in parser lacks the necessary type information.
-# Note: The availability of this option depends on whether or not doxygen was
-# generated with the -Duse_libclang=ON option for CMake.
-# The default value is: NO.
-
-CLANG_ASSISTED_PARSING = NO
-
-# If the CLANG_ASSISTED_PARSING tag is set to YES and the CLANG_ADD_INC_PATHS
-# tag is set to YES then doxygen will add the directory of each input to the
-# include path.
-# The default value is: YES.
-# This tag requires that the tag CLANG_ASSISTED_PARSING is set to YES.
-
-CLANG_ADD_INC_PATHS    = YES
-
-# If clang assisted parsing is enabled you can provide the compiler with command
-# line options that you would normally use when invoking the compiler. Note that
-# the include paths will already be set by doxygen for the files and directories
-# specified with INPUT and INCLUDE_PATH.
-# This tag requires that the tag CLANG_ASSISTED_PARSING is set to YES.
-
-CLANG_OPTIONS          =
-
-# If clang assisted parsing is enabled you can provide the clang parser with the
-# path to the directory containing a file called compile_commands.json. This
-# file is the compilation database (see:
-# http://clang.llvm.org/docs/HowToSetupToolingForLLVM.html) containing the
-# options used when the source files were built. This is equivalent to
-# specifying the -p option to a clang tool, such as clang-check. These options
-# will then be passed to the parser. Any options specified with CLANG_OPTIONS
-# will be added as well.
-# Note: The availability of this option depends on whether or not doxygen was
-# generated with the -Duse_libclang=ON option for CMake.
-
-CLANG_DATABASE_PATH    =
 
 #---------------------------------------------------------------------------
 # Configuration options related to the alphabetical class index
@@ -1406,11 +1373,11 @@ HTML_EXTRA_FILES       =
 
 # The HTML_COLORSTYLE tag can be used to specify if the generated HTML output
 # should be rendered with a dark or light theme.
-# Possible values are: LIGHT always generate light mode output, DARK always
-# generate dark mode output, AUTO_LIGHT automatically set the mode according to
-# the user preference, use light mode if no preference is set (the default),
-# AUTO_DARK automatically set the mode according to the user preference, use
-# dark mode if no preference is set and TOGGLE allow to user to switch between
+# Possible values are: LIGHT always generates light mode output, DARK always
+# generates dark mode output, AUTO_LIGHT automatically sets the mode according
+# to the user preference, uses light mode if no preference is set (the default),
+# AUTO_DARK automatically sets the mode according to the user preference, uses
+# dark mode if no preference is set and TOGGLE allows a user to switch between
 # light and dark mode via a button.
 # The default value is: AUTO_LIGHT.
 # This tag requires that the tag GENERATE_HTML is set to YES.
@@ -1472,6 +1439,26 @@ HTML_DYNAMIC_SECTIONS  = NO
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
 HTML_CODE_FOLDING      = YES
+
+# If the HTML_COPY_CLIPBOARD tag is set to YES then doxygen will show an icon in
+# the top right corner of code and text fragments that allows the user to copy
+# its content to the clipboard. Note this only works if supported by the browser
+# and the web page is served via a secure context (see:
+# https://www.w3.org/TR/secure-contexts/), i.e. using the https: or file:
+# protocol.
+# The default value is: YES.
+# This tag requires that the tag GENERATE_HTML is set to YES.
+
+HTML_COPY_CLIPBOARD    = YES
+
+# Doxygen stores a couple of settings persistently in the browser (via e.g.
+# cookies). By default these settings apply to all HTML pages generated by
+# doxygen across all projects. The HTML_PROJECT_COOKIE tag can be used to store
+# the settings under a project specific key, such that the user preferences will
+# be stored separately.
+# This tag requires that the tag GENERATE_HTML is set to YES.
+
+HTML_PROJECT_COOKIE    =
 
 # With HTML_INDEX_NUM_ENTRIES one can control the preferred number of entries
 # shown in the various tree structured indices initially; the user can expand
@@ -1825,7 +1812,7 @@ MATHJAX_VERSION        = MathJax_2
 # Possible values are: HTML-CSS (which is slower, but has the best
 # compatibility. This is the name for Mathjax version 2, for MathJax version 3
 # this will be translated into chtml), NativeMML (i.e. MathML. Only supported
-# for NathJax 2. For MathJax version 3 chtml will be used instead.), chtml (This
+# for MathJax 2. For MathJax version 3 chtml will be used instead.), chtml (This
 # is the name for Mathjax version 3, for MathJax version 2 this will be
 # translated into HTML-CSS) and SVG.
 # The default value is: HTML-CSS.
@@ -2195,6 +2182,14 @@ RTF_STYLESHEET_FILE    =
 
 RTF_EXTENSIONS_FILE    =
 
+# The RTF_EXTRA_FILES tag can be used to specify one or more extra images or
+# other source files which should be copied to the RTF_OUTPUT output directory.
+# Note that the files will be copied as-is; there are no commands or markers
+# available.
+# This tag requires that the tag GENERATE_RTF is set to YES.
+
+RTF_EXTRA_FILES        =
+
 #---------------------------------------------------------------------------
 # Configuration options related to the man page output
 #---------------------------------------------------------------------------
@@ -2321,9 +2316,9 @@ GENERATE_SQLITE3       = NO
 
 SQLITE3_OUTPUT         = sqlite3
 
-# The SQLITE3_OVERWRITE_DB tag is set to YES, the existing doxygen_sqlite3.db
+# The SQLITE3_RECREATE_DB tag is set to YES, the existing doxygen_sqlite3.db
 # database file will be recreated with each doxygen run. If set to NO, doxygen
-# will warn if an a database file is already found and not modify it.
+# will warn if a database file is already found and not modify it.
 # The default value is: YES.
 # This tag requires that the tag GENERATE_SQLITE3 is set to YES.
 
@@ -2507,7 +2502,7 @@ HIDE_UNDOC_RELATIONS   = YES
 # https://www.graphviz.org/), a graph visualization toolkit from AT&T and Lucent
 # Bell Labs. The other options in this section have no effect if this option is
 # set to NO
-# The default value is: YES.
+# The default value is: NO.
 
 HAVE_DOT               = NO
 
@@ -2564,7 +2559,11 @@ DOT_FONTPATH           =
 # the CLASS_GRAPH tag is set to YES and HAVE_DOT is disabled or if the
 # CLASS_GRAPH tag is set to BUILTIN, then the built-in generator will be used.
 # If the CLASS_GRAPH tag is set to TEXT the direct and indirect inheritance
-# relations will be shown as texts / links.
+# relations will be shown as texts / links. Explicit enabling an inheritance
+# graph or choosing a different representation for an inheritance graph of a
+# specific class, can be accomplished by means of the command \inheritancegraph.
+# Disabling an inheritance graph can be accomplished by means of the command
+# \hideinheritancegraph.
 # Possible values are: NO, YES, TEXT, GRAPH and BUILTIN.
 # The default value is: YES.
 
@@ -2629,8 +2628,8 @@ DOT_UML_DETAILS        = NO
 
 # The DOT_WRAP_THRESHOLD tag can be used to set the maximum number of characters
 # to display on a single line. If the actual line length exceeds this threshold
-# significantly it will wrapped across multiple lines. Some heuristics are apply
-# to avoid ugly line breaks.
+# significantly it will be wrapped across multiple lines. Some heuristics are
+# applied to avoid ugly line breaks.
 # Minimum value: 0, maximum value: 1000, default value: 17.
 # This tag requires that the tag HAVE_DOT is set to YES.
 
@@ -2724,9 +2723,8 @@ DIR_GRAPH_MAX_DEPTH    = 1
 # Note: If you choose svg you need to set HTML_FILE_EXTENSION to xhtml in order
 # to make the SVG files visible in IE 9+ (other browsers do not have this
 # requirement).
-# Possible values are: png, jpg, jpg:cairo, jpg:cairo:gd, jpg:gd, jpg:gd:gd,
-# gif, gif:cairo, gif:cairo:gd, gif:gd, gif:gd:gd, svg, png:gd, png:gd:gd,
-# png:cairo, png:cairo:gd, png:cairo:cairo, png:cairo:gdiplus, png:gdiplus and
+# Possible values are: png, jpg, gif, svg, png:gd, png:gd:gd, png:cairo,
+# png:cairo:gd, png:cairo:cairo, png:cairo:gdiplus, png:gdiplus and
 # png:gdiplus:gdiplus.
 # The default value is: png.
 # This tag requires that the tag HAVE_DOT is set to YES.
@@ -2792,7 +2790,7 @@ PLANTUML_INCLUDE_PATH  =
 # The DOT_GRAPH_MAX_NODES tag can be used to set the maximum number of nodes
 # that will be shown in the graph. If the number of nodes in a graph becomes
 # larger than this value, doxygen will truncate the graph, which is visualized
-# by representing a node as a red box. Note that doxygen if the number of direct
+# by representing a node as a red box. Note that if the number of direct
 # children of the root node in a graph is already larger than
 # DOT_GRAPH_MAX_NODES then the graph will not be shown at all. Also note that
 # the size of a graph can be further restricted by MAX_DOT_GRAPH_DEPTH.

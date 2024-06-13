@@ -24,8 +24,12 @@ def test_neighbors(system, cutoff):
     assert len(ase_S) == len(vesin_S)
     assert len(ase_D) == len(vesin_D)
 
-    ase_ijS = np.concatenate((ase_i.reshape(-1, 1), ase_j.reshape(-1, 1), ase_S), axis=1)
-    vesin_ijS = np.concatenate((vesin_i.reshape(-1, 1), vesin_j.reshape(-1, 1), vesin_S), axis=1)
+    ase_ijS = np.concatenate(
+        (ase_i.reshape(-1, 1), ase_j.reshape(-1, 1), ase_S), axis=1
+    )
+    vesin_ijS = np.concatenate(
+        (vesin_i.reshape(-1, 1), vesin_j.reshape(-1, 1), vesin_S), axis=1
+    )
 
     ase_sort_indices = np.lexsort(np.rot90(ase_ijS))
     vesin_sort_indices = np.lexsort(np.rot90(vesin_ijS))

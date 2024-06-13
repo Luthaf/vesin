@@ -18,7 +18,7 @@ library.
 To use the code from Python, you can install it with `pip`:
 
 ```
-pip install git+https://github.com/luthaf/vesin
+pip install vesin
 ```
 
 See the [documentation](https://luthaf.fr/vesin/latest/index.html#installation)

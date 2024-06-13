@@ -42,7 +42,7 @@ Installation
 
         .. code-block:: bash
 
-            pip install git+https://github.com/Luthaf/vesin
+            pip install vesin
 
     .. tab-item:: C/C++ (CMake)
         :sync: cxx

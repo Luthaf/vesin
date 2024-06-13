@@ -1,9 +1,11 @@
 .. _python-api:
 
-Python API
-==========
+Python API reference
+====================
 
-.. automodule:: vesin
+.. currentmodule:: vesin
+
+.. autoclass:: NeighborList
     :members:
-    :undoc-members:
-    :show-inheritance:
+
+.. autofunction:: ase_neighbor_list

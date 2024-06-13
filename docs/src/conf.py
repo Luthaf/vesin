@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import os
-import sys
 import subprocess
+import sys
 from datetime import datetime
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -12,6 +14,7 @@ sys.path.insert(0, ROOT)
 
 project = "vesin"
 copyright = f"{datetime.now().date().year}, vesin developers"
+
 
 def setup(app):
     subprocess.run(["doxygen", "Doxyfile"], cwd=os.path.join(ROOT, "docs"))
@@ -27,6 +30,7 @@ needs_sphinx = "4.4.0"
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
+    "sphinx_design",
     "breathe",
 ]
 
@@ -41,6 +45,10 @@ exclude_patterns = ["Thumbs.db", ".DS_Store"]
 autoclass_content = "both"
 autodoc_member_order = "bysource"
 autodoc_typehints_format = "short"
+autodoc_type_aliases = {
+    "npt.ArrayLike": "numpy.typing.ArrayLike",
+}
+
 
 breathe_projects = {
     "vesin": os.path.join(ROOT, "docs", "build", "xml"),
@@ -54,10 +62,11 @@ breathe_default_members = ("members", "undoc-members")
 cpp_private_member_specifier = ""
 
 intersphinx_mapping = {
-    "numpy": ("https://numpy.org/doc/stable/", None),
     "python": ("https://docs.python.org/3", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
     "ase": ("https://wiki.fysik.dtu.dk/ase/", None),
 }
 
 html_theme = "furo"
+html_title = "Vesin"
 # html_static_path = ["_static"]

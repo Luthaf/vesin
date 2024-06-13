@@ -11,7 +11,7 @@ from ._c_lib import _get_library
 
 class NeighborList:
     """
-    Neighbor list calculator
+    A neighbor list calculator.
     """
 
     def __init__(self, cutoff: float, full_list: bool):
@@ -32,13 +32,15 @@ class NeighborList:
 
     def compute(
         self,
-        points: npt.ArrayLike,
-        box: npt.ArrayLike,
+        points: "npt.ArrayLike",
+        box: "npt.ArrayLike",
         periodic: bool,
         quantities: str = "ij",
         copy=True,
     ) -> List[np.ndarray]:
-        """Compute the neighbor list and return the requested ``quantities``.
+        """
+        Compute the neighbor list for the system defined by ``positions``, ``box``, and
+        ``periodic``; returning the requested ``quantities``.
 
         ``quantities`` can contain any combination of the following values:
 
@@ -49,8 +51,10 @@ class NeighborList:
         - ``"d"`` to get the distance between points in the pair
         - ``"D"`` to get the distance vector between points in the pair
 
-        :param points: positions of all points to account for
-        :param box: bounding box of the system
+        :param points: positions of all points in the system (this can be anything that
+            can be converted to a numpy array)
+        :param box: bounding box of the system (this can be anything that can be
+            converted to a numpy array)
         :param periodic: should we use periodic boundary conditions?
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
@@ -58,7 +62,7 @@ class NeighborList:
             view inside this class, and will be invalidated whenever this class is
             garbage collected or used to run a new calculation.
 
-        :return: data as indicated by ``quantities``.
+        :return: tuple of arrays as indicated by ``quantities``.
         """
         points = np.asarray(points, dtype=np.float64)
         box = np.asarray(box, dtype=np.float64)

@@ -11,6 +11,19 @@ else()
     set(VESIN_MAIN_PROJECT OFF)
 endif()
 
+if (VESIN_MAIN_PROJECT)
+    if("${CMAKE_BUILD_TYPE}" STREQUAL "" AND "${CMAKE_CONFIGURATION_TYPES}" STREQUAL "")
+        message(STATUS "Setting build type to 'release' as none was specified.")
+        set(
+            CMAKE_BUILD_TYPE "release"
+            CACHE STRING
+            "Choose the type of build, options are: none(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) debug release relwithdebinfo minsizerel."
+            FORCE
+        )
+        set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS release debug relwithdebinfo minsizerel none)
+    endif()
+endif()
+
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})

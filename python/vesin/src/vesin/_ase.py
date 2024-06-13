@@ -9,8 +9,10 @@ from ._neighbors import NeighborList
 
 def ase_neighbor_list(quantities, a, cutoff, self_interaction=False):
     """
-    Wrapper around vesin's `NeighborList`
+    This is a thin wrapper around :py:class:`NeighborList`, providing the same API as
+    :py:func:`ase.neighborlist.neighbor_list`.
 
+    It is intended as a drop-in replacement for the ASE function.
     """
     if ase is None:
         raise ImportError("could not import ase, this function requires ase")

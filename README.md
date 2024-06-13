@@ -1,33 +1,46 @@
 # Vesin: fast neighbor lists for atomistic systems
 
+[![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](http://luthaf.fr/vesin/)
 ![Tests](https://img.shields.io/github/check-runs/Luthaf/vesin/main?logo=github&label=tests)
 
-This is a work in progress!
+| US English 🇺🇸 | UK English 🇬🇧 | Occitan <img src="./docs/src/static/images/Occitan.png" width=18> | French 🇫🇷 | Gallo‑Italic <img src="./docs/src/static/images/Lombardy.png" width=18> | Catalan <img src="./docs/src/static/images/Catalan.png" width=18> | Spanish 🇪🇸 | Italian 🇮🇹 |
+|---------------|---------------|----------|-----------|--------------|---------|------------|------------|
+| neighbor      | neighbour     | vesin    | voisin    | visin        | veí     | vecino     | vicino     |
 
-## Python API
+
+
+Vesin is a C library that computes neighbor list for atomistic system, and tries
+to be fast and easy to use. We also provide a Python package to call the C
+library.
 
 ### Installation
 
-```bash
+To use the code from Python, you can install it with `pip`:
+
+```
 pip install git+https://github.com/luthaf/vesin
 ```
 
-### Usage
+See the [documentation](https://luthaf.fr/vesin/latest/index.html#installation)
+for more information on how to install the code to use it from C or C++.
 
-Generic interface:
+### Usage instruction
+
+You can either use the `NeighborList` calculator class:
 
 ```py
-from vesin import NeighborList
 import numpy as np
+from vesin import NeighborList
 
+# positions can be anything compatible with numpy's ndarray
 positions = [
     (0, 0, 0),
     (0, 1.3, 1.3),
 ]
 box = 3.2 * np.eye(3)
 
-nl = NeighborList(cutoff=4.2, full_list=True)
-i, j, S, d = nl.compute(
+calculator = NeighborList(cutoff=4.2, full_list=True)
+i, j, S, d = calculator.compute(
     points=points,
     box=box,
     periodic=True,
@@ -35,110 +48,30 @@ i, j, S, d = nl.compute(
 )
 ```
 
-[ASE](https://wiki.fysik.dtu.dk/ase/) interface:
+We also provide a function with drop-in compatibility to ASE's neighbor list:
 
 ```py
-from vesin import ase_neighbor_list
 import ase
+from vesin import ase_neighbor_list
 
 atoms = ase.Atoms(...)
 
 i, j, S, d = ase_neighbor_list("ijSd", atoms, cutoff=4.2)
 ```
 
+See the [documentation](https://luthaf.fr/vesin/latest/c-api.html) for more
+information on how to use the code from C or C++.
+
 ### Benchmarks
 
-Benchmark result for increasingly large diamond supercells, on Apple M1 Max CPU.
-You can run this benchmark on your system with the script at
-`benchmarks/benchmark.py`.
+You can find below benchmark result for increasingly large diamond supercells,
+on Apple M1 Max CPU. You can run this benchmark on your system with the script
+at `benchmarks/benchmark.py`.
 
 ![Benchmarks](./docs/src/benchmark.png)
 
+## License
 
-## C/C++ API
-
-### Installation
-
-```bash
-git clone git+https://github.com/luthaf/vesin
-cd vesin
-
-mkdir build
-cd build
-
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX ..
-cmake --build .
-cmake --install .
-```
-
-Alternatively, run
-
-```bash
-./create-single-cpp.py
-```
-
-Copy `vesin-single-build.cpp` and `include/vesin.h` in your project, and compile
-the code in C++17 or higher mode. In this case, you'll need to define
-`VESIN_SHARED` whenever you include the header to use the code as a shared
-library, and additionally define `VESIN_EXPORTS` when building the shared
-library itself. If you are using the code as a static library, you don't have to
-do anything.
-
-### Usage
-
-Compile with `-I $INSTALL_PREFIX/include`, and link with `-L $INSTALL_PREFIX/lib
--lvesin`.
-
-
-```c
-#include <string.h>
-#include <stdio.h>
-
-#include <vesin.h>
-
-int main() {
-    // data
-    double points[][3] = {
-        {0, 0, 0},
-        {0, 1.3, 1.3},
-    };
-    size_t n_points = 2;
-
-    double box[3][3] = {
-        {3.2, 0.0, 0.0},
-        {0.0, 3.2, 0.0},
-        {0.0, 0.0, 3.2},
-    };
-    bool periodic = true;
-
-    // calculation setup
-    VesinOptions options;
-    options.cutoff = 4.2;
-    options.full = true;
-    options.return_shifts = true;
-    options.return_distances = true;
-    options.return_vectors = false;
-
-    VesinNeighbors neighbors;
-    memset(&neighbors, 0, sizeof(VesinNeighbors));
-
-    const char* error_message = NULL;
-    int status = vesin_neighbors(
-        points, n_points, box, periodic,
-        VesinCPU, options,
-        &neighbors,
-        &error_message,
-    );
-
-    if (status != EXIT_SUCCESS) {
-        fprintf(stderr, "error: %s\n", error_message);
-        return 1;
-    }
-
-    // use neighbors as needed
-
-    vesin_free(&neighbors);
-
-    return 0;
-}
-```
+Vesin is is distributed under the [3 clauses BSD license](LICENSE). By
+contributing to this code, you agree to distribute your contributions under the
+same license.

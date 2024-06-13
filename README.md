@@ -9,7 +9,7 @@
 
 
 
-Vesin is a C library that computes neighbor list for atomistic system, and tries
+Vesin is a C library that computes neighbor lists for atomistic system, and tries
 to be fast and easy to use. We also provide a Python package to call the C
 library.
 

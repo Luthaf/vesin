@@ -2,16 +2,18 @@
 name = "vesin"
 dynamic = ["version"]
 requires-python = ">=3.8"
+authors = [
+    {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
+]
 
 dependencies = [
     "numpy"
 ]
 
-# readme = "README.md"
+readme = "README.md"
 license = {text = "BSD-3-Clause"}
-# description = "TODO"
+description = "A library to computes neighbor lists for atomistic system"
 
-# keywords = []
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -30,10 +32,9 @@ classifiers = [
 ]
 
 [project.urls]
-# homepage = "TODO"
-# documentation = "TODO"
-# repository = "TODO"
-# changelog = "TODO"
+homepage = "https://github.com/Luthaf/vesin/"
+documentation = "https://luthaf.fr/vesin/"
+repository = "https://github.com/Luthaf/vesin/"
 
 ### ======================================================================== ###
 

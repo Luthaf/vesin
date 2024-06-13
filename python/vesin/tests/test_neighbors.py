@@ -16,20 +16,19 @@ CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 def test_neighbors(system, cutoff):
     atoms = ase.io.read(f"{CURRENT_DIR}/data/{system}.xyz")
 
-    ase_nl = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
-    ase_nl = [(i, j, S, D) for i, j, S, D in zip(*ase_nl)]
+    ase_i, ase_j, ase_S, ase_D = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
+    vesin_i, vesin_j, vesin_S, vesin_D = vesin.ase_neighbor_list("ijSD", atoms, cutoff)
 
-    vesin_nl = vesin.ase_neighbor_list("ijSD", atoms, cutoff)
-    vesin_nl = [(i, j, S, D) for i, j, S, D in zip(*vesin_nl)]
+    assert len(ase_i) == len(vesin_i)
+    assert len(ase_j) == len(vesin_j)
+    assert len(ase_S) == len(vesin_S)
+    assert len(ase_D) == len(vesin_D)
 
-    assert len(ase_nl) == len(vesin_nl)
+    ase_ijS = np.concatenate((ase_i.reshape(-1, 1), ase_j.reshape(-1, 1), ase_S), axis=1)
+    vesin_ijS = np.concatenate((vesin_i.reshape(-1, 1), vesin_j.reshape(-1, 1), vesin_S), axis=1)
 
-    for i, j, S, D in vesin_nl:
-        found = False
-        for ref_i, ref_j, ref_S, ref_D in ase_nl:
-            if i == ref_i and j == ref_j and np.all(S == ref_S):
-                assert np.allclose(D, ref_D)
-                found = True
-                break
+    ase_sort_indices = np.lexsort(np.rot90(ase_ijS))
+    vesin_sort_indices = np.lexsort(np.rot90(vesin_ijS))
 
-        assert found
+    assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
+    assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])

@@ -31,8 +31,8 @@ def test_neighbors(system, cutoff):
         (vesin_i.reshape(-1, 1), vesin_j.reshape(-1, 1), vesin_S), axis=1
     )
 
-    ase_sort_indices = np.lexsort(np.rot90(ase_ijS))
-    vesin_sort_indices = np.lexsort(np.rot90(vesin_ijS))
+    ase_sort_indices = np.lexsort(ase_ijS.T)
+    vesin_sort_indices = np.lexsort(vesin_ijS.T)
 
     assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])

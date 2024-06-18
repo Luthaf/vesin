@@ -10,9 +10,9 @@ a C extension).
 The benchmark runs on multiple super-cell of diamond carbon, up to 3000 atoms,
 and considers two different cutoff: 5 Å and 10 Å.
 
-These results are for an Apple M1 Max CPU; if you want to run it on your own
-system, the corresponding script is in vesin's `GitHub repository
-<bench-script_>`_.
+The results below are for an AMD 3955WX CPU and an NVIDIA 4070 Ti SUPER GPU; if
+you want to run it on your own system, the corresponding script is in vesin's
+`GitHub repository <bench-script_>`_.
 
 .. _ASE: https://wiki.fysik.dtu.dk/ase/index.html
 .. _matscipy: http://libatoms.github.io/matscipy/

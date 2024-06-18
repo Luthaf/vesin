@@ -65,8 +65,8 @@ information on how to use the code from C or C++.
 ### Benchmarks
 
 You can find below benchmark result for increasingly large diamond supercells,
-on Apple M1 Max CPU. You can run this benchmark on your system with the script
-at `benchmarks/benchmark.py`.
+using an AMD 3955WX CPU and an NVIDIA 4070 Ti SUPER GPU. You can run this
+benchmark on your system with the script at `benchmarks/benchmark.py`.
 
 ![Benchmarks](./docs/src/benchmark.png)
 

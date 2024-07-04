@@ -13,16 +13,27 @@ Vesin: we are all neighbors
 .. |cat| image:: /static/images/Catalan.png
     :width: 18px
 
-.. table::
+.. list-table::
     :align: center
     :widths: auto
+    :header-rows: 1
 
-    =============== ===============  ===============  ===========  ====================  ===============  =============  ============
-     US English 🇺🇸   UK English 🇬🇧    Occitan |occ|    French 🇫🇷    Gallo‑Italic |lomb|   Catalan |cat|    Spanish 🇪🇸     Italian 🇮🇹
-    =============== ===============  ===============  ===========  ====================  ===============  =============  ============
-     neighbor        neighbour        vesin             voisin       visin                 veí              vecino         vicino
-    =============== ===============  ===============  ===========  ====================  ===============  =============  ============
-
+    - * English 🇺🇸⁠/⁠🇬🇧
+      * Occitan |occ|
+      * French 🇫🇷
+      * Arpitan |arp|
+      * Gallo‑Italic |lomb|
+      * Catalan |cat|
+      * Spanish 🇪🇸
+      * Italian 🇮🇹
+    - * neighbo(u)r
+      * vesin
+      * voisin
+      * vesin
+      * visin
+      * veí
+      * vecino
+      * vicino
 
 
 ``vesin`` is a lightweight neighbor list calculator for molecular systems and

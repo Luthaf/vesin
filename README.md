@@ -64,9 +64,12 @@ information on how to use the code from C or C++.
 
 ### Benchmarks
 
-You can find below benchmark result for increasingly large diamond supercells,
-using an AMD 3955WX CPU and an NVIDIA 4070 Ti SUPER GPU. You can run this
-benchmark on your system with the script at `benchmarks/benchmark.py`.
+You can find below benchmark result computing neighbor lists for increasingly
+large diamond supercells, using an AMD 3955WX CPU and an NVIDIA 4070 Ti SUPER
+GPU. You can run this benchmark on your system with the script at
+`benchmarks/benchmark.py`. Missing points indicate that a specific code could
+not run the calculation (for example, NNPOps requires the cell to be twice the
+cutoff in size, and can't run with large cutoffs and small cells).
 
 ![Benchmarks](./docs/src/benchmark.png)
 

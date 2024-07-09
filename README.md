@@ -3,7 +3,7 @@
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](http://luthaf.fr/vesin/)
 ![Tests](https://img.shields.io/github/check-runs/Luthaf/vesin/main?logo=github&label=tests)
 
-| UK English 🇺🇸⁠/⁠🇬🇧 | Occitan <img src="./docs/src/static/images/Occitan.png" width=18> | French 🇫🇷 | Arpitan <img src="./docs/src/static/images/Arpitan.png" width=18> | Gallo‑Italic <img src="./docs/src/static/images/Lombardy.png" width=18> | Catalan <img src="./docs/src/static/images/Catalan.png" width=18> | Spanish 🇪🇸 | Italian 🇮🇹 |
+| English 🇺🇸⁠/⁠🇬🇧 | Occitan <img src="./docs/src/static/images/Occitan.png" width=18> | French 🇫🇷 | Arpitan <img src="./docs/src/static/images/Arpitan.png" width=18> | Gallo‑Italic <img src="./docs/src/static/images/Lombardy.png" width=18> | Catalan <img src="./docs/src/static/images/Catalan.png" width=18> | Spanish 🇪🇸 | Italian 🇮🇹 |
 |------------------|----------|-----------|----------|--------------|---------|------------|------------|
 | neighbo(u)r      | vesin    | voisin    | vesin    | visin        | veí     | vecino     | vicino     |
 

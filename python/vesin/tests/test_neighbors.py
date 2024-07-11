@@ -36,3 +36,14 @@ def test_neighbors(system, cutoff):
 
     assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
+
+
+def test_errors():
+    points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
+    box = np.zeros((3, 3))
+
+    nl = vesin.NeighborList(cutoff=1.2, full_list=True)
+
+    message = "the box matrix is not invertible"
+    with pytest.raises(RuntimeError, match=message):
+        nl.compute(points, box, periodic=True, quantities="ij")

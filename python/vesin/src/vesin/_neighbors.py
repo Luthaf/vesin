@@ -68,7 +68,7 @@ class NeighborList:
         box = np.asarray(box, dtype=np.float64)
 
         if box.shape != (3, 3):
-            raise ValueError("TODO")
+            raise ValueError("`box` must be a 3x3 matrix")
 
         Vector = ARRAY(ctypes.c_double, 3)
         box = ARRAY(Vector, 3)(
@@ -78,7 +78,7 @@ class NeighborList:
         )
 
         if len(points.shape) != 2 or points.shape[1] != 3:
-            raise ValueError("TODO")
+            raise ValueError("`points` must be a nx3 array")
 
         options = VesinOptions()
         options.cutoff = self.cutoff

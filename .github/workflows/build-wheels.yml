@@ -52,7 +52,7 @@ jobs:
         run: python -m pip install cibuildwheel twine
 
       - name: build wheel
-        run: python -m cibuildwheel .
+        run: python -m cibuildwheel python/vesin
         env:
           CIBW_BUILD: cp312-*
           CIBW_SKIP: "*musllinux*"
@@ -84,12 +84,12 @@ jobs:
       - name: build sdist
         run: |
           pip install build
-          python -m build --sdist .
+          python -m build --sdist python/vesin
 
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
-          path: dist/*.tar.gz
+          path: python/vesin/dist/*.tar.gz
 
   merge-and-release:
     name: Merge and release wheels/sdists

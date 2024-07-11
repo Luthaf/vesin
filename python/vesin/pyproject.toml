@@ -41,7 +41,6 @@ repository = "https://github.com/Luthaf/vesin/"
 [build-system]
 requires = [
     "setuptools >=68",
-    "packaging >=23",
     "wheel >=0.41",
     "cmake",
 ]
@@ -51,6 +50,5 @@ build-backend = "setuptools.build_meta"
 zip-safe = false
 
 [tool.setuptools.packages.find]
-where = ["python/vesin/src"]
 include = ["vesin"]
 namespaces = false

@@ -7,8 +7,8 @@ ALREADY_SEEN = set()
 
 def find_file(path):
     candidates = [
-        os.path.join(HERE, "src", path),
-        os.path.join(HERE, "include", path),
+        os.path.join(HERE, "vesin", "src", path),
+        os.path.join(HERE, "vesin", "include", path),
     ]
     for candidate in candidates:
         if os.path.exists(candidate):

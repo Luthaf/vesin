@@ -9,6 +9,11 @@ class BoundingBox {
 public:
     BoundingBox(Matrix matrix, bool periodic): matrix_(matrix), periodic_(periodic) {
         if (periodic) {
+            auto det = matrix_.determinant();
+            if (std::abs(det) < 1e-30) {
+                throw std::runtime_error("the box matrix is not invertible");
+            }
+
             this->inverse_ = matrix_.inverse();
         } else {
             this->matrix_ = Matrix{{{

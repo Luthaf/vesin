@@ -100,7 +100,7 @@ class NeighborList:
         )
 
         if status != 0:
-            raise RuntimeError(error_message.decode("utf8"))
+            raise RuntimeError(error_message.value.decode("utf8"))
 
         # create numpy arrays for the data
         n_pairs = self._neighbors.length

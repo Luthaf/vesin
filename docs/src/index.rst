@@ -192,6 +192,7 @@ Usage example
 
             #include <string.h>
             #include <stdio.h>
+            #include <stdlib.h>
 
             #include <vesin.h>
 
@@ -221,8 +222,8 @@ Usage example
                 options.return_distances = true;
                 options.return_vectors = false;
 
-                VesinNeighbors neighbors;
-                memset(&neighbors, 0, sizeof(VesinNeighbors));
+                VesinNeighborList neighbors;
+                memset(&neighbors, 0, sizeof(VesinNeighborList));
 
                 const char* error_message = NULL;
                 int status = vesin_neighbors(

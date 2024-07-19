@@ -1,5 +1,5 @@
 [project]
-name = "vesin"
+name = "vesin-torch"
 dynamic = ["version"]
 requires-python = ">=3.9"
 authors = [
@@ -7,12 +7,13 @@ authors = [
 ]
 
 dependencies = [
-    "numpy"
+    "vesin",
+    "torch >=2.3",
 ]
 
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
-description = "Computing neighbor lists for atomistic system"
+description = "Computing neighbor lists for atomistic system, in TorchScript"
 
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -42,13 +43,15 @@ repository = "https://github.com/Luthaf/vesin/"
 requires = [
     "setuptools >=68",
     "wheel >=0.41",
-    "cmake",
 ]
-build-backend = "setuptools.build_meta"
+# use a custom build backend to add a dependency on torch/cmake only when
+# building wheels
+build-backend = "backend"
+backend-path = ["build-backend"]
 
 [tool.setuptools]
 zip-safe = false
 
 [tool.setuptools.packages.find]
-include = ["vesin"]
-namespaces = false
+include = ["vesin*"]
+namespaces = true

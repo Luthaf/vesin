@@ -27,11 +27,13 @@ endif()
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
+option(VESIN_TORCH "Build the vesin_torch library" OFF)
 
-add_library(vesin
-    src/vesin.cpp
-    src/cpu_cell_list.cpp
+set(VESIN_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
 )
+add_library(vesin ${VESIN_SOURCES})
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -56,6 +58,10 @@ if (VESIN_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+if (VESIN_TORCH)
+    add_subdirectory(torch)
+endif()
+
 #------------------------------------------------------------------------------#
 # Installation configuration
 #------------------------------------------------------------------------------#
@@ -66,5 +72,5 @@ if (VESIN_INSTALL)
         RUNTIME DESTINATION "bin"
     )
 
-    install(DIRECTORY "include" DESTINATION "include")
+    install(FILES "include/vesin.h" DESTINATION "include")
 endif()

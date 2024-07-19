@@ -1,0 +1,6 @@
+include pyproject.toml
+include LICENSE
+include VERSION
+
+recursive-include lib *
+recursive-include build-backend *.py

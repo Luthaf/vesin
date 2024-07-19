@@ -18,7 +18,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-20.04
-            python-version: "3.8"
+            python-version: "3.9"
           - os: ubuntu-20.04
             python-version: "3.12"
           - os: macos-14
@@ -42,3 +42,6 @@ jobs:
 
       - name: run tests
         run: tox
+        env:
+          # Use the CPU only version of torch when building/running the code
+          PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

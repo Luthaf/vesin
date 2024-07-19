@@ -1,5 +1,0 @@
-# sphinx dependencies
-sphinx
-breathe >=4.33     # C++ => sphinx through doxygen
-furo               # sphinx theme
-sphinx-design      # helpers for nicer docs website (tabs, grids, cards, …)

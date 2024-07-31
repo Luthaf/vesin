@@ -254,6 +254,7 @@ API Reference
     :maxdepth: 1
 
     python-api
+    torch-api
     c-api
 
 

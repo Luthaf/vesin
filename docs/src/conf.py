@@ -9,6 +9,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.abspath("."))
 sys.path.insert(0, ROOT)
 
+# When importing vesin-torch, this will change the definition of the classes
+# to include the documentation
+os.environ["VESIN_IMPORT_FOR_SPHINX"] = "1"
+
 
 # -- Project information -----------------------------------------------------
 
@@ -64,6 +68,7 @@ cpp_private_member_specifier = ""
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "torch": ("https://pytorch.org/docs/stable/", None),
     "ase": ("https://wiki.fysik.dtu.dk/ase/", None),
 }
 

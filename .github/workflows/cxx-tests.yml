@@ -92,7 +92,7 @@ jobs:
               -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
               -DVESIN_BUILD_TESTS=ON \
               -DCMAKE_VERBOSE_MAKEFILE=ON \
-              ..
+              ../vesin
 
       - name: build
         run: |

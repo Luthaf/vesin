@@ -47,3 +47,17 @@ def test_errors():
     message = "the box matrix is not invertible"
     with pytest.raises(RuntimeError, match=message):
         nl.compute(points, box, periodic=True, quantities="ij")
+
+    box = np.eye(3, 3)
+    message = "cutoff is too small"
+    with pytest.raises(RuntimeError, match=message):
+        nl = vesin.NeighborList(cutoff=0.0, full_list=True)
+        nl.compute(points, box, periodic=True, quantities="ij")
+
+    with pytest.raises(RuntimeError, match=message):
+        nl = vesin.NeighborList(cutoff=1e-12, full_list=True)
+        nl.compute(points, box, periodic=True, quantities="ij")
+
+    with pytest.raises(RuntimeError, match=message):
+        nl = vesin.NeighborList(cutoff=-12.0, full_list=True)
+        nl.compute(points, box, periodic=True, quantities="ij")

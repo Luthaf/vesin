@@ -36,6 +36,11 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    if (options.cutoff <= 1e-6) {
+        *error_message = "cutoff is too small";
+        return EXIT_FAILURE;
+    }
+
     if (neighbors->device != VesinUnknownDevice && neighbors->device != device) {
         *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
         return EXIT_FAILURE;

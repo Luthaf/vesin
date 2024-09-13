@@ -121,8 +121,16 @@ class sdist_with_lib(sdist):
 
 
 if __name__ == "__main__":
+    install_requires = ["vesin"]
+    forced_torch_version = os.environ.get("VESIN_TORCH_BUILD_WITH_TORCH_VERSION")
+    if forced_torch_version is not None:
+        install_requires.append(f"torch =={forced_torch_version}")
+    else:
+        install_requires.append("torch >=2.3")
+
     setup(
         version=open("VERSION").read().strip(),
+        install_requires=install_requires,
         ext_modules=[
             # only declare the extension, it is built & copied as required by cmake
             # in the build_ext command

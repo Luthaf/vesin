@@ -1,14 +1,9 @@
 [project]
 name = "vesin-torch"
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 requires-python = ">=3.9"
 authors = [
     {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
-]
-
-dependencies = [
-    "vesin",
-    "torch >=2.3",
 ]
 
 readme = "README.md"

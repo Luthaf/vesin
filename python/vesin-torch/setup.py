@@ -121,7 +121,7 @@ class sdist_with_lib(sdist):
 
 
 if __name__ == "__main__":
-    install_requires = ["vesin"]
+    install_requires = []
     forced_torch_version = os.environ.get("VESIN_TORCH_BUILD_WITH_TORCH_VERSION")
     if forced_torch_version is not None:
         install_requires.append(f"torch =={forced_torch_version}")
@@ -134,18 +134,12 @@ if __name__ == "__main__":
         ext_modules=[
             # only declare the extension, it is built & copied as required by cmake
             # in the build_ext command
-            Extension(name="vesin", sources=[]),
+            Extension(name="vesin_torch", sources=[]),
         ],
         cmdclass={
             "sdist": sdist_with_lib,
             "build_ext": cmake_ext,
             "bdist_egg": bdist_egg if "bdist_egg" in sys.argv else bdist_egg_disabled,
             "bdist_wheel": universal_wheel,
-        },
-        package_data={
-            "vesin": [
-                "vesin/lib/*",
-                "vesin/include/*",
-            ]
         },
     )

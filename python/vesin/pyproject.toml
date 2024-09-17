@@ -31,6 +31,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
+[project.optional-dependencies]
+torch = ["vesin-torch"]
+
 [project.urls]
 homepage = "https://github.com/Luthaf/vesin/"
 documentation = "https://luthaf.fr/vesin/"

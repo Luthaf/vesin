@@ -11,6 +11,13 @@ ROOT = os.path.realpath(os.path.dirname(__file__))
 setup(
     name="vesin-git",
     version="0.0.0",
-    install_requires=f"vesin @ file://{ROOT}/python/vesin",
+    install_requires=[
+        f"vesin @ file://{ROOT}/python/vesin",
+    ],
+    extras_require={
+        "torch": [
+            f"vesin-torch @ file://{ROOT}/python/vesin-torch",
+        ]
+    },
     packages=[],
 )

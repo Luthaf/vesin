@@ -55,6 +55,14 @@ Installation
 
             pip install vesin
 
+        **TorchScript:**
+
+        The TorchScript bindings can be installed with:
+
+        .. code-block:: bash
+
+            pip install vesin[torch]
+
     .. tab-item:: C/C++ (CMake)
         :sync: cxx
 
@@ -85,6 +93,32 @@ Installation
 
             target_link_libraries(your-target vesin)
 
+        **TorchScript:**
+
+        To make the TorchScript version of the library available to CMake as
+        well, you should set the ``VESIN_TORCH`` option to ``ON``. If you are
+        using ``add_subdirectory(vesin)``:
+
+        .. code-block:: cmake
+
+            set(VESIN_TORCH ON CACHE BOOL "Build the vesin_torch library")
+
+            add_subdirectory(vesin)
+
+            target_link_libraries(your-target vesin_torch)
+
+        And if you are using ``FetchContent``:
+
+        .. code-block:: cmake
+
+            set(VESIN_TORCH ON CACHE BOOL "Build the vesin_torch library")
+
+            # like above
+            FetchContent_Declare(...)
+            FetchContent_MakeAvailable(...)
+
+            target_link_libraries(your-target vesin_torch)
+
     .. tab-item:: C/C++ (single file build)
 
         We support merging all files in the vesin library to a single one that
@@ -102,6 +136,11 @@ Installation
         Then you'll need to copy both ``include/vesin.h`` and
         ``vesin-single-build.cpp`` in your project and configure your build
         system accordingly.
+
+        **TorchScript:**
+
+        The TorchScript API does not support single file build, please use one
+        of the CMake options instead.
 
 
     .. tab-item:: C/C++ (global installation)
@@ -127,16 +166,34 @@ Installation
 
         Some relevant cmake options you can customize:
 
-        +------------------------------+-----------------------------------------------+----------------+
-        | Option                       | Description                                   | Default        |
-        +==============================+===============================================+================+
-        | ``CMAKE_BUILD_TYPE``         | Type of build: Debug or Release               | Release        |
-        +------------------------------+-----------------------------------------------+----------------+
-        | ``CMAKE_INSTALL_PREFIX``     | Prefix where the library will be installed    | ``/usr/local`` |
-        +------------------------------+-----------------------------------------------+----------------+
-        | ``BUILD_SHARED_LIBS``        | Default to building and installing a shared   | OFF            |
-        |                              | library instead of a static one               |                |
-        +------------------------------+-----------------------------------------------+----------------+
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | Option                       | Description                                      | Default                                        |
+        +==============================+==================================================+================================================+
+        | ``CMAKE_BUILD_TYPE``         | Type of build: Debug or Release                  | Release                                        |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | ``CMAKE_INSTALL_PREFIX``     | Prefix where the library will be installed       | ``/usr/local``                                 |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | ``BUILD_SHARED_LIBS``        | Default to building and installing a shared      | OFF                                            |
+        |                              | library instead of a static one                  |                                                |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | ``VESIN_INSTALL``            | Should CMake install vesin library and headers   | | ON when building vesin directly              |
+        |                              |                                                  | | OFF when including vesin in another project  |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | ``VESIN_TORCH``              | Build (and install if ``VESIN_INSTALL=ON``) the  | OFF                                            |
+        |                              | vesin_torch library                              |                                                |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+
+        **TorchScript:**
+
+        Set ``VESIN_TORCH`` to ``ON`` to build and install the TorchScript
+        bindings.
+
+        You can then compile your code, adding ``$PREFIX/include`` to the
+        compiler include path, ``$PREFIX/lib`` to the linker library path; and
+        linking to vesin_torch (typically with ``-lvesin_torch``).
+
+        You'll need to also add to the include and linker path the path to the
+        same torch installation that was used to build the library.
 
 
 Usage example
@@ -246,9 +303,101 @@ Usage example
                 return 0;
             }
 
+    .. tab-item:: TorchScript Python
+
+        The entry point for the TorchScript API is the
+        :py:class:`vesin.torch.NeighborList` class in Python, and the
+        corresponding :cpp:class:`vesin_torch::NeighborListHolder` class in C++;
+        both modeled after the standard Python API. For Python, the class is
+        available in the ``vesin.torch`` module.
+
+        In both cases, the code is integrated with PyTorch autograd framework,
+        meaning if the ``points`` or ``box`` argument have
+        ``requires_grad=True``, then the ``d`` (distances) and ``D`` (distance
+        vectors) outputs will be integrated to the computational graph.
+
+        .. code-block:: Python
+
+            import torch
+            from vesin.torch import NeighborList
+
+            positions = torch.tensor(
+                [[0.0, 0.0, 0.0],
+                 [0.0, 1.3, 1.3]],
+                dtype=torch.float64,
+                requires_grad=True,
+            )
+            box = 3.2 * torch.eye(3, dtype=torch.float64)
+
+            calculator = NeighborList(cutoff=4.2, full_list=True)
+            i, j, S, d = calculator.compute(
+                points=points,
+                box=box,
+                periodic=True,
+                quantities="ijSd"
+            )
+
+    .. tab-item:: TorchScript C++
+
+        The entry point for the TorchScript API is the
+        :py:class:`vesin.torch.NeighborList` class in Python, and the
+        corresponding :cpp:class:`vesin_torch::NeighborListHolder` class in C++;
+        both modeled after the standard Python API. For C++, the class is
+        available in the ``vesin_torch.hpp`` header.
+
+        In both cases, the code is integrated with PyTorch autograd framework,
+        meaning if the ``points`` or ``box`` argument have
+        ``requires_grad=True``, then the ``d`` (distances) and ``D`` (distance
+        vectors) outputs will be integrated to the computational graph.
+
+        .. code-block:: C++
+
+            #include <torch/torch.h>
+
+            #include <vesin_torch.hpp>
+
+            int main() {
+                auto options = torch::TensorOptions().dtype(torch::kFloat64);
+                auto positions = torch.tensor(
+                    {{0.0, 0.0, 0.0},
+                     {0.0, 1.3, 1.3}},
+                    options
+                );
+                positions.requires_grad_(true);
+
+                auto box = 3.2 * torch.eye(3, options);
+
+                auto calculator = torch::make_intrusive<NeighborListHolder>(
+                    /*cutoff=*/ 4.2,
+                    /*full_list=*/ true
+                );
+
+                calculator.
+                auto outputs = calculator.compute(
+                    /*points=*/ points,
+                    /*box=*/ box,
+                    /*periodic=*/ true,
+                    /*quantities=*/ "ijSd",
+                    /*copy=*/ true,
+                );
+
+                auto i = outputs[0];
+                auto j = outputs[1];
+                auto S = outputs[2];
+                auto d = outputs[3];
+
+                // ...
+            }
+
 
 API Reference
 -------------
+
+.. toctree::
+    :maxdepth: 1
+    :hidden:
+
+    Vesin <self>
 
 .. toctree::
     :maxdepth: 1

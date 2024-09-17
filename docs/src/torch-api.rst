@@ -1,14 +1,14 @@
 .. _torch-api:
 
-PyTorch API reference
-=====================
+TorchScript API reference
+=========================
 
 .. autoclass:: vesin.torch.NeighborList
     :members:
 
 
-PyTorch API reference (C++)
-===========================
+TorchScript API reference (C++)
+===============================
 
 .. doxygentypedef:: vesin_torch::NeighborList
 

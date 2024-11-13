@@ -6,6 +6,7 @@ from collections import namedtuple
 
 import torch
 
+
 Version = namedtuple("Version", ["major", "minor", "patch"])
 
 
@@ -21,7 +22,6 @@ _HERE = os.path.realpath(os.path.dirname(__file__))
 
 
 def _lib_path():
-
     torch_version = parse_version(torch.__version__)
     expected_prefix = os.path.join(
         _HERE, f"torch-{torch_version.major}.{torch_version.minor}"

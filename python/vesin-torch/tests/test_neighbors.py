@@ -124,7 +124,6 @@ class NeighborListWrap:
 
 def test_script():
     class TestModule(torch.nn.Module):
-
         def forward(self, x: NeighborListWrap) -> NeighborListWrap:
             return x
 

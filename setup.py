@@ -6,6 +6,7 @@ import os
 
 from setuptools import setup
 
+
 ROOT = os.path.realpath(os.path.dirname(__file__))
 
 setup(

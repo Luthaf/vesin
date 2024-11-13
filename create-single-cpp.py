@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 
+
 HERE = os.path.dirname(os.path.realpath(__file__))
 ALREADY_SEEN = set()
 

@@ -1,6 +1,7 @@
 import ctypes
 from ctypes import ARRAY, POINTER
 
+
 VesinDevice = ctypes.c_int
 VesinUnknownDevice = 0
 VesinCPU = 1

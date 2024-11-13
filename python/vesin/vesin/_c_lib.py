@@ -4,6 +4,7 @@ from ctypes import cdll
 
 from ._c_api import setup_functions
 
+
 _HERE = os.path.realpath(os.path.dirname(__file__))
 
 

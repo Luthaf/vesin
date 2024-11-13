@@ -4,6 +4,7 @@ import os
 
 from setuptools import build_meta
 
+
 ROOT = os.path.realpath(os.path.dirname(__file__))
 
 FORCED_TORCH_VERSION = os.environ.get("VESIN_TORCH_BUILD_WITH_TORCH_VERSION")

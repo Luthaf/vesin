@@ -1,0 +1,10 @@
+[lint]
+select = ["E", "F", "B", "I"]
+ignore = ["B018", "B904"]
+
+[lint.isort]
+lines-after-imports = 2
+known-first-party = ["vesin"]
+
+[format]
+docstring-code-format = true

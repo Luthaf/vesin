@@ -45,9 +45,10 @@ public:
     );
 };
 
-NeighborListHolder::NeighborListHolder(double cutoff, bool full_list):
+NeighborListHolder::NeighborListHolder(double cutoff, bool full_list, bool sorted):
     cutoff_(cutoff),
     full_list_(full_list),
+    sorted_(sorted),
     data_(nullptr)
 {
     data_ = new VesinNeighborList();
@@ -127,6 +128,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     auto options = VesinOptions{
         /*cutoff=*/ this->cutoff_,
         /*full=*/ this->full_list_,
+        /*sorted=*/ this->sorted_,
         /*return_shifts=*/ return_shifts,
         /*return_distances=*/ return_distances,
         /*return_vectors=*/ return_vectors,
@@ -290,8 +292,8 @@ TORCH_LIBRARY(vesin, m) {
 
     m.class_<NeighborListHolder>("_NeighborList")
         .def(
-            torch::init<double, bool>(), DOCSTRING,
-            {torch::arg("cutoff"), torch::arg("full_list")}
+            torch::init<double, bool, bool>(), DOCSTRING,
+            {torch::arg("cutoff"), torch::arg("full_list"), torch::arg("sorted") = false}
         )
         .def("compute", &NeighborListHolder::compute, DOCSTRING,
             {torch::arg("points"), torch::arg("box"), torch::arg("periodic"), torch::arg("quantities"), torch::arg("copy") = true}

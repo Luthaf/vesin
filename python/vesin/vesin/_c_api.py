@@ -11,6 +11,7 @@ class VesinOptions(ctypes.Structure):
     _fields_ = [
         ("cutoff", ctypes.c_double),
         ("full", ctypes.c_bool),
+        ("sorted", ctypes.c_bool),
         ("return_shifts", ctypes.c_bool),
         ("return_distances", ctypes.c_bool),
         ("return_vectors", ctypes.c_bool),

@@ -25,31 +25,18 @@ except ModuleNotFoundError:
 
 
 class NeighborList:
-    """A neighbor list calculator that can be used with metatensor's atomistic models.
+    """
+    A neighbor list calculator that can be used with metatensor's atomistic models.
 
-    Usage:
+    The main difference with the other calculators is the automatic handling of
+    different length unit between what the model expects and what the ``System`` are
+    using.
 
-    >>> from vesin.torch.metatensor import NeighborList
-    >>> from metatensor.torch.atomistic import System, NeighborListOptions
-    >>> import torch
-    >>> system = System(
-    ...     positions=torch.eye(3).requires_grad_(True),
-    ...     cell=4 * torch.eye(3).requires_grad_(True),
-    ...     types=torch.tensor([8, 1, 1]),
-    ...     pbc=torch.ones(3, dtype=bool),
-    ... )
-    >>> options = NeighborListOptions(cutoff=4.0, full_list=True)
-    >>> calculator = NeighborList(options)
-    >>> neighbors = calculator.compute(system)
-    >>> neighbors
-    TensorBlock
-        samples (54): ['first_atom', 'second_atom', 'cell_shift_a', 'cell_shift_b',
-    ...    'cell_shift_c']
-        components (3): ['xyz']
-        properties (1): ['distance']
-        gradients: None
-    >>> # The returned TensorBlock can then be registered with the system
-    >>> system.add_neighbor_list(options, neighbors)
+    .. seealso::
+
+        The :py:func:`vesin.torch.metatensor.compute_requested_neighbors` function can
+        be used to automatically compute and store all neighbor lists required by a
+        given model.
     """
 
     def __init__(self, options: NeighborListOptions, length_unit: str):
@@ -57,6 +44,31 @@ class NeighborList:
         :param options: :py:class:`metatensor.torch.atomistic.NeighborListOptions`
             defining the parameters of the neighbor list
         :param length_unit: unit of length used for the systems data
+
+        Example
+        -------
+
+        >>> from vesin.torch.metatensor import NeighborList
+        >>> from metatensor.torch.atomistic import System, NeighborListOptions
+        >>> import torch
+        >>> system = System(
+        ...     positions=torch.eye(3).requires_grad_(True),
+        ...     cell=4 * torch.eye(3).requires_grad_(True),
+        ...     types=torch.tensor([8, 1, 1]),
+        ...     pbc=torch.ones(3, dtype=bool),
+        ... )
+        >>> options = NeighborListOptions(cutoff=4.0, full_list=True)
+        >>> calculator = NeighborList(options, length_unit="Angstrom")
+        >>> neighbors = calculator.compute(system)
+        >>> neighbors
+        TensorBlock
+            samples (54): ['first_atom', 'second_atom', 'cell_shift_a', 'cell_shift_b',
+        ...    'cell_shift_c']
+            components (3): ['xyz']
+            properties (1): ['distance']
+            gradients: None
+        >>> # The returned TensorBlock can then be registered with the system
+        >>> system.add_neighbor_list(options, neighbors)
         """
 
         if not torch.jit.is_scripting():

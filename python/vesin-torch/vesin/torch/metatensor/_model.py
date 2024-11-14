@@ -17,30 +17,38 @@ try:
 except ModuleNotFoundError:
     _HAS_METATENSOR = False
 
-    class System:
-        pass
-
     class MetatensorAtomisticModel:
         pass
 
+    class ModelInterface:
+        pass
 
-def compute_all_neighbors(
+    class NeighborListOptions:
+        pass
+
+    class System:
+        pass
+
+
+def compute_requested_neighbors(
     systems: Union[List[System], System],
     system_length_unit: str,
     model: Union[MetatensorAtomisticModel, ModelInterface],
     model_length_unit: Optional[str] = None,
 ):
     """
-    Compute all neighbors lists required by the model, and store them inside all the
-    systems.
+    Compute all neighbors lists requested by the ``model`` through
+    ``requested_neighbor_lists()`` member functions, and store them inside all the
+    ``systems``.
 
     :param systems: Single system or list of systems for which we need to compute the
         neighbor lists that the model requires.
     :param system_length_unit: unit of length used by the data in ``systems``
     :param model: :py:class:`MetatensorAtomisticModel` or any ``torch.nn.Module``
         following the :py:class:`ModelInterface`
-    :param model_length_unit: unit of length used by the model. This is only required
-        when giving a raw model instead of a :py:class:`MetatensorAtomisticModel`.
+    :param model_length_unit: unit of length used by the model, optional. This is only
+        required when giving a raw model instead of a
+        :py:class:`MetatensorAtomisticModel`.
     """
 
     if isinstance(model, MetatensorAtomisticModel):

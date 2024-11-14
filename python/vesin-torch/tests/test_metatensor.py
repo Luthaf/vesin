@@ -12,7 +12,7 @@ from metatensor.torch.atomistic import (
     System,
 )
 
-from vesin.torch.metatensor import NeighborList, compute_all_neighbors
+from vesin.torch.metatensor import NeighborList, compute_requested_neighbors
 
 
 def test_errors():
@@ -114,7 +114,7 @@ def test_model():
 
     # Using a "raw" model
     model = OuterModule()
-    compute_all_neighbors(
+    compute_requested_neighbors(
         systems=systems, system_length_unit="A", model=model, model_length_unit="A"
     )
 
@@ -134,7 +134,7 @@ def test_model():
         dtype="float64",
     )
     model = MetatensorAtomisticModel(model.eval(), ModelMetadata(), capabilities)
-    compute_all_neighbors(
+    compute_requested_neighbors(
         systems=System(positions=positions, cell=cell, pbc=pbc, types=types),
         system_length_unit="A",
         model=model,
@@ -153,7 +153,7 @@ def test_model():
         "capabilities \\(A\\)"
     )
     with pytest.raises(ValueError, match=message):
-        compute_all_neighbors(
+        compute_requested_neighbors(
             systems=System(positions=positions, cell=cell, pbc=pbc, types=types),
             system_length_unit="A",
             model=model,

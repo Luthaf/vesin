@@ -404,8 +404,8 @@ API Reference
 
     python-api
     torch-api
-    metatensor-api
     c-api
+    metatensor
 
 
 .. toctree::

@@ -17,9 +17,10 @@ class NeighborListHolder: public torch::CustomClassHolder {
 public:
     /// Create a new calculator with the given `cutoff`.
     ///
-    /// `full_list` controls whether pairs should be included twice in the
-    /// output (both as `i-j` and `j-i`) or only once
-    NeighborListHolder(double cutoff, bool full_list);
+    /// @param full_list whether pairs should be included twice in the output
+    ///                  (both as `i-j` and `j-i`) or only once
+    /// @param sorted whether pairs should be sorted in the output
+    NeighborListHolder(double cutoff, bool full_list, bool sorted = false);
     ~NeighborListHolder();
 
     /// Compute the neighbor list for the system defined by `positions`, `box`,
@@ -55,6 +56,7 @@ public:
 private:
     double cutoff_;
     bool full_list_;
+    bool sorted_;
     VesinNeighborList* data_;
 };
 

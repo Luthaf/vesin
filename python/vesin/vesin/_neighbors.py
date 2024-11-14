@@ -14,15 +14,18 @@ class NeighborList:
     A neighbor list calculator.
     """
 
-    def __init__(self, cutoff: float, full_list: bool):
+    def __init__(self, cutoff: float, full_list: bool, sorted: bool = False):
         """
         :param cutoff: spherical cutoff for this neighbor list
         :param full_list: should we return each pair twice (as ``i-j`` and ``j-i``) or
             only once
+        :param sorted: Should vesin sort the returned pairs in lexicographic order
+            (sorting both ``i`` and then ``j`` at constant ``i``)?
         """
         self._lib = _get_library()
-        self.cutoff = cutoff
-        self.full_list = full_list
+        self.cutoff = float(cutoff)
+        self.full_list = bool(full_list)
+        self.sorted = bool(sorted)
 
         self._neighbors = VesinNeighborList()
 
@@ -83,6 +86,7 @@ class NeighborList:
         options = VesinOptions()
         options.cutoff = self.cutoff
         options.full = self.full_list
+        options.sorted = self.sorted
         options.return_shifts = "S" in quantities
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities

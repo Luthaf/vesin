@@ -37,7 +37,9 @@ struct VesinOptions {
     /// Should the returned neighbor list be a full list (include both `i -> j`
     /// and `j -> i` pairs) or a half list (include only `i -> j`)?
     bool full;
-    // TODO: sort option?
+    /// Should the neighbor list be sorted? If yes, the returned pairs will be
+    /// sorted using lexicographic order.
+    bool sorted;
 
     /// Should the returned `VesinNeighborList` contain `shifts`?
     bool return_shifts;

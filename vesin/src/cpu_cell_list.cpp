@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include <algorithm>
+#include <numeric>
 #include <tuple>
 #include <new>
 
@@ -89,6 +90,10 @@ void vesin::cpu::neighbors(
             neighbors.increment_length();
         }
     });
+
+    if (options.sorted) {
+        neighbors.sort();
+    }
 }
 
 /* ========================================================================== */
@@ -412,6 +417,105 @@ void GrowableNeighborList::reset() {
     this->neighbors.shifts = shifts;
     this->neighbors.distances = distances;
     this->neighbors.vectors = vectors;
+}
+
+void GrowableNeighborList::sort() {
+    if (this->length() == 0) {
+        return;
+    }
+
+    // step 1: sort an array of indices, comparing the pairs at the indices
+    auto indices = std::vector<int64_t>(this->length(), 0);
+    std::iota(std::begin(indices), std::end(indices), 0);
+
+    struct compare_pairs {
+        compare_pairs(size_t (*pairs_)[2]): pairs(pairs_) {}
+
+        bool operator()(int64_t a, int64_t b) const {
+            if (pairs[a][0] == pairs[b][0]) {
+                return pairs[a][1] < pairs[b][1];
+            } else {
+                return pairs[a][0] < pairs[b][0];
+            }
+        }
+
+        size_t (*pairs)[2];
+    };
+
+    std::sort(std::begin(indices), std::end(indices), compare_pairs(this->neighbors.pairs));
+
+    // step 2: permute all data according to the sorted indices.
+    int64_t cur = 0;
+    // data in `from` should go to `cur`
+    auto from = indices[cur];
+
+    size_t tmp_pair[2] = {0};
+    double tmp_distance = 0;
+    double tmp_vector[3] = {0};
+    int32_t tmp_shift[3] = {0};
+
+    while (cur < this->length()) {
+        // move data from `cur` to temporary
+        std::swap(tmp_pair, this->neighbors.pairs[cur]);
+        if (options.return_distances) {
+            std::swap(tmp_distance, this->neighbors.distances[cur]);
+        }
+        if (options.return_vectors) {
+            std::swap(tmp_vector, this->neighbors.vectors[cur]);
+        }
+        if (options.return_shifts) {
+            std::swap(tmp_shift, this->neighbors.shifts[cur]);
+        }
+
+        from = indices[cur];
+        do {
+            if (from == cur) {
+                // permutation loop of a single entry, i.e. this value stayed
+                // where is already was
+                break;
+            }
+            // move data from `from` to `cur`
+            std::swap(this->neighbors.pairs[cur], this->neighbors.pairs[from]);
+            if (options.return_distances) {
+                std::swap(this->neighbors.distances[cur], this->neighbors.distances[from]);
+            }
+            if (options.return_vectors) {
+                std::swap(this->neighbors.vectors[cur], this->neighbors.vectors[from]);
+            }
+            if (options.return_shifts) {
+                std::swap(this->neighbors.shifts[cur], this->neighbors.shifts[from]);
+            }
+
+            // mark this spot as already visited
+            indices[cur] = -1;
+
+            // update the indices
+            cur = from;
+            from = indices[cur];
+        } while (indices[from] != -1);
+
+        // we found a full loop of permutation, we can put tmp into `cur`
+        std::swap(this->neighbors.pairs[cur], tmp_pair);
+        if (options.return_distances) {
+            std::swap(this->neighbors.distances[cur], tmp_distance);
+        }
+        if (options.return_vectors) {
+            std::swap(this->neighbors.vectors[cur], tmp_vector);
+        }
+        if (options.return_shifts) {
+            std::swap(this->neighbors.shifts[cur], tmp_shift);
+        }
+
+        indices[cur] = -1;
+
+        // look for the next loop of permutation
+        while (indices[cur] == -1) {
+            cur += 1;
+            if (cur == this->length()) {
+                break;
+            }
+        }
+    }
 }
 
 

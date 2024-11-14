@@ -89,6 +89,9 @@ public:
 
     // allocate more memory & update capacity
     void grow();
+
+    // sort the pairs currently in the neighbor list
+    void sort();
 };
 
 } // namespace vesin

@@ -88,13 +88,22 @@ def test_errors():
     box = np.eye(3, 3)
     message = "cutoff is too small"
     with pytest.raises(RuntimeError, match=message):
+        nl = vesin.NeighborList(cutoff=1e-12, full_list=True)
+        nl.compute(points, box, periodic=True, quantities="ij")
+
+    message = "cutoff must be a finite, positive number"
+    with pytest.raises(RuntimeError, match=message):
         nl = vesin.NeighborList(cutoff=0.0, full_list=True)
         nl.compute(points, box, periodic=True, quantities="ij")
 
     with pytest.raises(RuntimeError, match=message):
-        nl = vesin.NeighborList(cutoff=1e-12, full_list=True)
+        nl = vesin.NeighborList(cutoff=-12.0, full_list=True)
         nl.compute(points, box, periodic=True, quantities="ij")
 
     with pytest.raises(RuntimeError, match=message):
-        nl = vesin.NeighborList(cutoff=-12.0, full_list=True)
+        nl = vesin.NeighborList(cutoff=float("inf"), full_list=True)
+        nl.compute(points, box, periodic=True, quantities="ij")
+
+    with pytest.raises(RuntimeError, match=message):
+        nl = vesin.NeighborList(cutoff=float("nan"), full_list=True)
         nl.compute(points, box, periodic=True, quantities="ij")

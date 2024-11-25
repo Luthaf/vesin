@@ -36,6 +36,11 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    if (!std::isfinite(options.cutoff) || options.cutoff <= 0) {
+        *error_message = "cutoff must be a finite, positive number";
+        return EXIT_FAILURE;
+    }
+
     if (options.cutoff <= 1e-6) {
         *error_message = "cutoff is too small";
         return EXIT_FAILURE;

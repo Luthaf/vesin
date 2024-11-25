@@ -30,7 +30,7 @@ class NeighborList:
 
         - ``"i"`` to get the index of the first point in the pair
         - ``"j"`` to get the index of the second point in the pair
-        - ``"p"`` to get the indexes of the two points in the pair simultaneously
+        - ``"P"`` to get the indexes of the two points in the pair simultaneously
         - ``"S"`` to get the periodic shift of the pair
         - ``"d"`` to get the distance between points in the pair
         - ``"D"`` to get the distance vector between points in the pair

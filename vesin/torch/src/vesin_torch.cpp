@@ -270,6 +270,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
             output.push_back(pairs.index({torch::indexing::Slice(), 0}));
         } else if (c == 'j') {
             output.push_back(pairs.index({torch::indexing::Slice(), 1}));
+        } else if (c == 'P') {
+            output.push_back(pairs);
         } else if (c == 'S') {
             output.push_back(shifts);
         } else if (c == 'd') {

@@ -53,6 +53,17 @@ def test_neighbors(system, cutoff, vesin_nl):
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
 
 
+def test_pairs_output():
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/diamond.xyz")
+
+    calculator = vesin.NeighborList(cutoff=2.0, full_list=True, sorted=False)
+    i, j, P = calculator.compute(
+        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="ijP"
+    )
+
+    assert np.all(np.vstack([i, j]).T == P)
+
+
 def test_sorting():
     atoms = ase.io.read(f"{CURRENT_DIR}/data/diamond.xyz")
 

@@ -115,8 +115,8 @@ class NeighborList:
             )
 
         # computes neighbor list
-        (i, j, S, D) = self._nl.compute(
-            points=points, box=box, periodic=periodic, quantities="ijSD", copy=True
+        (P, S, D) = self._nl.compute(
+            points=points, box=box, periodic=periodic, quantities="PSD", copy=True
         )
 
         # converts to a suitable TensorBlock format
@@ -130,7 +130,7 @@ class NeighborList:
                     "cell_shift_b",
                     "cell_shift_c",
                 ],
-                values=torch.hstack([i.reshape(-1, 1), j.reshape(-1, 1), S]),
+                values=torch.hstack([P, S]),
             ),
             components=self._components,
             properties=self._properties,

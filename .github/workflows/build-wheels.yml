@@ -83,7 +83,7 @@ jobs:
     name: ${{ matrix.name }} (torch v${{ matrix.torch-version }})
     strategy:
       matrix:
-        torch-version: ['2.3', '2.4']
+        torch-version: ['2.3', '2.4', '2.5']
         arch: ['arm64', 'x86_64']
         os: ['ubuntu-22.04', 'macos-14']
         exclude:
@@ -106,6 +106,7 @@ jobs:
           # add the right python version for each torch version
           - {torch-version: '2.3',  python-version: '3.12', cibw-python: 'cp312-*'}
           - {torch-version: '2.4',  python-version: '3.12', cibw-python: 'cp312-*'}
+          - {torch-version: '2.5',  python-version: '3.12', cibw-python: 'cp312-*'}
     steps:
       - uses: actions/checkout@v4
         with:

@@ -8,9 +8,14 @@
 | neighbo(u)r      | vesin    | voisin    | vesin    | visin        | veí     | vecino     | vicino     |
 
 
-Vesin is a C library that computes neighbor lists for atomistic system, and tries
-to be fast and easy to use. We also provide a Python package to call the C
-library.
+Vesin is a fast and easy to use library computing neighbor lists for atomistic
+system. We provide an interface for the following programing languages:
+
+- C (also compatible with C++). The project can be installed and used as a
+  library with your own build system, or included as a single file and built
+  directly by your own build system;
+- Python;
+- TorchScript, with both a C++ and Python interface;
 
 ### Installation
 

@@ -57,19 +57,21 @@ class NeighborList:
         ...     types=torch.tensor([8, 1, 1]),
         ...     pbc=torch.ones(3, dtype=bool),
         ... )
-        >>> options = NeighborListOptions(cutoff=4.0, full_list=True)
+        >>> options = NeighborListOptions(cutoff=4.0, full_list=True, strict=False)
         >>> calculator = NeighborList(options, length_unit="Angstrom")
         >>> neighbors = calculator.compute(system)
         >>> neighbors
         TensorBlock
-            samples (54): ['first_atom', 'second_atom', 'cell_shift_a', 'cell_shift_b',
-        ...    'cell_shift_c']
+            samples (18): ['first_atom', 'second_atom', 'cell_shift_a', 'cell_shift_b', 'cell_shift_c']
             components (3): ['xyz']
             properties (1): ['distance']
             gradients: None
-        >>> # The returned TensorBlock can then be registered with the system
+        <BLANKLINE>
+
+        The returned TensorBlock can then be registered with the system
+
         >>> system.add_neighbor_list(options, neighbors)
-        """
+        """  # noqa: E501
 
         if not torch.jit.is_scripting():
             if not _HAS_METATENSOR:

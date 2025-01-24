@@ -446,6 +446,7 @@ void GrowableNeighborList::sort() {
 
     // step 2: permute all data according to the sorted indices.
     int64_t cur = 0;
+    int64_t is_sorted_up_to = 0;
     // data in `from` should go to `cur`
     auto from = indices[cur];
 
@@ -509,8 +510,10 @@ void GrowableNeighborList::sort() {
         indices[cur] = -1;
 
         // look for the next loop of permutation
+        cur = is_sorted_up_to;
         while (indices[cur] == -1) {
             cur += 1;
+            is_sorted_up_to += 1;
             if (cur == this->length()) {
                 break;
             }

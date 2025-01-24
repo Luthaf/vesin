@@ -85,6 +85,15 @@ def test_sorting():
     # check that unsorted is not already sorted by chance
     assert not np.all(sorted_ij == unsorted_ij)
 
+    # https://github.com/Luthaf/vesin/issues/34
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/Cd2I4O12.xyz")
+    calculator = vesin.NeighborList(cutoff=5.0, full_list=True, sorted=True)
+    i, j = calculator.compute(
+        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="ij"
+    )
+    sorted_ij = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1)), axis=1)
+    assert np.all(sorted_ij[np.lexsort((j, i))] == sorted_ij)
+
 
 def test_errors():
     points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])

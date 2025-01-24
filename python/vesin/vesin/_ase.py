@@ -45,8 +45,7 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False, max_nbins=0
         periodic = False
     else:
         raise ValueError(
-            "different periodic boundary conditions on different axis "
-            "are not supported"
+            "different periodic boundary conditions on different axis are not supported"
         )
 
     # sorted=True and full_list=True since that's what ASE does

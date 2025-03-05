@@ -43,8 +43,6 @@ def setup_torch_nl_cpu(atoms, cutoff):
     pos, cell, pbc, batch, n_atoms = torch_nl.ase2data(
         [atoms], device=torch.device("cpu")
     )
-    print(pos.dtype)
-    raise 44
     return cutoff, pos, cell, pbc, batch
 
 

@@ -45,7 +45,7 @@ box = 3.2 * np.eye(3)
 
 calculator = NeighborList(cutoff=4.2, full_list=True)
 i, j, S, d = calculator.compute(
-    points=points,
+    points=positions,
     box=box,
     periodic=True,
     quantities="ijSd"

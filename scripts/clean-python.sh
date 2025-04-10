@@ -15,8 +15,8 @@ rm -rf docs/build
 rm -rf python/vesin/dist
 rm -rf python/vesin/build
 
-rm -rf python/vesin-torch/dist
-rm -rf python/vesin-torch/build
+rm -rf python/vesin_torch/dist
+rm -rf python/vesin_torch/build
 
 find . -name "*.egg-info" -exec rm -rf "{}" +
 find . -name "__pycache__" -exec rm -rf "{}" +

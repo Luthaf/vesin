@@ -33,7 +33,7 @@ jobs:
             os: ubuntu-22.04
             cibw_arch: x86_64
           - name: arm64 Linux
-            os: ubuntu-22.04
+            os: ubuntu-22.04-arm
             cibw_arch: aarch64
           - name: x86_64 macOS
             os: macos-13
@@ -54,10 +54,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up QEMU for docker
-        if: matrix.os == 'ubuntu-22.04'
-        uses: docker/setup-qemu-action@v3
-
       - name: install dependencies
         run: python -m pip install cibuildwheel twine
 
@@ -69,6 +65,7 @@ jobs:
           CIBW_ARCHS: ${{ matrix.cibw_arch }}
           CIBW_BUILD_FRONTEND: build
           CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux2014_x86_64
+          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux2014_aarch64
 
       - name: check wheels with twine
         run: twine check wheelhouse/*
@@ -85,10 +82,12 @@ jobs:
       matrix:
         torch-version: ['2.3', '2.4', '2.5', '2.6']
         arch: ['arm64', 'x86_64']
-        os: ['ubuntu-22.04', 'macos-14']
+        os: ['ubuntu-22.04', 'ubuntu-22.04-arm', 'macos-14']
         exclude:
-          # x86_64 is only supported for torch <2.3 in macOS
+          # remove mismatched architectures
           - {os: macos-14, arch: x86_64}
+          - {os: ubuntu-22.04, arch: arm64}
+          - {os: ubuntu-22.04-arm, arch: x86_64}
         include:
           # add `cibw-arch` to the different configurations
           - name: x86_64 Linux
@@ -96,7 +95,7 @@ jobs:
             arch: x86_64
             cibw-arch: x86_64
           - name: arm64 Linux
-            os: ubuntu-22.04
+            os: ubuntu-22.04-arm
             arch: arm64
             cibw-arch: aarch64
           - name: arm64 macOS
@@ -120,10 +119,6 @@ jobs:
 
       - name: install dependencies
         run: python -m pip install cibuildwheel
-
-      - name: Set up QEMU for docker
-        if: matrix.os == 'ubuntu-22.04'
-        uses: docker/setup-qemu-action@v3
 
       - name: build vesin-torch wheel
         run: python -m cibuildwheel python/vesin-torch
@@ -160,7 +155,7 @@ jobs:
             os: ubuntu-22.04
             arch: x86_64
           - name: arm64 Linux
-            os: ubuntu-22.04
+            os: ubuntu-22.04-arm
             arch: arm64
           - name: arm64 macOS
             os: macos-14

@@ -1,5 +1,9 @@
 find_package(Torch 1.12 REQUIRED)
 
+# PyTorch requires passing std::string & co. across DLL boundaries, which fails
+# when using a different runtime library from the one used by torch.dll & co.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+
 add_library(vesin_torch SHARED src/vesin_torch.cpp ${VESIN_SOURCES})
 
 target_link_libraries(vesin_torch torch)

@@ -81,6 +81,10 @@ class cmake_ext(build_ext):
         )
 
         # do not include the non-torch vesin lib in the wheel
+        for file in glob.glob(os.path.join(install_dir, "bin", "*")):
+            if "vesin_torch" not in os.path.basename(file):
+                os.unlink(file)
+
         for file in glob.glob(os.path.join(install_dir, "lib", "*")):
             if "vesin_torch" not in os.path.basename(file):
                 os.unlink(file)
@@ -122,6 +126,38 @@ class sdist_with_lib(sdist):
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        # On Windows, starting with PyTorch 2.3, the file shm.dll in torch has a
+        # dependency on mkl DLLs. When building the code using pip build isolation, pip
+        # installs the mkl package in a place where the os is not trying to load
+        #
+        # This is a very similar fix to https://github.com/pytorch/pytorch/pull/126095,
+        # except only applying when importing torch from a build-isolation virtual
+        # environment created by pip (`python -m build` does not seems to suffer from
+        # this).
+        import wheel
+
+        pip_virtualenv = os.path.realpath(
+            os.path.join(
+                os.path.dirname(wheel.__file__),
+                "..",
+                "..",
+                "..",
+                "..",
+            )
+        )
+        mkl_dll_dir = os.path.join(
+            pip_virtualenv,
+            "normal",
+            "Library",
+            "bin",
+        )
+
+        if os.path.exists(mkl_dll_dir):
+            os.add_dll_directory(mkl_dll_dir)
+
+        # End of Windows/MKL/PIP hack
+
     install_requires = []
     forced_torch_version = os.environ.get("VESIN_TORCH_BUILD_WITH_TORCH_VERSION")
     if forced_torch_version is not None:

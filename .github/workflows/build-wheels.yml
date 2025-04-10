@@ -82,12 +82,13 @@ jobs:
       matrix:
         torch-version: ['2.3', '2.4', '2.5', '2.6']
         arch: ['arm64', 'x86_64']
-        os: ['ubuntu-22.04', 'ubuntu-22.04-arm', 'macos-14']
+        os: ['ubuntu-22.04', 'ubuntu-22.04-arm', 'macos-14', 'windows-2022']
         exclude:
           # remove mismatched architectures
           - {os: macos-14, arch: x86_64}
           - {os: ubuntu-22.04, arch: arm64}
           - {os: ubuntu-22.04-arm, arch: x86_64}
+          - {os: windows-2022, arch: arm64}
         include:
           # add `cibw-arch` to the different configurations
           - name: x86_64 Linux
@@ -102,6 +103,10 @@ jobs:
             os: macos-14
             arch: arm64
             cibw-arch: arm64
+          - name: x86_64 Windows
+            os: windows-2022
+            arch: x86_64
+            cibw-arch: AMD64
           # add the right python version for each torch version
           - {torch-version: '2.3',  python-version: '3.12', cibw-python: 'cp312-*'}
           - {torch-version: '2.4',  python-version: '3.12', cibw-python: 'cp312-*'}
@@ -160,6 +165,9 @@ jobs:
           - name: arm64 macOS
             os: macos-14
             arch: arm64
+          - name: x86_64 Windows
+            os: windows-2022
+            arch: x86_64
     steps:
       - uses: actions/checkout@v4
 

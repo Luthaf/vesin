@@ -17,13 +17,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             python-version: "3.9"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             python-version: "3.12"
           - os: macos-14
             python-version: "3.12"
-          - os: windows-2019
+          - os: windows-2022
             python-version: "3.12"
     steps:
       - uses: actions/checkout@v4
@@ -41,13 +41,13 @@ jobs:
           python -m pip install tox
 
       - name: run tests
-        if: matrix.os != 'windows-2019'
+        if: matrix.os != 'windows-2022'
         run: tox
         env:
           # Use the CPU only version of torch when building/running the code
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
       - name: run tests (Windows)
-        if: matrix.os == 'windows-2019'
+        if: matrix.os == 'windows-2022'
         # exclude torch-tests (cf https://github.com/Luthaf/vesin/issues/21)
         run: tox -e lint,tests

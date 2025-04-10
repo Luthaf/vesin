@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             compiler: GCC - Valgrind
             cc: gcc-13
             cxx: g++-13
@@ -28,7 +28,7 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y gcc-13 g++-13
 
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             compiler: Clang
             cc: clang-18
             cxx: clang++-18
@@ -39,7 +39,7 @@ jobs:
               sudo apt-get install -y clang-18
 
           # check the build on a stock Ubuntu 20.04, which uses cmake 3.16
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             compiler: GCC
             cc: gcc
             cxx: g++
@@ -54,14 +54,14 @@ jobs:
             cc: clang
             cxx: clang++
 
-          - os: windows-2019
+          - os: windows-2022
             compiler: MSVC
             cc: cl.exe
             cxx: cl.exe
             cmake-extra-args:
-              - -G "Visual Studio 16 2019" -A x64
+              - -G "Visual Studio 17 2022" -A x64
 
-          - os: windows-2019
+          - os: windows-2022
             compiler: MinGW
             cc: gcc.exe
             cxx: g++.exe

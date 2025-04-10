@@ -42,7 +42,7 @@ jobs:
             os: macos-14
             cibw_arch: arm64
           - name: x86_64 Windows
-            os: windows-2019
+            os: windows-2022
             cibw_arch: AMD64
     steps:
       - uses: actions/checkout@v4

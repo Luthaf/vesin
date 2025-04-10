@@ -7,13 +7,12 @@ authors = [
 ]
 
 readme = "README.md"
-license = {text = "BSD-3-Clause"}
+license = "BSD-3-Clause"
 description = "Computing neighbor lists for atomistic system, in TorchScript"
 
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
@@ -36,7 +35,7 @@ repository = "https://github.com/Luthaf/vesin/"
 
 [build-system]
 requires = [
-    "setuptools >=68",
+    "setuptools >=77",
     "wheel >=0.41",
 ]
 # use a custom build backend to add a dependency on torch/cmake only when

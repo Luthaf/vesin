@@ -1,32 +1,33 @@
 import torch
+from metatensor.torch import Labels, TensorBlock
+from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
-from .. import NeighborList as NeighborListTorch
+from .. import NeighborList as NeighborListNumpy
 
 
-try:  # only define a metatensor adapter if metatensor is available
-    from metatensor.torch import Labels, TensorBlock
-    from metatensor.torch.atomistic import NeighborListOptions, System
+try:
+    from vesin.torch import NeighborList as NeighborListTorch
 
-    _HAS_METATENSOR = True
-except ModuleNotFoundError:
-    _HAS_METATENSOR = False
+except ImportError:
 
-    class Labels:
-        pass
+    class NeighborListTorch:
+        def __init__(self, cutoff: float, full_list: bool):
+            raise ValueError("torchscript=True requires `vesin-torch` as a dependency")
 
-    class TensorBlock:
-        pass
-
-    class System:
-        pass
-
-    class NeighborListOptions:
-        pass
+        def compute(
+            self,
+            points: torch.Tensor,
+            box: torch.Tensor,
+            periodic: bool,
+            quantities: str,
+            copy: bool = True,
+        ):
+            pass
 
 
 class NeighborList:
     """
-    A neighbor list calculator that can be used with metatensor's atomistic models.
+    A neighbor list calculator that can be used with metatomic's models.
 
     The main difference with the other calculators is the automatic handling of
     different length unit between what the model expects and what the ``System`` are
@@ -34,22 +35,28 @@ class NeighborList:
 
     .. seealso::
 
-        The :py:func:`vesin.torch.metatensor.compute_requested_neighbors` function can
-        be used to automatically compute and store all neighbor lists required by a
-        given model.
+        The :py:func:`vesin.metatomic.compute_requested_neighbors` function can be used
+        to automatically compute and store all neighbor lists required by a given model.
     """
 
-    def __init__(self, options: NeighborListOptions, length_unit: str):
+    def __init__(
+        self,
+        options: NeighborListOptions,
+        length_unit: str,
+        torchscript: bool = False,
+    ):
         """
-        :param options: :py:class:`metatensor.torch.atomistic.NeighborListOptions`
-            defining the parameters of the neighbor list
+        :param options: :py:class:`metatomic.torch.NeighborListOptions` defining the
+            parameters of the neighbor list
         :param length_unit: unit of length used for the systems data
+        :param torchscript: whether this function should be compatible with TorchScript
+            or not. If ``True``, this requires installing the ``vesin-torch`` package.
 
         Example
         -------
 
-        >>> from vesin.torch.metatensor import NeighborList
-        >>> from metatensor.torch.atomistic import System, NeighborListOptions
+        >>> from vesin.metatomic import NeighborList
+        >>> from metatomic.torch import System, NeighborListOptions
         >>> import torch
         >>> system = System(
         ...     positions=torch.eye(3).requires_grad_(True),
@@ -73,17 +80,19 @@ class NeighborList:
         >>> system.add_neighbor_list(options, neighbors)
         """  # noqa: E501
 
-        if not torch.jit.is_scripting():
-            if not _HAS_METATENSOR:
-                raise ModuleNotFoundError(
-                    "`vesin.metatensor` requires the `metatensor-torch` package"
-                )
         self.options = options
         self.length_unit = length_unit
-        self._nl = NeighborListTorch(
-            cutoff=self.options.engine_cutoff(self.length_unit),
-            full_list=self.options.full_list,
-        )
+
+        if torch.jit.is_scripting() or torchscript:
+            self._nl = NeighborListTorch(
+                cutoff=self.options.engine_cutoff(self.length_unit),
+                full_list=self.options.full_list,
+            )
+        else:
+            self._nl = NeighborListNumpy(
+                cutoff=self.options.engine_cutoff(self.length_unit),
+                full_list=self.options.full_list,
+            )
 
         # cached Labels
         self._components = [Labels("xyz", torch.tensor([[0], [1], [2]]))]
@@ -91,21 +100,19 @@ class NeighborList:
 
     def compute(self, system: System) -> TensorBlock:
         """
-        Compute the neighbor list for the given
-        :py:class:`metatensor.torch.atomistic.System`.
+        Compute the neighbor list for the given :py:class:`metatomic.torch.System`.
 
-        :param system: a :py:class:`metatensor.torch.atomistic.System` containing the
-            data about a structure. If the positions or cell of this system require
-            gradients, the neighbors list values computational graph will be set
-            accordingly.
+        :param system: a :py:class:`metatomic.torch.System` containing data about a
+            single structure. If the positions or cell of this system require gradients,
+            the neighbors list values computational graph will be set accordingly.
 
             The positions and cell need to be in the length unit defined for this
             :py:class:`NeighborList` calculator.
         """
 
         # move to float64, as vesin only works in torch64
-        points = system.positions.to(torch.float64)
-        box = system.cell.to(torch.float64)
+        points = system.positions.to(torch.float64).detach()
+        box = system.cell.to(torch.float64).detach()
         if torch.all(system.pbc):
             periodic = True
         elif not torch.any(system.pbc):
@@ -120,6 +127,9 @@ class NeighborList:
         (P, S, D) = self._nl.compute(
             points=points, box=box, periodic=periodic, quantities="PSD", copy=True
         )
+        P = torch.as_tensor(P, dtype=torch.int32)
+        S = torch.as_tensor(S, dtype=torch.int32)
+        D = torch.as_tensor(D, dtype=torch.int32)
 
         # converts to a suitable TensorBlock format
         neighbors = TensorBlock(
@@ -137,5 +147,8 @@ class NeighborList:
             components=self._components,
             properties=self._properties,
         )
+
+        print(neighbors.values.requires_grad)
+        register_autograd_neighbors(system, neighbors)
 
         return neighbors

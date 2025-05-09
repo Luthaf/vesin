@@ -405,7 +405,7 @@ API Reference
     python-api
     torch-api
     c-api
-    metatensor
+    metatomic
 
 
 .. toctree::

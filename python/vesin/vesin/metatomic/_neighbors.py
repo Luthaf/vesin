@@ -148,7 +148,6 @@ class NeighborList:
             properties=self._properties,
         )
 
-        print(neighbors.values.requires_grad)
         register_autograd_neighbors(system, neighbors)
 
         return neighbors

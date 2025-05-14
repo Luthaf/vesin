@@ -16,6 +16,7 @@ def compute_requested_neighbors(
     system_length_unit: str,
     model: Union[AtomisticModel, ModelInterface],
     model_length_unit: Optional[str] = None,
+    check_consistency: bool = False,
 ):
     """
     Compute all neighbors lists requested by the ``model`` through
@@ -29,8 +30,8 @@ def compute_requested_neighbors(
         :py:class:`ModelInterface`
     :param model_length_unit: unit of length used by the model, optional. This is only
         required when giving a raw model instead of a :py:class:`AtomisticModel`.
-    :param torchscript: whether this function should be compatible with TorchScript or
-        not. If ``True``, this requires installing the ``vesin-torch`` package.
+    :param check_consistency: whether to run additional checks on the neighbor lists
+        validity
     """
 
     if isinstance(model, AtomisticModel):
@@ -58,7 +59,12 @@ def compute_requested_neighbors(
         systems = [systems]
 
     for options in all_options:
-        calculator = NeighborList(options, system_length_unit)
+        calculator = NeighborList(
+            options,
+            system_length_unit,
+            check_consistency=check_consistency,
+        )
+
         for system in systems:
             neighbors = calculator.compute(system)
             system.add_neighbor_list(options, neighbors)

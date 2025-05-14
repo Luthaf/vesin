@@ -44,6 +44,7 @@ class NeighborList:
         options: NeighborListOptions,
         length_unit: str,
         torchscript: bool = False,
+        check_consistency: bool = False,
     ):
         """
         :param options: :py:class:`metatomic.torch.NeighborListOptions` defining the
@@ -51,6 +52,8 @@ class NeighborList:
         :param length_unit: unit of length used for the systems data
         :param torchscript: whether this function should be compatible with TorchScript
             or not. If ``True``, this requires installing the ``vesin-torch`` package.
+        :param check_consistency: whether to run additional checks on the neighbor list
+            validity
 
         Example
         -------
@@ -82,6 +85,7 @@ class NeighborList:
 
         self.options = options
         self.length_unit = length_unit
+        self.check_consistency = check_consistency
 
         if torch.jit.is_scripting() or torchscript:
             self._nl = NeighborListTorch(
@@ -129,7 +133,7 @@ class NeighborList:
         )
         P = torch.as_tensor(P, dtype=torch.int32)
         S = torch.as_tensor(S, dtype=torch.int32)
-        D = torch.as_tensor(D, dtype=torch.int32)
+        D = torch.as_tensor(D, dtype=system.positions.dtype)
 
         # converts to a suitable TensorBlock format
         neighbors = TensorBlock(
@@ -148,6 +152,8 @@ class NeighborList:
             properties=self._properties,
         )
 
-        register_autograd_neighbors(system, neighbors)
+        register_autograd_neighbors(
+            system, neighbors, check_consistency=self.check_consistency
+        )
 
         return neighbors

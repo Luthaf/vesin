@@ -87,7 +87,7 @@ class OuterModule(torch.nn.Module):
 
 def test_model():
     positions = torch.tensor(
-        [[0.0, 0.0, 0.0], [1.0, 1.0, 2.0]], dtype=torch.float64, requires_grad=True
+        [[0.0, 0.0, 0.0], [1.0, 1.0, 1.4]], dtype=torch.float64, requires_grad=True
     )
     cell = (4 * torch.eye(3, dtype=torch.float64)).clone().requires_grad_(True)
     pbc = torch.ones(3, dtype=bool)
@@ -100,7 +100,11 @@ def test_model():
     # Using a "raw" model
     model = OuterModule()
     compute_requested_neighbors(
-        systems=systems, system_length_unit="A", model=model, model_length_unit="A"
+        systems=systems,
+        system_length_unit="A",
+        model=model,
+        model_length_unit="A",
+        check_consistency=True,
     )
 
     for system in systems:

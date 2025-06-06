@@ -11,6 +11,8 @@ using namespace vesin_torch;
 static VesinDevice torch_to_vesin_device(torch::Device device) {
     if (device.is_cpu()) {
         return VesinCPU;
+    } else if (device.is_cuda()) {
+        return VesinCUDA;
     } else {
         throw std::runtime_error("device " + device.str() + " is not supported in vesin");
     }
@@ -19,6 +21,8 @@ static VesinDevice torch_to_vesin_device(torch::Device device) {
 static torch::Device vesin_to_torch_device(VesinDevice device) {
     if (device == VesinCPU) {
         return torch::Device("cpu");
+    } else if (device == VesinCUDA) {
+        return torch::Device("cuda");
     } else {
         throw std::runtime_error("vesin device is not supported in torch");
     }
@@ -67,12 +71,14 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     bool copy
 ) {
     // check input data
+    // for CUDA it's fine if the data is not on the same device as cell, but for CPU it must be
     if (points.device() != box.device()) {
         C10_THROW_ERROR(ValueError,
             "expected `points` and `box` to have the same device, got " +
             points.device().str() + " and " + box.device().str()
         );
     }
+
     auto device = torch_to_vesin_device(points.device());
 
     if (points.scalar_type() != box.scalar_type()) {

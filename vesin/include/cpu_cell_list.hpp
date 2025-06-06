@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "vesin.h"
-
 #include "types.hpp"
 
 namespace vesin { namespace cpu {

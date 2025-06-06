@@ -28,15 +28,44 @@ option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 option(VESIN_TORCH "Build the vesin_torch library" OFF)
+option(VESIN_ENABLE_CUDA "Build the CUDA backend of Vesin" OFF)
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
 )
+
+# Find CUDA
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    set(CUDA_USE_STATIC_CUDA_RUNTIME OFF CACHE BOOL "" FORCE)
+else()
+    message(STATUS "Could not find a CUDA compiler")
+endif()
+
+if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
+    message(STATUS "Found a CUDA compiler but VESIN_ENABLE_CUDA=OFF, set VESIN_ENABLE_CUDA=ON in order to compile with CUDA support.")
+endif()
+
+list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/vesin_cuda.hpp)
+
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_dynamic_cuda.hpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_kernel_cache.hpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda.cpp)
+else()
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda_stub.cpp)
+endif()
+
+
 add_library(vesin ${VESIN_SOURCES})
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/cuda/include>
     $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 

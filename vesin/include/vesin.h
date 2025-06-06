@@ -56,6 +56,8 @@ enum VesinDevice {
     VesinUnknownDevice = 0,
     /// CPU device
     VesinCPU = 1,
+    // CUDA device
+    VesinCUDA = 2,
 };
 
 
@@ -86,7 +88,8 @@ struct VESIN_API VesinNeighborList {
         pairs(nullptr),
         shifts(nullptr),
         distances(nullptr),
-        vectors(nullptr)
+        vectors(nullptr),
+        vesin_manage_memory(true)
     {}
 #endif
 
@@ -109,12 +112,15 @@ struct VESIN_API VesinNeighborList {
     /// during the calculation.
     double (*vectors)[3];
 
+    //whether or not vesin manages memory allocation, or rely on external library (e.g torch, jax)
+    bool vesin_manage_memory;
+
     // TODO: custom memory allocators?
 };
 
 /// Free all allocated memory inside a `VesinNeighborList`, according the it's
 /// `device`.
-void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
+void VESIN_API vesin_free(struct VesinNeighborList * neighbors);
 
 /// Compute a neighbor list.
 ///
@@ -144,7 +150,7 @@ int VESIN_API vesin_neighbors(
     bool periodic,
     VesinDevice device,
     struct VesinOptions options,
-    struct VesinNeighborList* neighbors,
+    struct VesinNeighborList * neighbors,
     const char** error_message
 );
 

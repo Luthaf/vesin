@@ -55,7 +55,7 @@ list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/vesin_cuda.hp
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_dynamic_linker.hpp)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_kernel_cache.hpp)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/simple_neighbourlist.cu)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/mic_neighbourlist.cu)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda.cpp)
 else()
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda_stub.cpp)

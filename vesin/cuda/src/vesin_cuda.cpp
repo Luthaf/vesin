@@ -1,35 +1,33 @@
 #include "simple_neighbourlist.cuh"
 #include "vesin_cuda.hpp"
+
 #include <cuda_runtime.h>
+#include <cassert>
 
 using namespace vesin::cuda;
 
 #define WARP_SIZE 32
 #define NWARPS 4
 
-template <typename T>
-void free_neighbors(VesinNeighborList<T>& neighbors) {
+void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 
     assert(neighbors.device == VesinCUDA);
 
-    if (!neighbors.vesin_manage_memory)
-        return;
 
     if (neighbors.pairs)     cudaFree(neighbors.pairs);
     if (neighbors.shifts)    cudaFree(neighbors.shifts);
     if (neighbors.distances) cudaFree(neighbors.distances);
-    if (neighbors.vectors)   cudaFree(neighbors.vectors);
-    if (neighbors.length)    cudaFree(neighbors.length);
+    if (neighbors.vectors)   cudaFree(neighbors.vectors); 
+    if (neighbors.length_cu)    cudaFree(neighbors.length_cu);
 
     neighbors = {};
 }
 
-template <typename T>
-void ensure_neighborlist_capacity(VesinNeighborList<T>& neighbors, size_t required_capacity) {
-    if (!neighbors.vesin_manage_memory)
-        return;  // Skip if external system manages memory
+void ensure_neighborlist_capacity(VesinNeighborList& neighbors, size_t nnodes) {
+    
+    assert(neighbors.device == VesinCUDA);
 
-    if (neighbors.capacity >= required_capacity)
+    if (neighbors.capacity_cu >= nnodes)
         return;
 
     // Free old if needed
@@ -37,53 +35,47 @@ void ensure_neighborlist_capacity(VesinNeighborList<T>& neighbors, size_t requir
     if (neighbors.shifts)    cudaFree(neighbors.shifts);
     if (neighbors.distances) cudaFree(neighbors.distances);
     if (neighbors.vectors)   cudaFree(neighbors.vectors);
-    if (neighbors.length)    cudaFree(neighbors.length);
+    if (neighbors.length_cu)    cudaFree(neighbors.length_cu);
 
     // Allocate new
-    cudaMalloc(&neighbors.pairs,     sizeof(size_t) * required_capacity * 2);
-    cudaMalloc(&neighbors.shifts,    sizeof(int32_t) * required_capacity * 3);
-    cudaMalloc(&neighbors.distances, sizeof(T) * required_capacity);
-    cudaMalloc(&neighbors.vectors,   sizeof(T) * required_capacity * 3);
-    cudaMalloc(&neighbors.length,    sizeof(size_t));
-    cudaMemset(neighbors.length, 0, sizeof(size_t));
+    cudaMalloc(&neighbors.pairs,     sizeof(size_t) * nnodes * 2);
+    cudaMalloc(&neighbors.shifts,    sizeof(int32_t) * nnodes * 3);
+    cudaMalloc(&neighbors.distances, sizeof(double) * nnodes);
+    cudaMalloc(&neighbors.vectors,   sizeof(double) * nnodes * 3);
+    cudaMalloc(&neighbors.length_cu,  sizeof(size_t));
+    cudaMemset(neighbors.length_cu, 0, sizeof(size_t));
 
-    neighbors.capacity = required_capacity;
+    neighbors.capacity_cu = nnodes;
 }
 
-template <typename T>
-void neighbors(
-    const T (*points)[3],          // [n_points][3] on device
-    size_t n_points,
-    const T cell[3][3],            // [3][3] on device
+void vesin::cuda::neighbors(
+    const double (*points)[3],          // [n_points][3] on device
+    long n_points,
+    const double cell[3][3],            // [3][3] on device
     VesinOptions options,
-    VesinNeighborList& neighbors,   // outputs already allocated on device
-    int cuda_stream
+    VesinNeighborList& neighbors   // outputs already allocated on device
 ) {
 
-    ensure_neighborlist_capacity<T>(neighbors, n_points * MAX_NEDGES_PER_NODE);
+    assert(neighbors.device == VesinCUDA);
 
-    const T* d_positions = reinterpret_cast<const T*>(points);
-    const T* d_cell = reinterpret_cast<const T*>(cell);
+    ensure_neighborlist_capacity(neighbors, n_points * VESIN_CUDA_MAX_NEDGES_PER_NODE);
 
-    size_t* d_edge_indices =  reinterpret_cast<const T*>(neighbors.pairs);
-    int32_t* d_shifts = reinterpret_cast<int32_t*>(neighbors.shifts);
-    T* d_distances = reinterpret_cast<T*>(neighbors.distances);
-    T* d_vectors = reinterpret_cast<T*>(neighbors.vectors);
-    size_t* d_pair_counter = neighbors.length; // TODO need to make sure this is allocated on device
+    const double* d_positions = reinterpret_cast<const double*>(points);
+    const double* d_cell = reinterpret_cast<const double*>(cell);
 
-    
-    // Configure kernel launch
-    dim3 blockDim(WARP_SIZE, NWARPS); // 32 threads per warp, NWARPS warps per block
-    dim3 gridDim((n_points + NWARPS - 1) / NWARPS); // enough blocks to cover all atoms
+    unsigned long* d_edge_indices =  reinterpret_cast<unsigned long*>(neighbors.pairs);
+    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
+    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
+    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
+    unsigned long* d_pair_counter = neighbors.length_cu;
 
-    compute_neighbours_cell_device<T><<<gridDim, blockDim, 0, cuda_stream>>>(
-        d_positions,
-        d_cell,
-        static_cast<int>(n_points),
-        options.cutoff,
-        d_pair_counter,
-        d_edge_indices,
-        d_shifts
-        /* full_list = true */ 
-    );
+    vesin::cuda::compute_simple_neighbourlist<double>(
+                                 d_positions,
+                                 d_cell, 
+                                 n_points,
+                                 (double) options.cutoff,
+                                 d_pair_counter,
+                                 d_edge_indices, 
+                                 d_shifts);
+
 }

@@ -12,7 +12,7 @@ void free_neighbors(VesinNeighborList& neighbors);
 
 void neighbors(
     const double (*points)[3],
-    size_t n_points,
+    long n_points,
     const double cell[3][3],
     VesinOptions options,
     VesinNeighborList& neighbors

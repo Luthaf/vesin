@@ -125,8 +125,5 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
         // unknown device
         std::cerr << "unknown device " << neighbors->device << " when freeing memory" << std::endl;
     }
-
-    if (neighbors->vesin_manage_memory) {
-        std::memset(neighbors, 0, sizeof(VesinNeighborList));
-    }
+    std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

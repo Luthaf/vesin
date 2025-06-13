@@ -4,6 +4,7 @@
 
 #include <vesin.h>
 
+#include "vesin_cuda.hpp"
 #include "vesin_torch.hpp"
 
 using namespace vesin_torch;
@@ -70,8 +71,6 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     std::string quantities,
     bool copy
 ) {
-    // check input data
-    // for CUDA it's fine if the data is not on the same device as cell, but for CPU it must be
     if (points.device() != box.device()) {
         C10_THROW_ERROR(ValueError,
             "expected `points` and `box` to have the same device, got " +
@@ -176,11 +175,24 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         );
     }
 
+    auto length_cu = torch::Tensor();
+    
+    if (device == VesinCUDA) {
+        length_cu = torch::from_blob(
+            data_->length_cu,
+            {1},
+            size_t_options
+        ).to(torch::kInt64);
+    }
+
+    int64_t length = device == VesinCUDA ? length_cu.item<int64_t>() : static_cast<int64_t>(data_->length);
+
     auto pairs = torch::from_blob(
         data_->pairs,
-        {static_cast<int64_t>(data_->length), 2},
+        {length, 2},
         size_t_options
     ).to(torch::kInt64);
+
 
     auto shifts = torch::Tensor();
     if (data_->shifts != nullptr) {
@@ -190,7 +202,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
         shifts = torch::from_blob(
             data_->shifts,
-            {static_cast<int64_t>(data_->length), 3},
+            {length, 3},
             int32_options
         );
 
@@ -207,7 +219,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     if (data_->distances != nullptr) {
         distances = torch::from_blob(
             data_->distances,
-            {static_cast<int64_t>(data_->length)},
+            {length},
             double_options
         );
 
@@ -220,7 +232,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     if (data_->vectors != nullptr) {
         vectors = torch::from_blob(
             data_->vectors,
-            {static_cast<int64_t>(data_->length), 3},
+            {length, 3},
             double_options
         );
 

@@ -11,6 +11,7 @@ target_link_libraries(vesin_torch torch)
 target_include_directories(vesin_torch PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cuda/include>
     $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 

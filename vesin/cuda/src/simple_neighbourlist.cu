@@ -1,7 +1,54 @@
+#include "simple_neighbourlist.cuh"
+#include <cuda_runtime.h>
+
 #define NWARPS 4
+#define WARP_SIZE 32
+
 #ifndef MAX_NEIGHBOURS_PER_ATOM
 #define MAX_NEIGHBOURS_PER_ATOM 1024 // Make configurable
 #endif
+
+__device__ inline long atomicAdd(long *address, long val) {
+  unsigned long long *address_as_ull =
+      reinterpret_cast<unsigned long long *>(address);
+  unsigned long long old = *address_as_ull, assumed;
+
+  do {
+    assumed = old;
+    old = atomicCAS(
+        address_as_ull, assumed,
+        static_cast<unsigned long long>(val + static_cast<long>(assumed)));
+  } while (assumed != old);
+
+  return static_cast<long>(old);
+}
+
+__device__ inline unsigned long atomicAdd(unsigned long *address,
+                                          unsigned long val) {
+  unsigned long long *address_as_ull =
+      reinterpret_cast<unsigned long long *>(address);
+  unsigned long long old = *address_as_ull, assumed;
+
+  do {
+    assumed = old;
+    old = atomicCAS(address_as_ull, assumed,
+                    static_cast<unsigned long long>(
+                        val + static_cast<unsigned long>(assumed)));
+  } while (assumed != old);
+
+  return static_cast<unsigned long>(old);
+}
+
+// Float3 subtraction
+__device__ inline float3 operator-(const float3 &a, const float3 &b) {
+  return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+// Double3 subtraction
+__device__ inline double3 operator-(const double3 &a, const double3 &b) {
+  return make_double3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
 template <typename scalar_t> struct Vector3IO;
 
 /* template structure for dealing with float3, double3 vectorized types */
@@ -80,8 +127,11 @@ __device__ void invert_cell_matrix(const scalar_t *cell, scalar_t *inv_cell) {
 
 template <typename scalar_t>
 __device__ void
-apply_periodic_boundary(Vector3IO<scalar_t>::vec_t &displacement,
+apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t &displacement,
                         const scalar_t *cell, const scalar_t *inv_cell) {
+
+  using vec_t = typename Vector3IO<scalar_t>::vec_t;
+
   vec_t fractional;
   vec_t cartesian_wrapped;
 
@@ -107,15 +157,15 @@ apply_periodic_boundary(Vector3IO<scalar_t>::vec_t &displacement,
 }
 
 template <typename scalar_t>
-__device__ void compute_neighbours_full_impl(
-    const scalar_t *positions, const scalar_t *cell, const int nnodes,
-    const scalar_t cutoff, int *__restrict__ pair_counter,
-    int *__restrict__ edge_indices, scalar_t *__restrict__ shifts) {
+__global__ void compute_neighbours_full_impl(
+    const scalar_t *__restrict__ positions, const scalar_t *cell,
+    const long nnodes, const scalar_t cutoff, unsigned long *pair_counter,
+    unsigned long *__restrict__ edge_indices, int *__restrict__ shifts) {
 
   using vec_t = typename Vector3IO<scalar_t>::vec_t;
 
-  __shared__ int edge_pair_shared[NWARPS];
-  __shared__ int edge_indices_shared[MAX_NEIGHBOURS_PER_ATOM * NWARPS];
+  __shared__ unsigned long edge_pair_shared[NWARPS];
+  __shared__ long edge_indices_shared[MAX_NEIGHBOURS_PER_ATOM * NWARPS];
   __shared__ scalar_t inv_cell[9];
 
   const int warp_id = threadIdx.y;
@@ -134,17 +184,17 @@ __device__ void compute_neighbours_full_impl(
   if (node_index >= nnodes)
     return;
 
-  vec_t *ri = reinterpret_cast<vec_t *>(&positions[node_index]);
+  vec_t ri = *reinterpret_cast<const vec_t *>(&positions[node_index * 3]);
 
   for (int j = thread_in_warp; j < nnodes; j += blockDim.x) {
-    vec_t rj = reinterpret_cast<vec_t *>(&positions[j * 3]);
+    vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
 
     vec_t disp = ri - rj;
 
     if (cell != nullptr)
       apply_periodic_boundary<scalar_t>(disp, cell, inv_cell);
 
-    scalar_t dist2 = dot(disp, disp);
+    scalar_t dist2 = dot<scalar_t>(disp, disp);
 
     if (dist2 < cutoff2 && dist2 > scalar_t(0.0)) {
       int edge_local = atomicAdd(&edge_pair_shared[warp_id], 1);
@@ -158,7 +208,7 @@ __device__ void compute_neighbours_full_impl(
 
   int iglobal = 0;
   if (thread_in_warp == 0) {
-    iglobal = atomicAdd(&pair_counter[0], edge_pair_shared[warp_id]);
+    iglobal = atomicAdd(pair_counter, (long)edge_pair_shared[warp_id]);
   }
 
   iglobal = __shfl_sync(0xFFFFFFFF, iglobal, 0); // Broadcast iglobal
@@ -171,7 +221,7 @@ __device__ void compute_neighbours_full_impl(
     edge_indices[(nnodes * MAX_NEIGHBOURS_PER_ATOM) + iglobal + j] =
         edge_idx; // sender
 
-    vec_t rj = reinterpret_cast<vec_t *>(&positions[edge_idx * 3]);
+    vec_t rj = *reinterpret_cast<const vec_t *>(&positions[edge_idx * 3]);
     vec_t disp = ri - rj;
 
     if (cell != nullptr)
@@ -182,16 +232,26 @@ __device__ void compute_neighbours_full_impl(
 }
 
 template <typename scalar_t>
-__global__ void
-compute_neighbours_cell_device(const scalar_t *positions, const scalar_t *cell,
-                               int nnodes, scalar_t cutoff, int *pair_counter,
-                               int *edge_indices, scalar_t *shifts,
-                               bool full_list) {
-  if (full_list) {
-    compute_neighbours_full_impl(positions, cell, nnodes, cutoff, pair_counter,
-                                 edge_indices, shifts);
-  } else {
-    /*compute_neighbours_half_impl(positions, cell, nnodes, cutoff,
-       pair_counter, edge_indices, shifts); */
-  }
+void vesin::cuda::compute_simple_neighbourlist(const scalar_t *positions,
+                                               const scalar_t *cell,
+                                               long nnodes, scalar_t cutoff,
+                                               unsigned long *pair_counter,
+                                               unsigned long *edge_indices,
+                                               int *shifts) {
+  // Configure kernel launch
+  dim3 blockDim(WARP_SIZE,
+                NWARPS); // 32 threads per warp, NWARPS warps per block
+  dim3 gridDim((nnodes + NWARPS - 1) /
+               NWARPS); // enough blocks to cover all atoms
+
+  compute_neighbours_full_impl<double>
+      <<<gridDim, blockDim>>>(positions, cell, static_cast<int>(nnodes), cutoff,
+                              pair_counter, edge_indices, shifts
+                              /* full_list = true */
+      );
 }
+
+// Explicit instantiation for double
+template void vesin::cuda::compute_simple_neighbourlist<double>(
+    const double *positions, const double *cell, long nnodes, double cutoff,
+    unsigned long *pair_counter, unsigned long *edge_indices, int *shifts);

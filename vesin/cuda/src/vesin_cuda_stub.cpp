@@ -17,8 +17,7 @@ void neighbors(
     size_t n_points,
     const double cell[3][3],            // [3][3] on device
     VesinOptions options,
-    VesinNeighborList& neighbors,   // outputs already allocated on device
-    int cuda_stream
+    VesinNeighborList& neighbors
 ) {
     throw std::runtime_error("vesin was not compiled with CUDA support");
 }

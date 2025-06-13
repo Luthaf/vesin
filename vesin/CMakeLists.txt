@@ -53,8 +53,9 @@ endif()
 list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/vesin_cuda.hpp)
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_dynamic_cuda.hpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_dynamic_linker.hpp)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_kernel_cache.hpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/simple_neighbourlist.cu)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda.cpp)
 else()
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda_stub.cpp)
@@ -62,6 +63,10 @@ endif()
 
 
 add_library(vesin ${VESIN_SOURCES})
+
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+endif()
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

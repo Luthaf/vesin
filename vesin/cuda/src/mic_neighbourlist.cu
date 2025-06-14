@@ -208,7 +208,7 @@ __global__ void compute_mic_neighbours_full_impl(
     vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
 
     vec_t disp = ri - rj;
-    int3 shift = make_int3(0, 0, 0); // Initialize shift
+    int3 shift = make_int3(0, 0, 0);
     if (cell != nullptr)
       apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
 

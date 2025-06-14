@@ -86,7 +86,7 @@ extern "C" int vesin_neighbors(
             vesin::cuda::neighbors(
                 points,
                 n_points,
-                &box[0],
+                periodic ? box : nullptr,
                 options,
                 *neighbors
             );

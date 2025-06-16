@@ -4,6 +4,7 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <cassert>
+#include <iostream>
 
 using namespace vesin::cuda;
 
@@ -44,12 +45,12 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
     neighbors = {};
 }
 
-void ensure_neighborlist_capacity(VesinNeighborList& neighbors, size_t nnodes) {
+bool update_neighbourlist_capacity(VesinNeighborList& neighbors, size_t nnodes) {
     
     assert(neighbors.device == VesinCUDA);
 
     if (neighbors.capacity_cu >= nnodes)
-        return;
+        return false;
 
     // Free old if needed
     if (neighbors.pairs)     cudaFree(neighbors.pairs);
@@ -69,19 +70,25 @@ void ensure_neighborlist_capacity(VesinNeighborList& neighbors, size_t nnodes) {
     cudaMemset(neighbors.length_cu, 0, sizeof(size_t));
 
     neighbors.capacity_cu = (size_t) 1.2 * nnodes;
+
+    return true;
 }
 
 void vesin::cuda::neighbors(
-    const double (*points)[3],          // [n_points][3] on device
+    const double (*points)[3],
     long n_points,
-    const double cell[3][3],            // [3][3] on device
+    const double cell[3][3],
     VesinOptions options,
-    VesinNeighborList& neighbors   // outputs already allocated on device
+    VesinNeighborList& neighbors
 ) {
 
     assert(neighbors.device == VesinCUDA);
+    assert(!neighbors.sort && "Sorting is not supported in CUDA version of Vesin");
 
-    ensure_neighborlist_capacity(neighbors, n_points * VESIN_CUDA_MAX_NEDGES_PER_NODE);
+    if (!update_neighbourlist_capacity(neighbors, n_points * VESIN_CUDA_MAX_NEDGES_PER_NODE)) {
+        // If we didn't reallocate, we need to reset the length
+        cudaMemset(neighbors.length_cu, 0, sizeof(size_t));
+    }  
 
     const double* d_positions = reinterpret_cast<const double*>(points);
     const double* d_cell = reinterpret_cast<const double*>(cell);

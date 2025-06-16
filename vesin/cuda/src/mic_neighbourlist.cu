@@ -139,7 +139,6 @@ apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t &displacement,
                         const scalar_t *inv_cell) {
   using vec_t = typename Vector3IO<scalar_t>::vec_t;
 
-  // 1) project into fractional coords
   vec_t frac;
   frac.x = displacement.x * inv_cell[0] + displacement.y * inv_cell[1] +
            displacement.z * inv_cell[2];
@@ -148,7 +147,6 @@ apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t &displacement,
   frac.z = displacement.x * inv_cell[6] + displacement.y * inv_cell[7] +
            displacement.z * inv_cell[8];
 
-  // 2) determine how many whole cells we cross in each direction
   int sx = static_cast<int>(round(frac.x));
   int sy = static_cast<int>(round(frac.y));
   int sz = static_cast<int>(round(frac.z));
@@ -157,23 +155,20 @@ apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t &displacement,
   shift.y = sy;
   shift.z = sz;
 
-  // 3) wrap fractional back into [-0.5,0.5] by subtracting the integer part
   frac.x -= sx;
   frac.y -= sy;
   frac.z -= sz;
 
-  // 4) reconstruct the Cartesian displacement inside the primary cell
   vec_t wrapped;
   wrapped.x = frac.x * cell[0] + frac.y * cell[3] + frac.z * cell[6];
   wrapped.y = frac.x * cell[1] + frac.y * cell[4] + frac.z * cell[7];
   wrapped.z = frac.x * cell[2] + frac.y * cell[5] + frac.z * cell[8];
 
-  // 5) overwrite the input
   displacement = wrapped;
 }
 
 template <typename scalar_t>
-__global__ void compute_mic_neighbours_full_impl(
+__global__ void compute_mic_neighbours_full_shared_impl(
     const scalar_t *__restrict__ positions, const scalar_t *cell, long nnodes,
     scalar_t cutoff, unsigned long *pair_counter,
     unsigned long *__restrict__ edge_indices, int *__restrict__ shifts,
@@ -235,9 +230,8 @@ __global__ void compute_mic_neighbours_full_impl(
   for (int j = thread_in_warp; j < num_edges; j += WARP_SIZE) {
     int edge_idx = edge_indices_shared[warp_id * MAX_NEIGHBOURS_PER_ATOM + j];
 
-    edge_indices[iglobal + j] = node_index; // receiver
-    edge_indices[(nnodes * MAX_NEIGHBOURS_PER_ATOM) + iglobal + j] =
-        edge_idx; // sender
+    edge_indices[(iglobal + j) * 2 + 0] = node_index; // receiver
+    edge_indices[(iglobal + j) * 2 + 1] = edge_idx;   // receiver
 
     vec_t rj = *reinterpret_cast<const vec_t *>(&positions[edge_idx * 3]);
     vec_t disp = ri - rj;
@@ -263,19 +257,170 @@ __global__ void compute_mic_neighbours_full_impl(
 }
 
 template <typename scalar_t>
+__global__ void compute_mic_neighbours_full_impl(
+    const scalar_t *__restrict__ positions, const scalar_t *cell, long nnodes,
+    scalar_t cutoff, unsigned long *pair_counter,
+    unsigned long *__restrict__ edge_indices, int *__restrict__ shifts,
+    scalar_t *__restrict__ distances, scalar_t *__restrict__ vectors,
+    bool return_shifts, bool return_distances, bool return_vectors) {
+
+  using vec_t = typename Vector3IO<scalar_t>::vec_t;
+
+  __shared__ scalar_t inv_cell[9];
+  const int warp_id = threadIdx.x / WARP_SIZE;
+  const int thread_id = threadIdx.x % WARP_SIZE;
+
+  const int node_index = blockIdx.x * NWARPS + warp_id;
+  const scalar_t cutoff2 = cutoff * cutoff;
+
+  if (cell != nullptr && thread_id == 0 && warp_id == 0)
+    invert_cell_matrix(cell, inv_cell);
+
+  // Ensure inv_cell is ready
+  __syncthreads();
+
+  if (node_index >= nnodes)
+    return;
+
+  vec_t ri = *reinterpret_cast<const vec_t *>(&positions[node_index * 3]);
+
+  for (long j = thread_id; j < nnodes; j += WARP_SIZE) {
+    vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
+
+    vec_t disp = ri - rj;
+    int3 shift = make_int3(0, 0, 0);
+    if (cell != nullptr)
+      apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
+
+    scalar_t dist2 = dot(disp, disp);
+    bool is_valid = (dist2 < cutoff2 && dist2 > scalar_t(0.0));
+
+    unsigned int mask = __activemask();
+    unsigned int ballot = __ballot_sync(mask, is_valid);
+    int local_offset = __popc(ballot & ((1U << thread_id) - 1));
+    int warp_total = __popc(ballot);
+
+    int base_edge_index = -1;
+    if (is_valid && local_offset == 0) {
+      base_edge_index = atomicAdd(&pair_counter[0], warp_total);
+    }
+
+    base_edge_index = __shfl_sync(mask, base_edge_index, __ffs(ballot) - 1);
+
+    if (is_valid) {
+      long edge_index = base_edge_index + local_offset;
+      edge_indices[edge_index * 2 + 0] = node_index;
+      edge_indices[edge_index * 2 + 1] = j;
+
+      if (return_shifts) {
+        reinterpret_cast<int3 &>(shifts[edge_index * 3]) = shift;
+      }
+      if (return_vectors) {
+        reinterpret_cast<vec_t &>(vectors[edge_index * 3]) = disp;
+      }
+      if (return_distances) {
+        distances[edge_index] = sqrt(dist2);
+      }
+    }
+  }
+}
+
+template <typename scalar_t>
+__global__ void compute_mic_neighbours_half_impl(
+    const scalar_t *__restrict__ positions, const scalar_t *cell, long nnodes,
+    scalar_t cutoff, unsigned long *pair_counter,
+    unsigned long *__restrict__ edge_indices, int *__restrict__ shifts,
+    scalar_t *__restrict__ distances, scalar_t *__restrict__ vectors,
+    bool return_shifts, bool return_distances, bool return_vectors) {
+
+  using vec_t = typename Vector3IO<scalar_t>::vec_t;
+
+  const long index = blockIdx.x * blockDim.x + threadIdx.x;
+  const long num_all_pairs = nnodes * (nnodes - 1) / 2;
+
+  if (index >= num_all_pairs)
+    return;
+
+  __shared__ scalar_t inv_cell[9];
+
+  const scalar_t cutoff2 = cutoff * cutoff;
+
+  if (cell != nullptr && threadIdx.x == 0 && threadIdx.y == 0)
+    invert_cell_matrix(cell, inv_cell);
+
+  // Ensure inv_cell is ready
+  __syncthreads();
+
+  long row = floor((sqrtf(8 * index + 1) + 1) / 2);
+  if (row * (row - 1) > 2 * index)
+    row--;
+  const long column = index - row * (row - 1) / 2;
+
+  vec_t ri = *reinterpret_cast<const vec_t *>(&positions[column * 3]);
+  vec_t rj = *reinterpret_cast<const vec_t *>(&positions[row * 3]);
+
+  vec_t disp = ri - rj;
+  int3 shift = make_int3(0, 0, 0);
+  if (cell != nullptr)
+    apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
+
+  scalar_t dist2 = dot(disp, disp);
+  bool is_valid = (dist2 < cutoff2 && dist2 > scalar_t(0.0));
+
+  int warp_id = threadIdx.x / WARP_SIZE;
+  int warp_rank = threadIdx.x % WARP_SIZE;
+
+  unsigned int mask = __activemask();
+  unsigned int ballot = __ballot_sync(mask, is_valid);
+  int local_offset = __popc(ballot & ((1U << warp_rank) - 1));
+  int warp_total = __popc(ballot);
+
+  int base_edge_index = -1;
+  if (is_valid && local_offset == 0) {
+    base_edge_index = atomicAdd(&pair_counter[0], warp_total);
+  }
+
+  base_edge_index = __shfl_sync(mask, base_edge_index, __ffs(ballot) - 1);
+
+  if (is_valid) {
+    long edge_index = base_edge_index + local_offset;
+    edge_indices[edge_index * 2 + 0] = column;
+    edge_indices[edge_index * 2 + 1] = row;
+
+    if (return_shifts) {
+      reinterpret_cast<int3 &>(shifts[edge_index * 3]) = shift;
+    }
+    if (return_vectors) {
+      reinterpret_cast<vec_t &>(vectors[edge_index * 3]) = disp;
+    }
+    if (return_distances) {
+      distances[edge_index] = sqrt(dist2);
+    }
+  }
+}
+
+template <typename scalar_t>
 void vesin::cuda::compute_mic_neighbourlist(
     const scalar_t *positions, const scalar_t *cell, long nnodes,
     scalar_t cutoff, unsigned long *pair_counter, unsigned long *edge_indices,
     int *shifts, scalar_t *distances, scalar_t *vectors, bool return_shifts,
     bool return_distances, bool return_vectors, bool full) {
 
-  dim3 blockDim(WARP_SIZE, NWARPS);
-  dim3 gridDim((nnodes + NWARPS - 1) / NWARPS);
+  dim3 blockDim(WARP_SIZE * NWARPS);
 
-  compute_mic_neighbours_full_impl<scalar_t><<<gridDim, blockDim>>>(
-      positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
-      distances, vectors, // pass them through
-      return_shifts, return_distances, return_vectors, full);
+  if (full) {
+    dim3 gridDim(max((nnodes + NWARPS - 1) / NWARPS, 1l));
+    compute_mic_neighbours_full_impl<scalar_t><<<gridDim, blockDim>>>(
+        positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
+        distances, vectors, return_shifts, return_distances, return_vectors);
+  } else {
+    const long num_all_pairs = nnodes * (nnodes - 1) / 2;
+    dim3 gridDim(
+        max((num_all_pairs + WARP_SIZE * NWARPS - 1) / WARP_SIZE * NWARPS, 1l));
+    compute_mic_neighbours_half_impl<scalar_t><<<gridDim, blockDim>>>(
+        positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
+        distances, vectors, return_shifts, return_distances, return_vectors);
+  }
 }
 
 // Explicit instantiation for double

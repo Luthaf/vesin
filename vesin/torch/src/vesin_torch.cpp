@@ -193,7 +193,6 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         size_t_options
     ).to(torch::kInt64);
 
-
     auto shifts = torch::Tensor();
     if (data_->shifts != nullptr) {
         auto int32_options = torch::TensorOptions()

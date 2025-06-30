@@ -1,5 +1,7 @@
 #include "mic_neighbourlist.cuh"
+#include <cstdio>
 #include <cuda_runtime.h>
+#include <iostream>
 
 #define NWARPS 4
 #define WARP_SIZE 32
@@ -168,101 +170,11 @@ apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t &displacement,
 }
 
 template <typename scalar_t>
-__global__ void compute_mic_neighbours_full_shared_impl(
-    const scalar_t *__restrict__ positions, const scalar_t *cell, long nnodes,
-    scalar_t cutoff, unsigned long *pair_counter,
-    unsigned long *__restrict__ edge_indices, int *__restrict__ shifts,
-    scalar_t *__restrict__ distances, scalar_t *__restrict__ vectors,
-    bool return_shifts, bool return_distances, bool return_vectors, bool full) {
-
-  using vec_t = typename Vector3IO<scalar_t>::vec_t;
-
-  __shared__ unsigned long edge_pair_shared[NWARPS];
-  __shared__ long edge_indices_shared[MAX_NEIGHBOURS_PER_ATOM * NWARPS];
-  __shared__ scalar_t inv_cell[9];
-
-  const int warp_id = threadIdx.y;
-  const int thread_in_warp = threadIdx.x;
-  const int node_index = blockIdx.x * blockDim.y + warp_id;
-  const scalar_t cutoff2 = cutoff * cutoff;
-
-  if (thread_in_warp == 0)
-    edge_pair_shared[warp_id] = 0;
-
-  if (cell != nullptr && thread_in_warp == 0 && warp_id == 0)
-    invert_cell_matrix(cell, inv_cell);
-
-  __syncthreads(); // Ensure inv_cell is ready
-
-  if (node_index >= nnodes)
-    return;
-
-  vec_t ri = *reinterpret_cast<const vec_t *>(&positions[node_index * 3]);
-
-  for (int j = thread_in_warp; j < nnodes; j += blockDim.x) {
-    vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
-
-    vec_t disp = ri - rj;
-    int3 shift = make_int3(0, 0, 0);
-    if (cell != nullptr)
-      apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
-
-    scalar_t dist2 = dot(disp, disp);
-
-    if (dist2 < cutoff2 && dist2 > scalar_t(0.0)) {
-      int edge_local = atomicAdd(&edge_pair_shared[warp_id], 1);
-      if (edge_local < MAX_NEIGHBOURS_PER_ATOM) {
-        edge_indices_shared[warp_id * MAX_NEIGHBOURS_PER_ATOM + edge_local] = j;
-      }
-    }
-  }
-
-  __syncwarp();
-
-  int iglobal = 0;
-  if (thread_in_warp == 0) {
-    iglobal = atomicAdd(pair_counter, (long)edge_pair_shared[warp_id]);
-  }
-
-  iglobal = __shfl_sync(0xFFFFFFFF, iglobal, 0); // Broadcast iglobal
-
-  int num_edges = edge_pair_shared[warp_id];
-  for (int j = thread_in_warp; j < num_edges; j += WARP_SIZE) {
-    int edge_idx = edge_indices_shared[warp_id * MAX_NEIGHBOURS_PER_ATOM + j];
-
-    edge_indices[(iglobal + j) * 2 + 0] = node_index; // receiver
-    edge_indices[(iglobal + j) * 2 + 1] = edge_idx;   // receiver
-
-    vec_t rj = *reinterpret_cast<const vec_t *>(&positions[edge_idx * 3]);
-    vec_t disp = ri - rj;
-
-    scalar_t dist2 = dot(disp, disp);
-    int3 shift = make_int3(0, 0, 0);
-
-    if (cell != nullptr)
-      apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
-
-    if (return_shifts) {
-      reinterpret_cast<int3 &>(shifts[(iglobal + j) * 3]) = shift;
-    }
-
-    if (return_vectors) {
-      reinterpret_cast<vec_t &>(vectors[(iglobal + j) * 3]) = disp;
-    }
-
-    if (return_distances) {
-      distances[iglobal + j] = sqrt(dist2);
-    }
-  }
-}
-
-template <typename scalar_t>
 __global__ void compute_mic_neighbours_full_impl(
-    const scalar_t *__restrict__ positions, const scalar_t *cell, long nnodes,
-    scalar_t cutoff, unsigned long *pair_counter,
-    unsigned long *__restrict__ edge_indices, int *__restrict__ shifts,
-    scalar_t *__restrict__ distances, scalar_t *__restrict__ vectors,
-    bool return_shifts, bool return_distances, bool return_vectors) {
+    const scalar_t *positions, const scalar_t *cell, long nnodes,
+    scalar_t cutoff, unsigned long *pair_counter, unsigned long *edge_indices,
+    int *shifts, scalar_t *distances, scalar_t *vectors, bool return_shifts,
+    bool return_distances, bool return_vectors) {
 
   using vec_t = typename Vector3IO<scalar_t>::vec_t;
 
@@ -281,11 +193,16 @@ __global__ void compute_mic_neighbours_full_impl(
 
   if (node_index >= nnodes)
     return;
+  vec_t ri = Vector3IO<scalar_t>::pack(positions[node_index * 3 + 0],
+                                       positions[node_index * 3 + 1],
+                                       positions[node_index * 3 + 2]);
 
-  vec_t ri = *reinterpret_cast<const vec_t *>(&positions[node_index * 3]);
+  // vec_t ri = *reinterpret_cast<const vec_t *>(&positions[node_index * 3]);
 
   for (long j = thread_id; j < nnodes; j += WARP_SIZE) {
-    vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
+    vec_t rj = Vector3IO<scalar_t>::pack(
+        positions[j * 3 + 0], positions[j * 3 + 1], positions[j * 3 + 2]);
+    // vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
 
     vec_t disp = ri - rj;
     int3 shift = make_int3(0, 0, 0);
@@ -327,11 +244,10 @@ __global__ void compute_mic_neighbours_full_impl(
 
 template <typename scalar_t>
 __global__ void compute_mic_neighbours_half_impl(
-    const scalar_t *__restrict__ positions, const scalar_t *cell, long nnodes,
-    scalar_t cutoff, unsigned long *pair_counter,
-    unsigned long *__restrict__ edge_indices, int *__restrict__ shifts,
-    scalar_t *__restrict__ distances, scalar_t *__restrict__ vectors,
-    bool return_shifts, bool return_distances, bool return_vectors) {
+    const scalar_t *positions, const scalar_t *cell, long nnodes,
+    scalar_t cutoff, unsigned long *pair_counter, unsigned long *edge_indices,
+    int *shifts, scalar_t *distances, scalar_t *vectors, bool return_shifts,
+    bool return_distances, bool return_vectors) {
 
   using vec_t = typename Vector3IO<scalar_t>::vec_t;
 
@@ -345,7 +261,7 @@ __global__ void compute_mic_neighbours_half_impl(
 
   const scalar_t cutoff2 = cutoff * cutoff;
 
-  if (cell != nullptr && threadIdx.x == 0 && threadIdx.y == 0)
+  if (cell != nullptr && threadIdx.x == 0)
     invert_cell_matrix(cell, inv_cell);
 
   // Ensure inv_cell is ready
@@ -356,8 +272,14 @@ __global__ void compute_mic_neighbours_half_impl(
     row--;
   const long column = index - row * (row - 1) / 2;
 
-  vec_t ri = *reinterpret_cast<const vec_t *>(&positions[column * 3]);
-  vec_t rj = *reinterpret_cast<const vec_t *>(&positions[row * 3]);
+  vec_t ri = Vector3IO<scalar_t>::pack(positions[column * 3 + 0],
+                                       positions[column * 3 + 1],
+                                       positions[column * 3 + 2]);
+  vec_t rj = Vector3IO<scalar_t>::pack(
+      positions[row * 3 + 0], positions[row * 3 + 1], positions[row * 3 + 2]);
+
+  // vec_t ri = *reinterpret_cast<const vec_t *>(&positions[column * 3]);
+  // vec_t rj = *reinterpret_cast<const vec_t *>(&positions[row * 3]);
 
   vec_t disp = ri - rj;
   int3 shift = make_int3(0, 0, 0);
@@ -388,14 +310,38 @@ __global__ void compute_mic_neighbours_half_impl(
     edge_indices[edge_index * 2 + 1] = row;
 
     if (return_shifts) {
-      reinterpret_cast<int3 &>(shifts[edge_index * 3]) = shift;
+      int *sh_ptr = &shifts[edge_index * 3];
+      sh_ptr[0] = shift.x;
+      sh_ptr[1] = shift.y;
+      sh_ptr[2] = shift.z;
+      // reinterpret_cast<int3 &>(shifts[edge_index * 3]) = shift;
     }
     if (return_vectors) {
-      reinterpret_cast<vec_t &>(vectors[edge_index * 3]) = disp;
+      scalar_t *vec_ptr = &vectors[edge_index * 3];
+      vec_ptr[0] = disp.x;
+      vec_ptr[1] = disp.y;
+      vec_ptr[2] = disp.z;
+      // reinterpret_cast<vec_t &>(vectors[edge_index * 3]) = disp;
     }
     if (return_distances) {
       distances[edge_index] = sqrt(dist2);
     }
+  }
+}
+
+static void ensure_is_device_pointer(const void *p, const char *name) {
+  cudaPointerAttributes attr;
+  cudaError_t err = cudaPointerGetAttributes(&attr, p);
+  if (err != cudaSuccess) {
+    throw std::runtime_error(
+        std::string("cudaPointerGetAttributes failed for ") + name + ": " +
+        cudaGetErrorString(err));
+  }
+
+  if (attr.type != cudaMemoryTypeDevice) {
+    throw std::runtime_error(
+        std::string(name) +
+        " is not a device pointer (type=" + std::to_string(attr.type) + ")");
   }
 }
 
@@ -408,18 +354,34 @@ void vesin::cuda::compute_mic_neighbourlist(
 
   dim3 blockDim(WARP_SIZE * NWARPS);
 
+  // --- BEGIN DEVICE-PTR CHECKS ---
+  ensure_is_device_pointer(positions, "points");
+  ensure_is_device_pointer(cell, "cell");
+  ensure_is_device_pointer(edge_indices, "pairs");
+  ensure_is_device_pointer(shifts, "shifts");
+  ensure_is_device_pointer(distances, "distances");
+  ensure_is_device_pointer(vectors, "vectors");
+  ensure_is_device_pointer(pair_counter, "length_ptr");
+  // --- END DEVICE-PTR CHECKS ---
   if (full) {
-    dim3 gridDim(max((nnodes + NWARPS - 1) / NWARPS, 1l));
+    dim3 gridDim(max((int)(nnodes + NWARPS - 1) / NWARPS, 1));
     compute_mic_neighbours_full_impl<scalar_t><<<gridDim, blockDim>>>(
         positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
         distances, vectors, return_shifts, return_distances, return_vectors);
   } else {
     const long num_all_pairs = nnodes * (nnodes - 1) / 2;
-    dim3 gridDim(
-        max((num_all_pairs + WARP_SIZE * NWARPS - 1) / WARP_SIZE * NWARPS, 1l));
+    int threads_per_block = WARP_SIZE * NWARPS;
+    int num_blocks =
+        (num_all_pairs + threads_per_block - 1) / threads_per_block;
+    dim3 gridDim(max(num_blocks, 1));
+
     compute_mic_neighbours_half_impl<scalar_t><<<gridDim, blockDim>>>(
         positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
         distances, vectors, return_shifts, return_distances, return_vectors);
+  }
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(cudaGetErrorString(err));
   }
 }
 

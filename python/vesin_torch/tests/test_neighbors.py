@@ -33,7 +33,7 @@ def run_check_neighbors(
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"])
-@pytest.mark.parametrize("full_list", [True, False])
+@pytest.mark.parametrize("full_list", [False, True])
 def test_large_box_small_cutoff(device, full_list):
     points = torch.tensor([
         [0.0, 0.0, 0.0],
@@ -52,8 +52,8 @@ def test_large_box_small_cutoff(device, full_list):
 
     calculator = NeighborList(cutoff=2.1, full_list=full_list)
 
-    quantities = "ijd"  # i,j for indices, d for distances
-    i, j, dists = calculator.compute(
+    quantities = "ijdS"  # i,j for indices, d for distances
+    i, j, dists, shifts = calculator.compute(
         points, box, periodic=True, quantities=quantities)
 
     pairs = torch.stack((i, j), dim=1)

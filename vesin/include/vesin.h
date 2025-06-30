@@ -88,9 +88,7 @@ struct VESIN_API VesinNeighborList {
         pairs(nullptr),
         shifts(nullptr),
         distances(nullptr),
-        vectors(nullptr),
-        capacity_cu(0),
-        length_cu(nullptr)
+        vectors(nullptr)
     {}
 #endif
 
@@ -114,10 +112,6 @@ struct VESIN_API VesinNeighborList {
     double (*vectors)[3];
 
     // TODO: custom memory allocators?
-
-    // VesinCUDA specific
-    size_t capacity_cu; /// Capacity of the neighbor list, i.e. how many nnodes can be stored
-    unsigned long * length_cu; /// Pointer to the length of the neighbor list, used for CUDA calculations
 };
 
 /// Free all allocated memory inside a `VesinNeighborList`, according the it's

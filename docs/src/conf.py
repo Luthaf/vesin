@@ -7,6 +7,7 @@ from datetime import datetime
 
 
 os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
+os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.abspath("."))
@@ -66,7 +67,8 @@ cpp_private_member_specifier = ""
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "metatensor": ("https://docs.metatensor.org/latest", None),
+    "metatensor": ("https://docs.metatensor.org/latest/", None),
+    "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "ase": ("https://wiki.fysik.dtu.dk/ase/", None),

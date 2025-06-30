@@ -24,10 +24,10 @@ public:
   /// @param neighbors Pointer to a VesinNeighborList to get a manager for.
   /// @return Reference to the corresponding CudaPtrManager.
   static CudaPtrManager &get(VesinNeighborList *neighbors) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex());
 
     // Lazily create a CudaPtrManager if it doesn't exist yet.
-    auto &manager_ptr = registry_[neighbors];
+    auto &manager_ptr = registry()[neighbors];
     if (!manager_ptr) {
       manager_ptr = std::make_unique<CudaPtrManager>(neighbors);
     }
@@ -41,19 +41,26 @@ public:
   /// @param neighbors Pointer to the VesinNeighborList whose manager should be
   /// removed.
   static void erase(VesinNeighborList *neighbors) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    registry_.erase(neighbors);
+    std::lock_guard<std::mutex> lock(mutex());
+    registry().erase(neighbors);
   }
 
 private:
   /// @brief Registry mapping VesinNeighborList pointers to their corresponding
   /// CudaPtrManagers.
-  static inline std::unordered_map<VesinNeighborList *,
-                                   std::unique_ptr<CudaPtrManager>>
-      registry_;
+  static std::unordered_map<VesinNeighborList *,
+                            std::unique_ptr<CudaPtrManager>> &
+  registry() {
+    static std::unordered_map<VesinNeighborList *,
+                              std::unique_ptr<CudaPtrManager>>
+        instance;
+    return instance;
+  }
 
-  /// @brief Mutex to ensure thread-safe access to the registry.
-  static inline std::mutex mutex_;
+  static std::mutex &mutex() {
+    static std::mutex m;
+    return m;
+  }
 };
 
 } // namespace cuda

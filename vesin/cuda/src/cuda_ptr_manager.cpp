@@ -1,6 +1,7 @@
 #include "cuda_ptr_manager.hpp"
 #include <cassert>
 #include <cuda_runtime.h>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 

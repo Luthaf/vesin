@@ -8,7 +8,6 @@
 
 thread_local std::string LAST_ERROR;
 
-using namespace std;
 
 extern "C" int vesin_neighbors(
     const double (*points)[3],

@@ -1,24 +1,29 @@
+import json
+import sys
 import time
 
 import ase.build
 import ase.neighborlist
-import matscipy.neighbours
-import NNPOps.neighbors
 import numpy as np
-import pymatgen.core
-import torch
-import torch_nl
-
-import vesin
 
 
 def benchmark(setup, function, atoms, cutoff):
-    args = setup(atoms, cutoff)
+    try:
+        args = setup(atoms, cutoff)
+    except Exception as e:
+        print("failed to run setup:", file=sys.stderr)
+        print(e, file=sys.stderr)
+        return float("nan")
 
-    n_warm = 5
+    n_warm = 3
     start = time.time()
-    for _ in range(n_warm):
-        function(*args)
+    try:
+        for _ in range(n_warm):
+            function(*args)
+    except Exception as e:
+        print("failed to run function:", file=sys.stderr)
+        print(e, file=sys.stderr)
+        return float("nan")
     end = time.time()
 
     warmup = (end - start) / n_warm
@@ -32,46 +37,75 @@ def benchmark(setup, function, atoms, cutoff):
         n_iter = 10
 
     start = time.time()
-    for _ in range(n_iter):
-        function(*args)
+
+    try:
+        for _ in range(n_iter):
+            function(*args)
+    except Exception as e:
+        print("failed to run function:", file=sys.stderr)
+        print(e, file=sys.stderr)
+        return float("nan")
+
     end = time.time()
 
     return (end - start) / n_iter
 
 
+def vesin_run(quantities, atoms, cutoff):
+    import vesin
+
+    return vesin.ase_neighbor_list(quantities, atoms, cutoff)
+
+
+def matscipy_run(quantities, atoms, cutoff):
+    import matscipy.neighbours
+
+    return matscipy.neighbours.neighbour_list(quantities, atoms, cutoff)
+
+
 def setup_torch_nl_cpu(atoms, cutoff):
-    pos, cell, pbc, batch, n_atoms = torch_nl.ase2data(
-        [atoms], device=torch.device("cpu")
-    )
+    import torch
+    import torch_nl
+
+    pos, cell, pbc, batch, _ = torch_nl.ase2data([atoms], device=torch.device("cpu"))
     return cutoff, pos, cell, pbc, batch
 
 
 def setup_torch_nl_cuda(atoms, cutoff):
-    pos, cell, pbc, batch, n_atoms = torch_nl.ase2data(
-        [atoms], device=torch.device("cuda")
-    )
+    import torch
+    import torch_nl
+
+    pos, cell, pbc, batch, _ = torch_nl.ase2data([atoms], device=torch.device("cuda"))
     return cutoff, pos, cell, pbc, batch
 
 
 def torch_nl_run(cutoff, pos, cell, pbc, batch):
+    import torch_nl
+
     return torch_nl.compute_neighborlist(
         cutoff, pos, cell, pbc, batch, self_interaction=True
     )
 
 
 def setup_nnpops_cpu(atoms, cutoff):
+    import torch
+
     positions = torch.tensor(atoms.positions)
-    box_vector = torch.tensor(atoms.cell)
+    box_vector = torch.tensor(atoms.cell[:])
     return positions, cutoff, box_vector
 
 
 def setup_nnpops_cuda(atoms, cutoff):
+    import torch
+
     positions = torch.tensor(atoms.positions).to("cuda")
-    box_vector = torch.tensor(atoms.cell).to("cuda")
+    box_vector = torch.tensor(atoms.cell[:]).to("cuda")
     return positions, cutoff, box_vector
 
 
 def nnpops_run(positions, cutoff, box_vectors):
+    import NNPOps.neighbors
+
     return NNPOps.neighbors.getNeighborPairs(
         positions, cutoff=cutoff, box_vectors=box_vectors
     )
@@ -82,6 +116,8 @@ def setup_ase_like(atoms, cutoff):
 
 
 def setup_pymatgen(atoms, cutoff):
+    import pymatgen.core
+
     structure = pymatgen.core.Structure(
         atoms.cell[:],
         atoms.numbers,
@@ -93,6 +129,19 @@ def setup_pymatgen(atoms, cutoff):
 
 def pymatgen_run(structure, cutoff):
     return structure.get_neighbor_list(cutoff)
+
+
+def setup_sisl(atoms, cutoff):
+    import sisl
+
+    return sisl.Geometry.new.ase(atoms), cutoff
+
+
+def sisl_run(system, cutoff):
+    import sisl
+
+    finder = sisl.geom.NeighborFinder(system, R=cutoff)
+    finder.find_neighbors()
 
 
 def determine_super_cell(max_cell_repeat, max_log_size_delta, max_cell_ratio):
@@ -150,24 +199,36 @@ repeats = determine_super_cell(
 n_atoms = {}
 ase_time = {}
 matscipy_time = {}
+sisl_time = {}
 torch_nl_cpu_time = {}
 torch_nl_cuda_time = {}
+nnpops_cpu_time = {}
+nnpops_cuda_time = {}
 pymatgen_time = {}
 vesin_time = {}
 
-for cutoff in [3, 6, 12]:
+if len(sys.argv) > 1:
+    CUTOFFS = list(map(int, sys.argv[1:]))
+else:
+    CUTOFFS = [3, 6, 12]
+
+for cutoff in CUTOFFS:
     print(f"===========  CUTOFF={cutoff}  =============")
 
     n_atoms[cutoff] = []
     ase_time[cutoff] = []
     matscipy_time[cutoff] = []
+    sisl_time[cutoff] = []
     torch_nl_cpu_time[cutoff] = []
     torch_nl_cuda_time[cutoff] = []
+    nnpops_cpu_time[cutoff] = []
+    nnpops_cuda_time[cutoff] = []
     pymatgen_time[cutoff] = []
     vesin_time[cutoff] = []
 
     for kx, ky, kz in repeats:
         super_cell = atoms.repeat((kx, ky, kz))
+        super_cell.positions[:] += 0.2 * np.random.random(super_cell.positions.shape)
         print(len(super_cell), "atoms")
         n_atoms[cutoff].append(len(super_cell))
 
@@ -184,12 +245,22 @@ for cutoff in [3, 6, 12]:
         # MATSCIPY
         timing = benchmark(
             setup_ase_like,
-            matscipy.neighbours.neighbour_list,
+            matscipy_run,
             super_cell,
             cutoff,
         )
         matscipy_time[cutoff].append(timing * 1e3)
         print(f"   matscipy took {timing * 1e3:.3f} ms")
+
+        # SISL
+        timing = benchmark(
+            setup_sisl,
+            sisl_run,
+            super_cell,
+            cutoff,
+        )
+        sisl_time[cutoff].append(timing * 1e3)
+        print(f"   sisl took {timing * 1e3:.3f} ms")
 
         # TORCH_NL CPU
         timing = benchmark(
@@ -212,7 +283,8 @@ for cutoff in [3, 6, 12]:
         print(f"   torch_nl (cuda) took {timing * 1e3:.3f} ms")
 
         if np.any(super_cell.cell.lengths() < 2 * cutoff):
-            print("   NNPOps can not run for this super cell")
+            nnpops_cpu_time[cutoff].append(float("nan"))
+            nnpops_cuda_time[cutoff].append(float("nan"))
         else:
             # NNPOps CPU
             timing = benchmark(
@@ -221,7 +293,7 @@ for cutoff in [3, 6, 12]:
                 super_cell,
                 cutoff,
             )
-            torch_nl_cpu_time[cutoff].append(timing * 1e3)
+            nnpops_cpu_time[cutoff].append(timing * 1e3)
             print(f"   NNPOps (cpu) took {timing * 1e3:.3f} ms")
 
             # NNPOps CUDA
@@ -231,7 +303,7 @@ for cutoff in [3, 6, 12]:
                 super_cell,
                 cutoff,
             )
-            torch_nl_cuda_time[cutoff].append(timing * 1e3)
+            nnpops_cuda_time[cutoff].append(timing * 1e3)
             print(f"   NNPOps (cuda) took {timing * 1e3:.3f} ms")
 
         # Pymatgen
@@ -247,10 +319,27 @@ for cutoff in [3, 6, 12]:
         # VESIN
         timing = benchmark(
             setup_ase_like,
-            vesin.ase_neighbor_list,
+            vesin_run,
             super_cell,
             cutoff,
         )
         vesin_time[cutoff].append(timing * 1e3)
         print(f"   vesin took {timing * 1e3:.3f} ms")
         print()
+
+
+for cutoff in CUTOFFS:
+    data = {
+        "n_atoms": n_atoms[cutoff],
+        "ase": ase_time[cutoff],
+        "matscipy": matscipy_time[cutoff],
+        "torch_nl_cpu": torch_nl_cpu_time[cutoff],
+        "torch_nl_cuda": torch_nl_cuda_time[cutoff],
+        "nnpops_cpu": nnpops_cpu_time[cutoff],
+        "nnpops_cuda": nnpops_cuda_time[cutoff],
+        "pymatgen": pymatgen_time[cutoff],
+        "sisl": sisl_time[cutoff],
+        "vesin": vesin_time[cutoff],
+    }
+    with open(f"cutoff-{cutoff}.json", "w") as fd:
+        json.dump(data, fd)

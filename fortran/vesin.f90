@@ -1,21 +1,16 @@
-module f_vesin_wrapper
+module vesin
 
   use, intrinsic :: iso_c_binding
   implicit none
 
   private
   public :: vesin_t
-  public :: rp
-
-  ! Real precision used by caller code for input variables: `cutoff`, `pos`, `box`.
-  ! Modify as needed.
-  integer, parameter :: rp = kind(1.0_c_double)
 
 
   !> @details
-  !! Fortran wrapper to `vesin`.
-  !! Defines the derived type `vesin_t`, which holds the options and return values of
-  !! the `vesin` neighbor list.
+  !! Fortran interface to `vesin`.
+  !! Defines the derived type `vesin_t`, which holds the options and pointers to the
+  !! return values of the `vesin` neighbor list, in the C precision.
   !!
   !! @author Miha Gunde
   !!
@@ -24,25 +19,26 @@ module f_vesin_wrapper
   !!~~~~~~~~{.f90}
   !!
   !! program main
-  !!   use f_vesin_wrapper, only: vesin_t, rp
+  !!   use vesin, only: vesin_t
+  !!   use, intrinsic :: iso_c_binding
   !!   implicit none
   !!   type( vesin_t ), pointer :: neigh
-  !!   integer, parameter :: nat=2
-  !!   real(rp) :: pos(3,nat)
-  !!   real(rp) :: box(3,3)
-  !!   integer :: ierr
+  !!   integer( c_size_t ), parameter :: nat=2
+  !!   real(c_double) :: pos(3,nat)
+  !!   real(c_double) :: box(3,3)
+  !!   integer(c_int) :: ierr
   !!
   !!   ! positions
-  !!   pos(:,1) = [ 0.0_rp, 0.0_rp, 0.0_rp ]
-  !!   pos(:,2) = [ 0.0_rp, 1.3_rp, 1.3_rp ]
+  !!   pos(:,1) = [ 0.0_c_double, 0.0_c_double, 0.0_c_double ]
+  !!   pos(:,2) = [ 0.0_c_double, 1.3_c_double, 1.3_c_double ]
   !!
   !!   ! lattice
-  !!   box(:,1) = [ 3.2_rp, 0.0_rp, 0.0_rp ]
-  !!   box(:,2) = [ 0.0_rp, 3.2_rp, 0.0_rp ]
-  !!   box(:,3) = [ 0.0_rp, 0.0_rp, 3.2_rp ]
+  !!   box(:,1) = [ 3.2_c_double, 0.0_c_double, 0.0_c_double ]
+  !!   box(:,2) = [ 0.0_c_double, 3.2_c_double, 0.0_c_double ]
+  !!   box(:,3) = [ 0.0_c_double, 0.0_c_double, 3.2_c_double ]
   !!
   !!   ! create the instance, set options
-  !!   neigh => vesin_t( cutoff=4.2_rp, full=.true., return_shifts=.true., return_distances=.true. )
+  !!   neigh => vesin_t( cutoff=4.2_c_double, full=.true., return_shifts=.true., return_distances=.true. )
   !!
   !!   ! launch computation of neighbor list
   !!   ierr = neigh% compute( nat, pos, box )
@@ -128,7 +124,7 @@ module f_vesin_wrapper
 
      ! /// Device used for the data allocations
      ! VesinDevice device;
-     integer( c_int ) :: device = VesinCPU
+     integer( c_int ) :: device = VesinUnknownDevice
 
      ! /// Array of pairs (storing the indices of the first and second point in the
      ! /// pair), containing `length` elements.
@@ -202,69 +198,47 @@ module f_vesin_wrapper
   interface
      subroutine fvesin_free( neighbors ) bind(C, name="vesin_free")
        import :: VesinNeighborList
-       type( VesinNeighborList ), value :: neighbors
+       type( VesinNeighborList ) :: neighbors
      end subroutine fvesin_free
   end interface
 
 
 
   !> @details
-  !! fortran derived type, holding the input options and output data from Vesin.
+  !! fortran derived type, holding the input options, instance of `VesinNeighborList`,
+  !! and pointers to the output data from Vesin in the C precision.
   !!
-  !! Use as:
-  !!~~~~~~~~{.f90}
-  !!
-  !! program main
-  !!   use f_vesin_wrapper
-  !!   type( vesin_t ), pointer :: me
-  !!
-  !!   ! create the instance, set options
-  !!   me => vesin_t( cutoff=<val>, return_vectors=<val>, etc)
-  !!
-  !!   ! launch computation of neighbor list
-  !!   ierr = me% compute( nat, pos, box )
-  !!   if( ierr/= 0 ) then
-  !!      write(*,*) me% errmsg
-  !!      stop
-  !!   end if
-  !!
-  !!   ! data is inside `me`:
-  !!   write(*,*) me% pairs
-  !!
-  !!   ! destroy data
-  !!   deallocate( me )
-  !!
-  !! end program main
-  !!
-  !!~~~~~~~~
   type :: vesin_t
 
      ! options
      type( VesinOptions ), private :: opts
 
+     ! returned C data, store the instance for re-use
+     type( VesinNeighborList ), private :: cdata
+
      !! error message
      character(:), allocatable, public :: errmsg
 
      !! number of elements in the neighbor list
-     integer, public :: length
+     integer( c_size_t ), public :: length
 
      !! Array of pairs (storing the indices of the first and second point in the
      !! pair), containing `length` elements.
-     integer,  allocatable, public :: pairs(:,:)
+     integer( c_size_t ),  pointer, public :: pairs(:,:) => null()
 
      !! Array of box shifts, one for each `pair`. This is only set if
      !! `return_pairs` option was `true` during the calculation.
-     integer,  allocatable, public :: shifts(:,:)
+     integer( c_int32_t ),  pointer, public :: shifts(:,:) => null()
 
      !! Array of pair distance (i.e. distance between the two points), one for
      !! each pair. This is only set if `return_distances` option was `true`
      !! during the calculation.
-     real(rp), allocatable, public :: distances(:)
+     real( c_double ), pointer, public :: distances(:) => null()
 
      !! Array of pair vector (i.e. vector between the two points), one for
      !! each pair. This is only set if `return_vectors` option was `true`
      !! during the calculation.
-     real(rp), allocatable, public :: vectors(:,:)
+     real( c_double ), pointer, public :: vectors(:,:) => null()
 
    contains
      procedure, public :: compute => vesin_t_compute
@@ -291,7 +265,7 @@ contains
     !! member `vesin_t% opts`, which is a `type( VesinOptions )` instance, used in the
     !! calculation of the neighbor list.
     !!
-    !! @param `cutoff`, real ::  Spherical cutoff, only pairs below this cutoff will be included. Default=0.0
+    !! @param `cutoff`, real(c_double) :: Spherical cutoff, only pairs below this cutoff will be included. Default=0.0
     !! @param `full`, logical, optional :: Should the returned neighbor list be a full
     !!       list (include both `i -> j` and `j -> i` pairs) or a half
     !!       list (include only `i -> j`)? Default=.false.
@@ -300,9 +274,10 @@ contains
     !! @param `return_shifts`, logical, optional :: Should `vesin_t` contain `shifts`? Default=.false.
     !! @param `return_distances`, logical, optional :: Should `vesin_t` contain `distances`? Default=.false.
     !! @param `return_vectors`, logical, optional :: Should `vesin_t` contain `vectors`? Default=.false.
+    !! @returns `self`, type( vesin_t ), pointer :: pointer to created `vesin_t` instance
     !!
     implicit none
-    real( rp ), intent(in) :: cutoff
+    real( c_double ), intent(in) :: cutoff
     logical, intent(in), optional :: full
     logical, intent(in), optional :: sorted
     logical, intent(in), optional :: return_shifts
@@ -329,22 +304,20 @@ contains
     !! transferred to fortran format into `self`. The C data is destroyed at the end
     !! of this function.
     !!
-    !! @param `nat`, integer :: number of atoms
-    !! @param `pos`, real(rp), [3,nat] :: atomic positions
-    !! @param `box`, real(rp), [3,3] :: periodic box vectors
+    !! @param `nat`, integer(c_size_t) :: number of atoms
+    !! @param `pos`, real(c_double), [3,nat] :: atomic positions
+    !! @param `box`, real(c_double), [3,3] :: periodic box vectors
     !! @param `periodic`, logical, optional :: flag for (non)-periodic calculation. Default=.true.
+    !! @returns `ierr`, integer(c_int) :: nonzero on error
     implicit none
     class( vesin_t ), intent(inout) :: self
-    integer, intent(in)  :: nat
-    real(rp), intent(in) :: pos(3,nat)
-    real(rp), intent(in) :: box(3,3)
+    integer( c_size_t ), intent(in)  :: nat
+    real( c_double ), intent(in) :: pos(3,nat)
+    real( c_double ), intent(in) :: box(3,3)
     logical, intent(in), optional :: periodic
-    integer :: ierr
+    integer( c_int ) :: ierr
 
-    type( VesinNeighborList ) :: cdata
     logical( c_bool ) :: c_periodic
-    integer( c_size_t ) :: c_nat
-    real( c_double ) :: c_pos(3,nat), c_box(3,3)
     integer( c_int ) :: dev
     type( c_ptr ) :: c_errmsg
 
@@ -358,62 +331,49 @@ contains
     c_periodic = .true.
     if(present(periodic)) c_periodic=logical(periodic, c_bool)
 
-    ! input data to C
-    c_nat = int( nat, c_size_t )
-    c_pos = real( pos, c_double )
-    c_box = real( box, c_double )
+    ! set device
     dev = VesinCPU
-    cdata% device = VesinCPU
+    self%cdata% device = VesinCPU
 
     ! compute the neighbor list
-    ierr = int( fvesin_neighbors(c_pos, c_nat, c_box, c_periodic, dev, self%opts, cdata, c_errmsg ))
+    ierr = fvesin_neighbors(pos, nat, box, c_periodic, dev, self%opts, self%cdata, c_errmsg )
     if( ierr/= 0 ) then
        self% errmsg = c2f_string( c_errmsg )
        return
     end if
 
-    ! transform cdata to fdata
-    self%length = int(cdata%length, kind(self%length))
-    n = int( cdata%length )
+    ! set pointers to self%cdata
+    self%length = int(self%cdata%length, kind(self%length))
+    n = int( self%cdata%length )
     ! pairs
-    if( c_associated(cdata%pairs)) then
-       call c_f_pointer( cdata%pairs, pairs, shape=[2,n] )
-       allocate( self%pairs, source=int(pairs, kind(self%pairs)) )
+    if( c_associated(self%cdata%pairs)) then
+       call c_f_pointer( self%cdata%pairs, self%pairs, shape=[2,n] )
     end if
     ! shifts
-    if( c_associated(cdata%shifts)) then
-       call c_f_pointer( cdata%shifts, shifts, shape=[3,n])
-       allocate( self%shifts, source=int(shifts, kind(self%shifts)) )
+    if( c_associated(self%cdata%shifts)) then
+       call c_f_pointer( self%cdata%shifts, self%shifts, shape=[3,n])
     end if
     ! distances
-    if( c_associated(cdata%distances)) then
-       call c_f_pointer( cdata%distances, distances, shape=[n] )
-       allocate( self%distances, source=real(distances,kind(self%distances)) )
+    if( c_associated(self%cdata%distances)) then
+       call c_f_pointer( self%cdata%distances, self%distances, shape=[n] )
     end if
     ! vectors
-    if( c_associated(cdata%vectors))then
-       call c_f_pointer( cdata%vectors, vectors, shape=[3,n])
-       allocate( self%vectors, source=real(vectors, kind(self%vectors)) )
+    if( c_associated(self%cdata%vectors))then
+       call c_f_pointer( self%cdata%vectors, self%vectors, shape=[3,n])
     end if
-    ! now can free cdata
-    call vesin_free(cdata)
 
   end function vesin_t_compute
 
-  subroutine vesin_free( neighbors )
-    implicit none
-    type( VesinNeighborList ), intent(inout) :: neighbors
-    call fvesin_free( neighbors )
-  end subroutine vesin_free
 
   subroutine vesin_t_destroy( self )
     !! destructor
     implicit none
     type( vesin_t ), intent(inout) :: self
-    if( allocated( self%pairs)) deallocate( self%pairs )
-    if( allocated( self%shifts)) deallocate( self%shifts )
-    if( allocated( self%distances)) deallocate( self%distances )
-    if( allocated( self%vectors)) deallocate( self%vectors )
+    if( associated( self%pairs))     nullify( self%pairs )
+    if( associated( self%shifts))    nullify( self%shifts )
+    if( associated( self%distances)) nullify( self%distances )
+    if( associated( self%vectors))   nullify( self%vectors )
+    call fvesin_free( self%cdata )
   end subroutine vesin_t_destroy
 
 
@@ -445,4 +405,4 @@ contains
   end function c2f_string
 
 
-end module f_vesin_wrapper
+end module vesin

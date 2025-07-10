@@ -1,6 +1,6 @@
 # Description
 
-test the fortran wrapper to `vesin`.
+test the fortran interface to `vesin`.
 
 # Compile
 

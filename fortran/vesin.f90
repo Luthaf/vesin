@@ -62,7 +62,7 @@ module vesin
   implicit none
 
   private
-  public :: VesinDevice
+  public :: VesinUnknownDevice, VesinCPU
   public :: VesinOptions
   public :: VesinNeighborList
   public :: vesin_neighbors
@@ -70,16 +70,16 @@ module vesin
 
 
   !> @brief Device on which the data can be
-  type, bind(c) :: VesinDevice
-
-     integer( c_int ) :: VesinUnknownDevice = 0
+  enum, bind(c)
+     enumerator :: VesinUnknownDevice = 0
      !< Unknown device, used for default initialization and to indicate no
      !! allocated data.
 
-     integer( c_int ) :: VesinCPU = 1
+     enumerator :: VesinCPU = 1
      !< CPU device
 
-  end type VesinDevice
+  end enum
+
 
 
   !> @brief

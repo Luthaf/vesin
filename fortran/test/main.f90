@@ -6,7 +6,7 @@ program main
 
   type( VesinOptions ) :: options
   type( VesinNeighborList ) :: neigh
-  type( VesinDevice ) :: device
+  integer(c_int) :: device
   integer( c_size_t ), parameter :: nat=2
   real(c_double) :: pos(3,nat)
   real(c_double) :: box(3,3)
@@ -32,7 +32,8 @@ program main
 
   ! compute neighbors
   options% cutoff = 4.2_c_double
-  ierr = vesin_neighbors( pos, nat, box, periodic, device%vesincpu, options, neigh, errmsg )
+  device=VesinCPU
+  ierr = vesin_neighbors( pos, nat, box, periodic, device, options, neigh, errmsg )
   write(*,*) neigh% length
   if(ierr /= 0_c_int ) write(*,*) c2f_string( errmsg )
 
@@ -41,7 +42,7 @@ program main
   options% cutoff = 2.4_c_double
 
   ! compute neighbors
-  ierr = vesin_neighbors( pos, nat, box, periodic, device%vesincpu, options, neigh, errmsg )
+  ierr = vesin_neighbors( pos, nat, box, periodic, device, options, neigh, errmsg )
   write(*,*) neigh% length
   if(ierr /= 0_c_int ) write(*,*) c2f_string( errmsg )
 

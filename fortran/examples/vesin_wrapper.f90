@@ -9,7 +9,7 @@
 !!
 !! Example (pseudo)-program:
 !!
-!! ~~~~~~~~~~~~{.f90}
+!!~~~~~~~~~~~~~{.f90}
 !!  use vesin_wrapper
 !!  integer(ip) :: nat
 !!  real(rp), allocatable :: pos(:,:)
@@ -220,6 +220,12 @@ contains
     ! cast cdata to f, in the returned C precision
     n = int( self%cdata%length )
     self% length = self%cdata%length
+    ! nullify pointers in self
+    if( associated(self%pairs))nullify(self%pairs)
+    if( associated(self%shifts))nullify(self%shifts)
+    if( associated(self%distances))nullify(self%distances)
+    if( associated(self%vectors))nullify(self%vectors)
+    ! set
     if(c_associated(self%cdata%pairs)) call c_f_pointer(self%cdata%pairs, self%pairs, shape=[2,n])
     if(c_associated(self%cdata%shifts)) call c_f_pointer(self%cdata%shifts, self%shifts, shape=[3,n])
     if(c_associated(self%cdata%distances)) call c_f_pointer(self%cdata%distances, self%distances, shape=[n])

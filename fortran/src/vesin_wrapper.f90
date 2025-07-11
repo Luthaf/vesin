@@ -1,5 +1,5 @@
 !> @brief
-!! This is an example wrapper to the fortran inerface of `vesin`.
+!! This is an example wrapper to the fortran interface of `vesin`.
 !!
 !! @details
 !! It is suggested to copy and modify this file as needed by your application.

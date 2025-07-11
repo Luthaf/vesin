@@ -28,6 +28,7 @@ option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 option(VESIN_TORCH "Build the vesin_torch library" OFF)
+option(VESIN_FORTRAN "Build the vesin_fortran library" OFF)
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
@@ -37,7 +38,7 @@ add_library(vesin ${VESIN_SOURCES})
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_compile_features(vesin PRIVATE cxx_std_17)
@@ -60,6 +61,10 @@ endif()
 
 if (VESIN_TORCH)
     add_subdirectory(torch)
+endif()
+
+if (VESIN_FORTRAN)
+    add_subdirectory(../fortran fortran)
 endif()
 
 #------------------------------------------------------------------------------#

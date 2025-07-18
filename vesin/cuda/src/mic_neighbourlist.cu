@@ -330,7 +330,7 @@ __global__ void compute_mic_neighbours_half_impl(
 }
 
 static void ensure_is_device_pointer(const void *p, const char *name) {
-  
+
   if (!p) {
     throw std::runtime_error(std::string(name) + " is not defined.");
     return;
@@ -386,15 +386,6 @@ void vesin::cuda::compute_mic_neighbourlist(
     compute_mic_neighbours_half_impl<scalar_t><<<gridDim, blockDim>>>(
         positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
         distances, vectors, return_shifts, return_distances, return_vectors);
-  }
-
-  // Synchronize to catch kernel execution errors
-  cudaError_t sync_err = cudaDeviceSynchronize();
-  if (sync_err != cudaSuccess) {
-    std::cout << "CUDA kernel execution failed: "
-              << cudaGetErrorString(sync_err) << std::endl;
-    throw std::runtime_error(std::string("CUDA kernel execution failed: ") +
-                             cudaGetErrorString(sync_err));
   }
 
   cudaError_t err = cudaGetLastError();

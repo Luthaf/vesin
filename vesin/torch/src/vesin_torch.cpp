@@ -2,6 +2,7 @@
 
 #include <torch/torch.h>
 
+#include <iostream>
 #include <vesin.h>
 
 #include "cuda_ptr_registry.hpp"
@@ -163,11 +164,10 @@ NeighborListHolder::compute(torch::Tensor points, torch::Tensor box,
   auto length_cu = torch::Tensor();
 
   if (device == VesinCUDA) {
-    auto &manager = vesin::cuda::CudaPtrRegistry::get(data_);
-
-    length_cu =
-        torch::from_blob(manager.get_length_device_ptr(), {1}, size_t_options)
-            .to(torch::kInt64);
+    vesin::cuda::CudaNeighborListExtras *extras =
+        vesin::cuda::get_cuda_extras(data_);
+    length_cu = torch::from_blob(extras->length_ptr, {1}, size_t_options)
+                    .to(torch::kInt64);
   }
 
   int64_t length = device == VesinCUDA ? length_cu.item<int64_t>()

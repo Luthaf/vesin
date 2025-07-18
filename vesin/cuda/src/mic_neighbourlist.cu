@@ -330,14 +330,21 @@ __global__ void compute_mic_neighbours_half_impl(
 }
 
 static void ensure_is_device_pointer(const void *p, const char *name) {
+  
+  if (!p) {
+    throw std::runtime_error(std::string(name) + " is not defined.");
+    return;
+  }
+
   cudaPointerAttributes attr;
+
   cudaError_t err = cudaPointerGetAttributes(&attr, p);
+
   if (err != cudaSuccess) {
     throw std::runtime_error(
         std::string("cudaPointerGetAttributes failed for ") + name + ": " +
         cudaGetErrorString(err));
   }
-
   if (attr.type != cudaMemoryTypeDevice) {
     throw std::runtime_error(
         std::string(name) +
@@ -363,6 +370,7 @@ void vesin::cuda::compute_mic_neighbourlist(
   ensure_is_device_pointer(vectors, "vectors");
   ensure_is_device_pointer(pair_counter, "length_ptr");
   // --- END DEVICE-PTR CHECKS ---
+
   if (full) {
     dim3 gridDim(max((int)(nnodes + NWARPS - 1) / NWARPS, 1));
     compute_mic_neighbours_full_impl<scalar_t><<<gridDim, blockDim>>>(
@@ -379,8 +387,20 @@ void vesin::cuda::compute_mic_neighbourlist(
         positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts,
         distances, vectors, return_shifts, return_distances, return_vectors);
   }
+
+  // Synchronize to catch kernel execution errors
+  cudaError_t sync_err = cudaDeviceSynchronize();
+  if (sync_err != cudaSuccess) {
+    std::cout << "CUDA kernel execution failed: "
+              << cudaGetErrorString(sync_err) << std::endl;
+    throw std::runtime_error(std::string("CUDA kernel execution failed: ") +
+                             cudaGetErrorString(sync_err));
+  }
+
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
+    std::cout << "CUDA error after kernel: " << cudaGetErrorString(err)
+              << std::endl;
     throw std::runtime_error(cudaGetErrorString(err));
   }
 }

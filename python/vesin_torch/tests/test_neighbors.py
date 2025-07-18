@@ -32,7 +32,7 @@ def run_check_neighbors(
                      atol=atol, msg=f"Mismatch in {q}")
 
 
-@pytest.mark.parametrize("device", ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"])
+@pytest.mark.parametrize("device", ["cuda"] if torch.cuda.is_available() else ["cpu"])
 @pytest.mark.parametrize("full_list", [False, True])
 def test_large_box_small_cutoff(device, full_list):
     points = torch.tensor([

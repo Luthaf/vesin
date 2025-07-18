@@ -5,6 +5,7 @@
 
 #include "types.hpp"
 #include "vesin.h"
+#include "cuda_nbrlist_extras.hpp"
 
 namespace vesin {
 namespace cuda {
@@ -35,6 +36,8 @@ void free_neighbors(VesinNeighborList &neighbors);
 void neighbors(const double (*points)[3], long n_points,
                const double cell[3][3], VesinOptions options,
                VesinNeighborList &neighbors);
+
+CudaNeighborListExtras * get_cuda_extras(VesinNeighborList *neighbors);
 
 } // namespace cuda
 } // namespace vesin

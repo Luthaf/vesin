@@ -25,7 +25,7 @@ using namespace std;
     }                                                                          \
   } while (0)
 
-static void ensure_is_device_pointer(const void *p, const char *name) {
+void ensure_is_device_pointer(const void *p, const char *name) {
   cudaPointerAttributes attr;
 
   CUDA_CHECK(cudaPointerGetAttributes(&attr, p));
@@ -47,6 +47,23 @@ inline bool is_device_ptr(const void *ptr, const char *name) {
   } catch (const std::runtime_error &e) {
     return false;
   }
+}
+
+int get_device_id(const void *ptr) {
+
+  if (!ptr) {
+    return -1;
+  }
+
+  cudaPointerAttributes attr;
+
+  CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+
+  if (attr.type != cudaMemoryTypeDevice) {
+    return -1;
+  }
+
+  return attr.device;
 }
 
 vesin::cuda::CudaNeighborListExtras *
@@ -93,17 +110,38 @@ void reset(VesinNeighborList &neighbors) {
   extras->capacity = 0;
 }
 
-void update_capacity(unsigned long nnodes, VesinNeighborList &neighbors) {
+void update_capacity(VesinNeighborList &neighbors, unsigned long nnodes,
+                     int device_id) {
   assert(neighbors.device == VesinCUDA);
+
+  int deviceCount = 0;
+  CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
 
   auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-  if (extras->capacity >= nnodes && extras->length_ptr) {
+  if (device_id != extras->allocated_device) {
+    // force a reset
+
+    if (extras->allocated_device >= 0) {
+      CUDA_CHECK(cudaSetDevice(extras->allocated_device));
+    }
+
+    reset(neighbors);
+
+    if (extras->allocated_device >= 0) {
+      CUDA_CHECK(cudaSetDevice(device_id));
+    }
+  }
+
+  if (device_id == extras->allocated_device && extras->capacity >= nnodes &&
+      extras->length_ptr) {
     CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
     return;
   }
 
-  reset(neighbors);
+  // only call reset here if we've not already called it above
+  if (device_id == extras->allocated_device)
+    reset(neighbors);
 
   unsigned long max_edges =
       static_cast<unsigned long>(1.2 * nnodes * VESIN_CUDA_MAX_NEDGES_PER_NODE);
@@ -117,10 +155,13 @@ void update_capacity(unsigned long nnodes, VesinNeighborList &neighbors) {
   CUDA_CHECK(
       cudaMalloc((void **)&neighbors.vectors, sizeof(double) * max_edges * 3));
 
-  CUDA_CHECK(cudaMalloc((void **)&extras->length_ptr, sizeof(unsigned long)));
+  CUDA_CHECK(cudaMalloc((void **)&extras->length_ptr,
+                        sizeof(unsigned long) * deviceCount));
 
-  CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
+  CUDA_CHECK(
+      cudaMemset(extras->length_ptr, 0, sizeof(unsigned long) * deviceCount));
 
+  extras->allocated_device = device_id;
   extras->capacity = static_cast<unsigned long>(1.2 * nnodes);
 }
 
@@ -128,7 +169,22 @@ void vesin::cuda::free_neighbors(VesinNeighborList &neighbors) {
 
   assert(neighbors.device == VesinCUDA);
 
+  int curr_device = -1, device_id = -1;
+
+  if (neighbors.pairs) {
+    CUDA_CHECK(cudaGetDevice(&curr_device));
+    device_id = get_device_id(neighbors.pairs);
+
+    if (device_id && curr_device != device_id) {
+      CUDA_CHECK(cudaSetDevice(device_id));
+    }
+  }
+
   reset(neighbors);
+
+  if (device_id && curr_device != device_id) {
+    CUDA_CHECK(cudaSetDevice(curr_device));
+  }
 
   if (neighbors.opaque) {
     delete static_cast<vesin::cuda::CudaNeighborListExtras *>(neighbors.opaque);
@@ -146,13 +202,15 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points,
 
   auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-  update_capacity(n_points, neighbors);
+  int device_id = get_device_id(points);
 
   ensure_is_device_pointer(points, "points");
 
   if (cell) {
     ensure_is_device_pointer(cell, "cell");
   }
+
+  update_capacity(neighbors, n_points, device_id);
 
   const double *d_positions = reinterpret_cast<const double *>(points);
   const double *d_cell = reinterpret_cast<const double *>(cell);

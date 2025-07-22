@@ -7,7 +7,9 @@ namespace vesin {
 
 class BoundingBox {
 public:
-    BoundingBox(Matrix matrix, bool periodic): matrix_(matrix), periodic_(periodic) {
+    BoundingBox(Matrix matrix, bool periodic):
+        matrix_(matrix),
+        periodic_(periodic) {
         if (periodic) {
             auto det = matrix_.determinant();
             if (std::abs(det) < 1e-30) {
@@ -69,7 +71,6 @@ private:
     bool periodic_;
 };
 
-
 /// A cell shift represents the displacement along cell axis between the actual
 /// position of an atom and a periodic image of this atom.
 ///
@@ -103,7 +104,6 @@ inline CellShift operator-(CellShift a, CellShift b) {
         a[2] - b[2],
     };
 }
-
 
 } // namespace vesin
 

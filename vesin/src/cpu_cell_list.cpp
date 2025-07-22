@@ -3,9 +3,9 @@
 #include <cstring>
 
 #include <algorithm>
+#include <new>
 #include <numeric>
 #include <tuple>
-#include <new>
 
 #include "cpu_cell_list.hpp"
 
@@ -20,7 +20,7 @@ void vesin::cpu::neighbors(
 ) {
     auto cell_list = CellList(cell, options.cutoff);
 
-    for (size_t i=0; i<n_points; i++) {
+    for (size_t i = 0; i < n_points; i++) {
         cell_list.add_point(i, points[i]);
     }
 
@@ -49,8 +49,7 @@ void vesin::cpu::neighbors(
                     return;
                 }
 
-                if ((shift[0] + shift[1] + shift[2] == 0)
-                    && (shift[2] < 0 || (shift[2] == 0 && shift[1] < 0))) {
+                if ((shift[0] + shift[1] + shift[2] == 0) && (shift[2] < 0 || (shift[2] == 0 && shift[1] < 0))) {
                     // drop shifts in the negative half plane or the negative
                     // shift[1] axis. See below for a graphical representation:
                     // we are keeping the shifts indicated with `O` and dropping
@@ -102,7 +101,6 @@ void vesin::cpu::neighbors(
 /// cells with a small bounding box and a large cutoff
 #define MAX_NUMBER_OF_CELLS 1e5
 
-
 /// Function to compute both quotient and remainder of the division of a by b.
 /// This function follows Python convention, making sure the remainder have the
 /// same sign as `b`.
@@ -133,8 +131,7 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
     cells_shape_({0, 0, 0}),
-    box_(box)
-{
+    box_(box) {
     auto distances_between_faces = box_.distances_between_faces();
 
     auto n_cells = Vector{
@@ -173,7 +170,7 @@ CellList::CellList(BoundingBox box, double cutoff):
         static_cast<size_t>(n_cells[2]),
     };
 
-    for (size_t spatial=0; spatial<3; spatial++) {
+    for (size_t spatial = 0; spatial < 3; spatial++) {
         if (n_search_[spatial] < 1) {
             n_search_[spatial] = 1;
         }
@@ -217,7 +214,6 @@ void CellList::add_point(size_t index, Vector position) {
 
     this->get_cell(cell_index).emplace_back(Point{index, shift});
 }
-
 
 // clang-format off
 template <typename Function>
@@ -274,7 +270,6 @@ CellList::Cell& CellList::get_cell(std::array<int32_t, 3> index) {
 
 /* ========================================================================== */
 
-
 void GrowableNeighborList::set_pair(size_t index, size_t first, size_t second) {
     if (index >= this->capacity) {
         this->grow();
@@ -314,7 +309,7 @@ void GrowableNeighborList::set_vector(size_t index, vesin::Vector vector) {
 
 template <typename scalar_t, size_t N>
 static scalar_t (*alloc(scalar_t (*ptr)[N], size_t size, size_t new_size))[N] {
-    auto* new_ptr = reinterpret_cast<scalar_t (*)[N]>(std::realloc(ptr, new_size * sizeof(scalar_t[N])));
+    auto* new_ptr = reinterpret_cast<scalar_t(*)[N]>(std::realloc(ptr, new_size * sizeof(scalar_t[N])));
 
     if (new_ptr == nullptr) {
         throw std::bad_alloc();
@@ -353,7 +348,7 @@ void GrowableNeighborList::grow() {
         new_shifts = alloc<int32_t, 3>(neighbors.shifts, neighbors.length, new_size);
     }
 
-    double *new_distances = nullptr;
+    double* new_distances = nullptr;
     if (options.return_distances) {
         new_distances = alloc<double>(neighbors.distances, neighbors.length, new_size);
     }
@@ -431,7 +426,8 @@ void GrowableNeighborList::sort() {
     std::iota(std::begin(indices), std::end(indices), 0);
 
     struct compare_pairs {
-        compare_pairs(size_t (*pairs_)[2]): pairs(pairs_) {}
+        compare_pairs(size_t (*pairs_)[2]):
+            pairs(pairs_) {}
 
         bool operator()(int64_t a, int64_t b) const {
             if (pairs[a][0] == pairs[b][0]) {
@@ -522,7 +518,6 @@ void GrowableNeighborList::sort() {
         }
     }
 }
-
 
 void vesin::cpu::free_neighbors(VesinNeighborList& neighbors) {
     assert(neighbors.device == VesinCPU);

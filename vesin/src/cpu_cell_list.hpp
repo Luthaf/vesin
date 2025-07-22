@@ -7,7 +7,8 @@
 
 #include "types.hpp"
 
-namespace vesin { namespace cpu {
+namespace vesin {
+namespace cpu {
 
 void free_neighbors(VesinNeighborList& neighbors);
 
@@ -18,7 +19,6 @@ void neighbors(
     VesinOptions options,
     VesinNeighborList& neighbors
 );
-
 
 /// The cell list is used to sort atoms inside bins/cells.
 ///
@@ -94,7 +94,7 @@ public:
     void sort();
 };
 
-} // namespace vesin
 } // namespace cpu
+} // namespace vesin
 
 #endif

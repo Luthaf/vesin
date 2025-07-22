@@ -3,12 +3,19 @@
 
 #include <vector>
 
-#include "types.hpp"
 #include "vesin.h"
-#include "cuda_nbrlist_extras.hpp"
 
 namespace vesin {
 namespace cuda {
+
+struct CudaNeighborListExtras {
+  unsigned long *length_ptr = nullptr; // GPU-side counter
+  unsigned long capacity = 0;          // Current capacity
+
+  ~CudaNeighborListExtras() {
+    // cleanup handled in `free_neighbors`
+  }
+};
 
 /// @brief Frees GPU memory associated with a VesinNeighborList.
 ///
@@ -37,7 +44,7 @@ void neighbors(const double (*points)[3], long n_points,
                const double cell[3][3], VesinOptions options,
                VesinNeighborList &neighbors);
 
-CudaNeighborListExtras * get_cuda_extras(VesinNeighborList *neighbors);
+CudaNeighborListExtras *get_cuda_extras(VesinNeighborList *neighbors);
 
 } // namespace cuda
 } // namespace vesin

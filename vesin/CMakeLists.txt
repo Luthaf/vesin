@@ -50,16 +50,13 @@ if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
     message(STATUS "Found a CUDA compiler but VESIN_ENABLE_CUDA=OFF, set VESIN_ENABLE_CUDA=ON in order to compile with CUDA support.")
 endif()
 
-list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/vesin_cuda.hpp)
+#list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.hpp)
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_dynamic_linker.hpp)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include/cuda_kernel_cache.hpp)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/mic_neighbourlist.cu)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/cuda_ptr_manager.cpp)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda.cpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp)
 else()
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cuda/src/vesin_cuda_stub.cpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda_stub.cpp)
 endif()
 
 
@@ -71,7 +68,6 @@ endif()
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/cuda/include>
     $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 

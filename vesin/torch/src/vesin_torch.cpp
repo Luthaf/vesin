@@ -5,7 +5,6 @@
 #include <iostream>
 #include <vesin.h>
 
-#include "cuda_ptr_registry.hpp"
 #include "vesin_cuda.hpp"
 #include "vesin_torch.hpp"
 

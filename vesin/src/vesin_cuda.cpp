@@ -1,7 +1,4 @@
 #include "vesin_cuda.hpp"
-#include "cuda_ptr_registry.hpp"
-
-#include "cuda_nbrlist_extras.hpp"
 #include "mic_neighbourlist.cuh"
 
 #include <cassert>

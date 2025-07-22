@@ -28,7 +28,9 @@ def run_check_neighbors(
     for q, expected in expected_outputs.items():
         actual = outputs[index[q]].cpu()
         expected = torch.tensor(expected, dtype=torch.float64)
-        assert_close(actual, expected, rtol=rtol, atol=atol, msg=f"Mismatch in {q}")
+        torch.testing.assert_close(
+            actual, expected, rtol=rtol, atol=atol, msg=f"Mismatch in {q}"
+        )
 
 
 @pytest.mark.parametrize("device", ["cuda"] if torch.cuda.is_available() else ["cpu"])

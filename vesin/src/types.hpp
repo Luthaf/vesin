@@ -16,11 +16,13 @@ public:
 
             this->inverse_ = matrix_.inverse();
         } else {
+            // clang-format off
             this->matrix_ = Matrix{{{
                 {{1, 0, 0}},
                 {{0, 1, 0}},
                 {{0, 0, 1}}
             }}};
+            // clang-format on
             this->inverse_ = matrix_;
         }
     }

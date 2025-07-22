@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// clang-format off
 #if defined(VESIN_SHARED)
     #if defined(VESIN_EXPORTS)
         #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
@@ -25,6 +26,7 @@
 #else
     #define VESIN_API
 #endif
+// clang-format on
 
 #ifdef __cplusplus
 extern "C" {

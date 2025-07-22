@@ -99,8 +99,6 @@ void update_capacity(unsigned long nnodes, VesinNeighborList &neighbors) {
   auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
   if (extras->capacity >= nnodes && extras->length_ptr) {
-    std::cout << "update_capacity: extras->length_ptr: " << extras->length_ptr
-              << std::endl;
     CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
     return;
   }

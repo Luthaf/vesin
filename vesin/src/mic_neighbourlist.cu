@@ -390,8 +390,6 @@ void vesin::cuda::compute_mic_neighbourlist(
 
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
-    std::cout << "CUDA error after kernel: " << cudaGetErrorString(err)
-              << std::endl;
     throw std::runtime_error(cudaGetErrorString(err));
   }
 }

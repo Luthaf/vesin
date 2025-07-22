@@ -60,7 +60,6 @@ enum VesinDevice {
     VesinCPU = 1,
 };
 
-
 /// The actual neighbor list
 ///
 /// This is organized as a list of pairs, where each pair can contain the
@@ -88,8 +87,7 @@ struct VESIN_API VesinNeighborList {
         pairs(nullptr),
         shifts(nullptr),
         distances(nullptr),
-        vectors(nullptr)
-    {}
+        vectors(nullptr) {}
 #endif
 
     /// Number of pairs in this neighbor list
@@ -105,7 +103,7 @@ struct VESIN_API VesinNeighborList {
     /// Array of pair distance (i.e. distance between the two points), one for
     /// each pair. This is only set if `options.return_distances` was `true`
     /// during the calculation.
-    double *distances;
+    double* distances;
     /// Array of pair vector (i.e. vector between the two points), one for
     /// each pair. This is only set if `options.return_vector` was `true`
     /// during the calculation.
@@ -149,7 +147,6 @@ int VESIN_API vesin_neighbors(
     struct VesinNeighborList* neighbors,
     const char** error_message
 );
-
 
 #ifdef __cplusplus
 

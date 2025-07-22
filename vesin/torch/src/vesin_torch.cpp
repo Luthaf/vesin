@@ -49,8 +49,7 @@ NeighborListHolder::NeighborListHolder(double cutoff, bool full_list, bool sorte
     cutoff_(cutoff),
     full_list_(full_list),
     sorted_(sorted),
-    data_(nullptr)
-{
+    data_(nullptr) {
     data_ = new VesinNeighborList();
 }
 
@@ -87,9 +86,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         // clang-format on
     }
     if (points.scalar_type() != torch::kFloat64) {
-        C10_THROW_ERROR(ValueError,
-            "only float64 dtype is supported in vesin"
-        );
+        C10_THROW_ERROR(ValueError, "only float64 dtype is supported in vesin");
     }
 
     if (points.sizes().size() != 2 || points.size(1) != 3) {
@@ -130,12 +127,12 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     }
 
     auto options = VesinOptions{
-        /*cutoff=*/ this->cutoff_,
-        /*full=*/ this->full_list_,
-        /*sorted=*/ this->sorted_,
-        /*return_shifts=*/ return_shifts,
-        /*return_distances=*/ return_distances,
-        /*return_vectors=*/ return_vectors,
+        /*cutoff=*/this->cutoff_,
+        /*full=*/this->full_list_,
+        /*sorted=*/this->sorted_,
+        /*return_shifts=*/return_shifts,
+        /*return_distances=*/return_distances,
+        /*return_vectors=*/return_vectors,
     };
 
     if (!points.is_contiguous()) {
@@ -169,9 +166,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     } else if (sizeof(size_t) == sizeof(uint64_t)) {
         size_t_options = size_t_options.dtype(torch::kUInt64);
     } else {
-        C10_THROW_ERROR(ValueError,
-            "could not determine torch dtype matching size_t"
-        );
+        C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
     auto pairs = torch::from_blob(
@@ -184,8 +179,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     auto shifts = torch::Tensor();
     if (data_->shifts != nullptr) {
         auto int32_options = torch::TensorOptions()
-            .device(vesin_to_torch_device(data_->device))
-            .dtype(torch::kInt32);
+                                 .device(vesin_to_torch_device(data_->device))
+                                 .dtype(torch::kInt32);
 
         shifts = torch::from_blob(
             data_->shifts,
@@ -199,8 +194,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     }
 
     auto double_options = torch::TensorOptions()
-        .device(vesin_to_torch_device(data_->device))
-        .dtype(torch::kDouble);
+                              .device(vesin_to_torch_device(data_->device))
+                              .dtype(torch::kDouble);
 
     auto distances = torch::Tensor();
     if (data_->distances != nullptr) {
@@ -270,7 +265,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     // assemble the output
     auto output = std::vector<torch::Tensor>();
-    for (auto c: quantities) {
+    for (auto c : quantities) {
         if (c == 'i') {
             output.push_back(pairs.index({torch::indexing::Slice(), 0}));
         } else if (c == 'j') {
@@ -284,15 +279,12 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         } else if (c == 'D') {
             output.push_back(vectors);
         } else {
-            C10_THROW_ERROR(ValueError,
-                "unexpected character in `quantities`: " + std::string(1, c)
-            );
+            C10_THROW_ERROR(ValueError, "unexpected character in `quantities`: " + std::string(1, c));
         }
     }
 
     return output;
 }
-
 
 TORCH_LIBRARY(vesin, m) {
     std::string DOCSTRING;
@@ -389,8 +381,7 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
 
     if (points.requires_grad() || box.requires_grad()) {
         // Do a first backward step from distances_grad to vectors_grad
-        vectors_grad += distances_grad.index({torch::indexing::Slice(), torch::indexing::None})
-            * vectors / distances.index({torch::indexing::Slice(), torch::indexing::None});
+        vectors_grad += distances_grad.index({torch::indexing::Slice(), torch::indexing::None}) * vectors / distances.index({torch::indexing::Slice(), torch::indexing::None});
     }
 
     auto points_grad = torch::Tensor();

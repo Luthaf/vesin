@@ -51,8 +51,9 @@ public:
         torch::Tensor box,
         bool periodic,
         std::string quantities,
-        bool copy=true
+        bool copy = true
     );
+
 private:
     double cutoff_;
     bool full_list_;
@@ -60,7 +61,6 @@ private:
     VesinNeighborList* data_;
 };
 
-
-}
+} // namespace vesin_torch
 
 #endif

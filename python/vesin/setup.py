@@ -54,7 +54,7 @@ class cmake_ext(build_ext):
             f"-DCMAKE_BUILD_TYPE={VESIN_BUILD_TYPE}",
             "-DBUILD_SHARED_LIBS=ON",
         ]
-        
+
         CUDA_HOME = os.environ.get("CUDA_HOME")
 
         if CUDA_HOME is not None:

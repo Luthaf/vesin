@@ -28,33 +28,41 @@ def run_check_neighbors(
     for q, expected in expected_outputs.items():
         actual = outputs[index[q]].cpu()
         expected = torch.tensor(expected, dtype=torch.float64)
-        assert_close(actual, expected, rtol=rtol,
-                     atol=atol, msg=f"Mismatch in {q}")
+        assert_close(actual, expected, rtol=rtol, atol=atol, msg=f"Mismatch in {q}")
 
 
 @pytest.mark.parametrize("device", ["cuda"] if torch.cuda.is_available() else ["cpu"])
 @pytest.mark.parametrize("full_list", [False, True])
 def test_large_box_small_cutoff(device, full_list):
-    points = torch.tensor([
-        [0.0, 0.0, 0.0],
-        [0.0, 2.0, 0.0],
-        [0.0, 0.0, 2.0],
-        [-6.0, 0.0, 0.0],
-        [-6.0, -2.0, 0.0],
-        [-6.0, 0.0, -2.0],
-    ], dtype=torch.float64, device=device)
+    points = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=torch.float64,
+        device=device,
+    )
 
-    box = torch.tensor([
-        [54.0, 0.0, 0.0],
-        [0.0, 54.0, 0.0],
-        [0.0, 0.0, 54.0],
-    ], dtype=torch.float64, device=device)
+    box = torch.tensor(
+        [
+            [54.0, 0.0, 0.0],
+            [0.0, 54.0, 0.0],
+            [0.0, 0.0, 54.0],
+        ],
+        dtype=torch.float64,
+        device=device,
+    )
 
     calculator = NeighborList(cutoff=2.1, full_list=full_list)
 
     quantities = "ijdS"  # i,j for indices, d for distances
     i, j, dists, shifts = calculator.compute(
-        points, box, periodic=True, quantities=quantities)
+        points, box, periodic=True, quantities=quantities
+    )
 
     pairs = torch.stack((i, j), dim=1)
     sort_idx = torch.argsort(pairs[:, 0] * (i.max() + 1) + pairs[:, 1])
@@ -68,38 +76,44 @@ def test_large_box_small_cutoff(device, full_list):
     actual_pairs = sorted(zip(i.tolist(), j.tolist()))
     actual_dists = [d.item() for d in dists]
 
-    if (full_list):
-        expected_pairs = sorted([
-            (0, 1),
-            (0, 2),
-            (1, 0),
-            (2, 0),
-            (3, 4),
-            (3, 5),
-            (4, 3),
-            (5, 3),
-        ])
+    if full_list:
+        expected_pairs = sorted(
+            [
+                (0, 1),
+                (0, 2),
+                (1, 0),
+                (2, 0),
+                (3, 4),
+                (3, 5),
+                (4, 3),
+                (5, 3),
+            ]
+        )
         expected_dists = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     else:
-        expected_pairs = sorted([
-            (0, 1),
-            (0, 2),
-            (3, 4),
-            (3, 5),
-        ])
+        expected_pairs = sorted(
+            [
+                (0, 1),
+                (0, 2),
+                (3, 4),
+                (3, 5),
+            ]
+        )
         expected_dists = [2.0, 2.0, 2.0, 2.0]
     # Check pairs
-    assert actual_pairs == expected_pairs, f"Expected pairs {expected_pairs}, got {actual_pairs}"
+    assert actual_pairs == expected_pairs, (
+        f"Expected pairs {expected_pairs}, got {actual_pairs}"
+    )
 
     # Check distances approximately
     for actual, expected in zip(actual_dists, expected_dists):
-        assert abs(
-            actual - expected) < 1e-8, f"Expected distance {expected}, got {actual}"
+        assert abs(actual - expected) < 1e-8, (
+            f"Expected distance {expected}, got {actual}"
+        )
 
 
 def test_errors():
-    points = torch.tensor(
-        [[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]], dtype=torch.float64)
+    points = torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]], dtype=torch.float64)
     box = torch.zeros((3, 3), dtype=torch.float64)
 
     calculator = NeighborList(cutoff=2.8, full_list=True)
@@ -152,8 +166,7 @@ def test_errors():
 
 @pytest.mark.parametrize("quantities", ["ijS", "D", "d", "ijSDd"])
 def test_all_alone_no_neighbors(quantities):
-    points = torch.tensor(
-        [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=torch.float64)
+    points = torch.tensor([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=torch.float64)
     box = torch.eye(3, dtype=torch.float64)
 
     calculator = NeighborList(cutoff=0.1, full_list=True)

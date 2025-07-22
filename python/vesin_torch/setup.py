@@ -69,7 +69,7 @@ class cmake_ext(build_ext):
             "-DBUILD_SHARED_LIBS=ON",
             "-DVESIN_TORCH=ON",
         ]
-        
+
         CUDA_HOME = os.environ.get("CUDA_HOME")
 
         if CUDA_HOME is not None:

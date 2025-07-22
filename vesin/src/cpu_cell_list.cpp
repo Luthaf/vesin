@@ -219,6 +219,7 @@ void CellList::add_point(size_t index, Vector position) {
 }
 
 
+// clang-format off
 template <typename Function>
 void CellList::foreach_pair(Function callback) {
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
@@ -269,6 +270,7 @@ CellList::Cell& CellList::get_cell(std::array<int32_t, 3> index) {
                         + index[0];
     return cells_[linear_index];
 }
+// clang-format on
 
 /* ========================================================================== */
 

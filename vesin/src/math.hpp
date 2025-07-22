@@ -67,9 +67,11 @@ inline Vector operator*(Vector vector, double scalar) {
 
 struct Matrix: public std::array<std::array<double, 3>, 3> {
     double determinant() const {
+         // clang-format off
         return (*this)[0][0] * ((*this)[1][1] * (*this)[2][2] - (*this)[2][1] * (*this)[1][2])
              - (*this)[0][1] * ((*this)[1][0] * (*this)[2][2] - (*this)[1][2] * (*this)[2][0])
              + (*this)[0][2] * ((*this)[1][0] * (*this)[2][1] - (*this)[1][1] * (*this)[2][0]);
+        // clang-format on
     }
 
     Matrix inverse() const {

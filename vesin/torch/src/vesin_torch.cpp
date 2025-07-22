@@ -68,19 +68,23 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 ) {
     // check input data
     if (points.device() != box.device()) {
+        // clang-format off
         C10_THROW_ERROR(ValueError,
             "expected `points` and `box` to have the same device, got " +
             points.device().str() + " and " + box.device().str()
         );
+        // clang-format on
     }
     auto device = torch_to_vesin_device(points.device());
 
     if (points.scalar_type() != box.scalar_type()) {
+        // clang-format off
         C10_THROW_ERROR(ValueError,
             std::string("expected `points` and `box` to have the same dtype, got ") +
             torch::toString(points.scalar_type()) + " and " +
             torch::toString(box.scalar_type())
         );
+        // clang-format on
     }
     if (points.scalar_type() != torch::kFloat64) {
         C10_THROW_ERROR(ValueError,
@@ -174,7 +178,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         data_->pairs,
         {static_cast<int64_t>(data_->length), 2},
         size_t_options
-    ).to(torch::kInt64);
+    );
+    pairs = pairs.to(torch::kInt64);
 
     auto shifts = torch::Tensor();
     if (data_->shifts != nullptr) {
@@ -292,6 +297,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 TORCH_LIBRARY(vesin, m) {
     std::string DOCSTRING;
 
+    // clang-format off
     m.class_<NeighborListHolder>("_NeighborList")
         .def(
             torch::init<double, bool, bool>(), DOCSTRING,
@@ -301,6 +307,7 @@ TORCH_LIBRARY(vesin, m) {
             {torch::arg("points"), torch::arg("box"), torch::arg("periodic"), torch::arg("quantities"), torch::arg("copy") = true}
         )
         ;
+    // clang-format on
 }
 
 // ========================================================================== //

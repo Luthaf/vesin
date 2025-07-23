@@ -1,4 +1,6 @@
 #include "mic_neighbourlist.cuh"
+
+#include <assert.h>
 #include <cstdio>
 #include <cuda_runtime.h>
 #include <iostream>
@@ -110,6 +112,64 @@ __device__ scalar_t dot(const typename Vector3IO<scalar_t>::vec_t& a, const type
 }
 
 template <typename scalar_t>
+__device__ void check_rcut(const scalar_t* cell, scalar_t rcut) {
+    // Extract lattice vectors
+    scalar_t ax = cell[0], ay = cell[1], az = cell[2];
+    scalar_t bx = cell[3], by = cell[4], bz = cell[5];
+    scalar_t cx = cell[6], cy = cell[7], cz = cell[8];
+
+    // Compute norms
+    scalar_t a_norm = sqrt(ax * ax + ay * ay + az * az);
+    scalar_t b_norm = sqrt(bx * bx + by * by + bz * bz);
+    scalar_t c_norm = sqrt(cx * cx + cy * cy + cz * cz);
+
+    // Dot products
+    scalar_t ab_dot = ax * bx + ay * by + az * bz;
+    scalar_t ac_dot = ax * cx + ay * cy + az * cz;
+    scalar_t bc_dot = bx * cx + by * cy + bz * cz;
+
+    // Orthogonality check (relative tolerance)
+    scalar_t tol = 1e-6;
+    bool is_orthogonal = (fabs(ab_dot) < tol * a_norm * b_norm) &&
+                         (fabs(ac_dot) < tol * a_norm * c_norm) &&
+                         (fabs(bc_dot) < tol * b_norm * c_norm);
+
+    scalar_t min_dim;
+
+    if (is_orthogonal) {
+        min_dim = fminf(a_norm, fminf(b_norm, c_norm));
+    } else {
+        // General triclinic case
+        scalar_t bc_x = by * cz - bz * cy;
+        scalar_t bc_y = bz * cx - bx * cz;
+        scalar_t bc_z = bx * cy - by * cx;
+        scalar_t ac_x = ay * cz - az * cy;
+        scalar_t ac_y = az * cx - ax * cz;
+        scalar_t ac_z = ax * cy - ay * cx;
+        scalar_t ab_x = ay * bz - az * by;
+        scalar_t ab_y = az * bx - ax * bz;
+        scalar_t ab_z = ax * by - ay * bx;
+
+        scalar_t bc_norm = sqrt(bc_x * bc_x + bc_y * bc_y + bc_z * bc_z);
+        scalar_t ac_norm = sqrt(ac_x * ac_x + ac_y * ac_y + ac_z * ac_z);
+        scalar_t ab_norm = sqrt(ab_x * ab_x + ab_y * ab_y + ab_z * ab_z);
+
+        scalar_t V = fabs(ax * bc_x + ay * bc_y + az * bc_z);
+
+        scalar_t d_a = V / bc_norm;
+        scalar_t d_b = V / ac_norm;
+        scalar_t d_c = V / ab_norm;
+
+        min_dim = fminf(d_a, fminf(d_b, d_c));
+    }
+
+    if (rcut * 2.0 > min_dim) {
+        printf("ERROR: rcut (%g) must be <= half the smallest cell dimension (%g)\n", (double)rcut, (double)(min_dim * 0.5));
+        assert(false);
+    }
+}
+
+template <typename scalar_t>
 __device__ void invert_cell_matrix(const scalar_t* cell, scalar_t* inv_cell) {
     scalar_t a = cell[0], b = cell[1], c = cell[2];
     scalar_t d = cell[3], e = cell[4], f = cell[5];
@@ -169,15 +229,26 @@ __global__ void compute_mic_neighbours_full_impl(
 
     using vec_t = typename Vector3IO<scalar_t>::vec_t;
 
-    __shared__ scalar_t inv_cell[9];
+    __shared__ scalar_t scell[9];
+    __shared__ scalar_t sinv_cell[9];
     const int warp_id = threadIdx.x / WARP_SIZE;
     const int thread_id = threadIdx.x % WARP_SIZE;
 
     const int node_index = blockIdx.x * NWARPS + warp_id;
     const scalar_t cutoff2 = cutoff * cutoff;
 
+    if (cell != nullptr) {
+        if (threadIdx.x < 9) {
+            scell[threadIdx.x] = cell[threadIdx.x];
+        }
+    }
+
+    __syncthreads();
+
+    check_rcut(cell, cutoff);
+
     if (cell != nullptr && thread_id == 0 && warp_id == 0)
-        invert_cell_matrix(cell, inv_cell);
+        invert_cell_matrix(scell, sinv_cell);
 
     // Ensure inv_cell is ready
     __syncthreads();
@@ -197,7 +268,7 @@ __global__ void compute_mic_neighbours_full_impl(
         vec_t disp = ri - rj;
         int3 shift = make_int3(0, 0, 0);
         if (cell != nullptr)
-            apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
+            apply_periodic_boundary<scalar_t>(disp, shift, scell, sinv_cell);
 
         scalar_t dist2 = dot(disp, disp);
         bool is_valid = (dist2 < cutoff2 && dist2 > scalar_t(0.0));
@@ -245,12 +316,23 @@ __global__ void compute_mic_neighbours_half_impl(
     if (index >= num_all_pairs)
         return;
 
-    __shared__ scalar_t inv_cell[9];
+    __shared__ scalar_t scell[9];
+    __shared__ scalar_t sinv_cell[9];
 
     const scalar_t cutoff2 = cutoff * cutoff;
 
+    if (cell != nullptr) {
+        if (threadIdx.x < 9) {
+            scell[threadIdx.x] = cell[threadIdx.x];
+        }
+    }
+
+    __syncthreads();
+
+    check_rcut(scell, cutoff);
+
     if (cell != nullptr && threadIdx.x == 0)
-        invert_cell_matrix(cell, inv_cell);
+        invert_cell_matrix(scell, sinv_cell);
 
     // Ensure inv_cell is ready
     __syncthreads();
@@ -271,7 +353,7 @@ __global__ void compute_mic_neighbours_half_impl(
     vec_t disp = ri - rj;
     int3 shift = make_int3(0, 0, 0);
     if (cell != nullptr)
-        apply_periodic_boundary<scalar_t>(disp, shift, cell, inv_cell);
+        apply_periodic_boundary<scalar_t>(disp, shift, scell, sinv_cell);
 
     scalar_t dist2 = dot(disp, disp);
     bool is_valid = (dist2 < cutoff2 && dist2 > scalar_t(0.0));

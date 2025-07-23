@@ -9,13 +9,13 @@ namespace vesin {
 namespace cuda {
 
 struct CudaNeighborListExtras {
-  unsigned long *length_ptr = nullptr; // GPU-side counter, 1 per device
-  unsigned long capacity = 0;          // Current capacity per device
-  int allocated_device = -1; // which device are we currently allocated on
+    unsigned long* length_ptr = nullptr; // GPU-side counter, 1 per device
+    unsigned long capacity = 0;          // Current capacity per device
+    int allocated_device = -1;           // which device are we currently allocated on
 
-  ~CudaNeighborListExtras() {
-    // cleanup handled in `free_neighbors`
-  }
+    ~CudaNeighborListExtras() {
+        // cleanup handled in `free_neighbors`
+    }
 };
 
 /// @brief Frees GPU memory associated with a VesinNeighborList.
@@ -25,7 +25,7 @@ struct CudaNeighborListExtras {
 /// only the device-side memory buffers.
 ///
 /// @param neighbors Reference to the VesinNeighborList to clean up.
-void free_neighbors(VesinNeighborList &neighbors);
+void free_neighbors(VesinNeighborList& neighbors);
 
 /// @brief Computes the neighbor list on the GPU using the Minimum Image
 /// Convention.
@@ -41,12 +41,10 @@ void free_neighbors(VesinNeighborList &neighbors);
 /// @param options Struct holding parameters such as cutoff, symmetry, etc.
 /// @param neighbors Output neighbor list (device memory will be allocated as
 /// needed).
-void neighbors(const double (*points)[3], long n_points,
-               const double cell[3][3], VesinOptions options,
-               VesinNeighborList &neighbors);
+void neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors);
 
 // used in front-end and back-end to grab the length ptr
-CudaNeighborListExtras *get_cuda_extras(VesinNeighborList *neighbors);
+CudaNeighborListExtras* get_cuda_extras(VesinNeighborList* neighbors);
 
 } // namespace cuda
 } // namespace vesin

@@ -3,8 +3,8 @@
 
 #include <vector>
 
-#include "vesin.h"
 #include "types.hpp"
+#include "vesin.h"
 
 namespace vesin {
 namespace cpu {

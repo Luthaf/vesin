@@ -34,32 +34,32 @@ extern "C" {
 
 /// Options for a neighbor list calculation
 struct VesinOptions {
-  /// Spherical cutoff, only pairs below this cutoff will be included
-  double cutoff;
-  /// Should the returned neighbor list be a full list (include both `i -> j`
-  /// and `j -> i` pairs) or a half list (include only `i -> j`)?
-  bool full;
-  /// Should the neighbor list be sorted? If yes, the returned pairs will be
-  /// sorted using lexicographic order.
-  bool sorted;
+    /// Spherical cutoff, only pairs below this cutoff will be included
+    double cutoff;
+    /// Should the returned neighbor list be a full list (include both `i -> j`
+    /// and `j -> i` pairs) or a half list (include only `i -> j`)?
+    bool full;
+    /// Should the neighbor list be sorted? If yes, the returned pairs will be
+    /// sorted using lexicographic order.
+    bool sorted;
 
-  /// Should the returned `VesinNeighborList` contain `shifts`?
-  bool return_shifts;
-  /// Should the returned `VesinNeighborList` contain `distances`?
-  bool return_distances;
-  /// Should the returned `VesinNeighborList` contain `vector`?
-  bool return_vectors;
+    /// Should the returned `VesinNeighborList` contain `shifts`?
+    bool return_shifts;
+    /// Should the returned `VesinNeighborList` contain `distances`?
+    bool return_distances;
+    /// Should the returned `VesinNeighborList` contain `vector`?
+    bool return_vectors;
 };
 
 /// Device on which the data can be
 enum VesinDevice {
-  /// Unknown device, used for default initialization and to indicate no
-  /// allocated data.
-  VesinUnknownDevice = 0,
-  /// CPU device
-  VesinCPU = 1,
-  // CUDA device
-  VesinCUDA = 2,
+    /// Unknown device, used for default initialization and to indicate no
+    /// allocated data.
+    VesinUnknownDevice = 0,
+    /// CPU device
+    VesinCPU = 1,
+    // CUDA device
+    VesinCUDA = 2,
 };
 
 /// The actual neighbor list
@@ -92,34 +92,34 @@ struct VESIN_API VesinNeighborList {
         vectors(nullptr) {}
 #endif
 
-  /// Number of pairs in this neighbor list
-  size_t length;
-  /// Device used for the data allocations
-  VesinDevice device;
-  /// Array of pairs (storing the indices of the first and second point in the
-  /// pair), containing `length` elements.
-  size_t (*pairs)[2];
-  /// Array of box shifts, one for each `pair`. This is only set if
-  /// `options.return_pairs` was `true` during the calculation.
-  int32_t (*shifts)[3];
-  /// Array of pair distance (i.e. distance between the two points), one for
-  /// each pair. This is only set if `options.return_distances` was `true`
-  /// during the calculation.
-  double* distances;
-  /// Array of pair vector (i.e. vector between the two points), one for
-  /// each pair. This is only set if `options.return_vector` was `true`
-  /// during the calculation.
-  double (*vectors)[3];
+    /// Number of pairs in this neighbor list
+    size_t length;
+    /// Device used for the data allocations
+    VesinDevice device;
+    /// Array of pairs (storing the indices of the first and second point in the
+    /// pair), containing `length` elements.
+    size_t (*pairs)[2];
+    /// Array of box shifts, one for each `pair`. This is only set if
+    /// `options.return_pairs` was `true` during the calculation.
+    int32_t (*shifts)[3];
+    /// Array of pair distance (i.e. distance between the two points), one for
+    /// each pair. This is only set if `options.return_distances` was `true`
+    /// during the calculation.
+    double* distances;
+    /// Array of pair vector (i.e. vector between the two points), one for
+    /// each pair. This is only set if `options.return_vector` was `true`
+    /// during the calculation.
+    double (*vectors)[3];
 
-  // pointer to hold any additional structs
-  void *opaque = nullptr;
+    // pointer to hold any additional structs
+    void* opaque = nullptr;
 
-  // TODO: custom memory allocators?
+    // TODO: custom memory allocators?
 };
 
 /// Free all allocated memory inside a `VesinNeighborList`, according the it's
 /// `device`.
-void VESIN_API vesin_free(struct VesinNeighborList *neighbors);
+void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 
 /// Compute a neighbor list.
 ///

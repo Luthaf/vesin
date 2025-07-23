@@ -1,0 +1,35 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 4
+AccessModifierOffset: -4
+UseTab: Never
+ColumnLimit: 0
+
+BinPackArguments: false
+BinPackParameters: OnePerLine
+PointerAlignment: Left
+
+AlignAfterOpenBracket: BlockIndent
+
+BreakConstructorInitializers: AfterColon
+PackConstructorInitializers: CurrentLine
+
+SpaceBeforeCaseColon: false
+SpaceBeforeCtorInitializerColon: false
+SpaceBeforeInheritanceColon: false
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel:  false
+  AfterClass:      false
+  AfterControlStatement: false
+  AfterEnum:       false
+  AfterFunction:   false
+  AfterNamespace:  false
+  AfterStruct:     false
+  AfterUnion:      false
+  AfterExternBlock: false
+  BeforeCatch:     false
+  BeforeElse:      false
+  IndentBraces:    false
+  SplitEmptyFunction: true

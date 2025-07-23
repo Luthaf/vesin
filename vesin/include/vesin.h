@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// clang-format off
 #if defined(VESIN_SHARED)
 #if defined(VESIN_EXPORTS)
 #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
@@ -25,6 +26,7 @@
 #else
 #define VESIN_API
 #endif
+// clang-format on
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,9 +83,13 @@ enum VesinDevice {
 /// each pair having a different periodic shift.
 struct VESIN_API VesinNeighborList {
 #ifdef __cplusplus
-  VesinNeighborList()
-      : length(0), device(VesinUnknownDevice), pairs(nullptr), shifts(nullptr),
-        distances(nullptr), vectors(nullptr) {}
+    VesinNeighborList():
+        length(0),
+        device(VesinUnknownDevice),
+        pairs(nullptr),
+        shifts(nullptr),
+        distances(nullptr),
+        vectors(nullptr) {}
 #endif
 
   /// Number of pairs in this neighbor list
@@ -99,7 +105,7 @@ struct VESIN_API VesinNeighborList {
   /// Array of pair distance (i.e. distance between the two points), one for
   /// each pair. This is only set if `options.return_distances` was `true`
   /// during the calculation.
-  double *distances;
+  double* distances;
   /// Array of pair vector (i.e. vector between the two points), one for
   /// each pair. This is only set if `options.return_vector` was `true`
   /// during the calculation.
@@ -136,11 +142,16 @@ void VESIN_API vesin_free(struct VesinNeighborList *neighbors);
 /// @param error_message Pointer to a `char*` that wil be set to the error
 ///     message if this function fails. This does not need to be freed when no
 ///     longer needed.
-int VESIN_API vesin_neighbors(const double (*points)[3], size_t n_points,
-                              const double box[3][3], bool periodic,
-                              VesinDevice device, struct VesinOptions options,
-                              struct VesinNeighborList *neighbors,
-                              const char **error_message);
+int VESIN_API vesin_neighbors(
+    const double (*points)[3],
+    size_t n_points,
+    const double box[3][3],
+    bool periodic,
+    VesinDevice device,
+    struct VesinOptions options,
+    struct VesinNeighborList* neighbors,
+    const char** error_message
+);
 
 #ifdef __cplusplus
 

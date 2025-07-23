@@ -47,7 +47,7 @@ static void check_neighbors(
 
     if (!expected_pairs.empty()) {
         REQUIRE(neighbors.length == expected_pairs.size());
-        for (size_t i=0; i<neighbors.length; i++) {
+        for (size_t i = 0; i < neighbors.length; i++) {
             CHECK(neighbors.pairs[i][0] == expected_pairs[i][0]);
             CHECK(neighbors.pairs[i][1] == expected_pairs[i][1]);
         }
@@ -55,7 +55,7 @@ static void check_neighbors(
 
     if (!expected_shifts.empty()) {
         REQUIRE(neighbors.length == expected_shifts.size());
-        for (size_t i=0; i<neighbors.length; i++) {
+        for (size_t i = 0; i < neighbors.length; i++) {
             CHECK(neighbors.shifts[i][0] == expected_shifts[i][0]);
             CHECK(neighbors.shifts[i][1] == expected_shifts[i][1]);
             CHECK(neighbors.shifts[i][2] == expected_shifts[i][2]);
@@ -64,14 +64,14 @@ static void check_neighbors(
 
     if (!expected_distances.empty()) {
         REQUIRE(neighbors.length == expected_distances.size());
-        for (size_t i=0; i<neighbors.length; i++) {
+        for (size_t i = 0; i < neighbors.length; i++) {
             CHECK_APPROX_EQUAL(neighbors.distances[i], expected_distances[i]);
         }
     }
 
     if (!expected_vectors.empty()) {
         REQUIRE(neighbors.length == expected_vectors.size());
-        for (size_t i=0; i<neighbors.length; i++) {
+        for (size_t i = 0; i < neighbors.length; i++) {
             CHECK_APPROX_EQUAL(neighbors.vectors[i][0], expected_vectors[i][0]);
             CHECK_APPROX_EQUAL(neighbors.vectors[i][1], expected_vectors[i][1]);
             CHECK_APPROX_EQUAL(neighbors.vectors[i][2], expected_vectors[i][2]);
@@ -118,8 +118,16 @@ TEST_CASE("Non-periodic") {
     };
 
     check_neighbors(
-        points, /*n_points=*/ 5, box, /*periodic=*/ false, /*cutoff=*/ 3.42, /*full_list=*/ false,
-        expected_pairs, {}, expected_distances, {}
+        points,
+        /*n_points=*/5,
+        box,
+        /*periodic=*/false,
+        /*cutoff=*/3.42,
+        /*full_list=*/false,
+        expected_pairs,
+        {},
+        expected_distances,
+        {}
     );
 }
 
@@ -135,12 +143,12 @@ TEST_CASE("FCC unit cell") {
     };
 
     auto expected_vectors = std::vector<std::array<double, 3>>{
-        {1.5,  0.0, -1.5},
-        {1.5, -1.5,  0.0},
-        {0.0,  1.5, -1.5},
-        {1.5,  1.5,  0.0},
-        {1.5,  0.0,  1.5},
-        {0.0,  1.5,  1.5},
+        {1.5, 0.0, -1.5},
+        {1.5, -1.5, 0.0},
+        {0.0, 1.5, -1.5},
+        {1.5, 1.5, 0.0},
+        {1.5, 0.0, 1.5},
+        {0.0, 1.5, 1.5},
     };
 
     auto expected_shifts = std::vector<std::array<int32_t, 3>>{
@@ -156,8 +164,16 @@ TEST_CASE("FCC unit cell") {
     auto expected_distances = std::vector<double>(6, 2.1213203435596424);
 
     check_neighbors(
-        points, /*n_points=*/ 1, box, /*periodic=*/ true, /*cutoff=*/ 3.0, /*full_list=*/ false,
-        expected_pairs, expected_shifts, expected_distances, expected_vectors
+        points,
+        /*n_points=*/1,
+        box,
+        /*periodic=*/true,
+        /*cutoff=*/3.0,
+        /*full_list=*/false,
+        expected_pairs,
+        expected_shifts,
+        expected_distances,
+        expected_vectors
     );
 }
 
@@ -188,8 +204,16 @@ TEST_CASE("Large box, small cutoff") {
     auto expected_distances = std::vector<double>(4, 2.0);
 
     check_neighbors(
-        points, /*n_points=*/ 6, box, /*periodic=*/ true, /*cutoff=*/ 2.1, /*full_list=*/ false,
-        expected_pairs, expected_shifts, expected_distances, {}
+        points,
+        /*n_points=*/6,
+        box,
+        /*periodic=*/true,
+        /*cutoff=*/2.1,
+        /*full_list=*/false,
+        expected_pairs,
+        expected_shifts,
+        expected_distances,
+        {}
     );
 }
 
@@ -218,8 +242,16 @@ TEST_CASE("Cutoff larger than the box size") {
     };
 
     check_neighbors(
-        points, /*n_points=*/ 1, box, /*periodic=*/ true, /*cutoff=*/ 0.6, /*full_list=*/ false,
-        expected_pairs, expected_shifts, expected_distances, expected_vectors
+        points,
+        /*n_points=*/1,
+        box,
+        /*periodic=*/true,
+        /*cutoff=*/0.6,
+        /*full_list=*/false,
+        expected_pairs,
+        expected_shifts,
+        expected_distances,
+        expected_vectors
     );
 }
 
@@ -249,9 +281,9 @@ TEST_CASE("Slanted box") {
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
         points,
-        /*n_points=*/ 4,
+        /*n_points=*/4,
         box,
-        /*periodic=*/ true,
+        /*periodic=*/true,
         VesinDevice::VesinCPU,
         options,
         &neighbors,
@@ -266,15 +298,15 @@ TEST_CASE("Slanted box") {
         {-2, 2, 0},
     };
 
-    for (const auto& missing: previously_missing) {
+    for (const auto& missing : previously_missing) {
         bool found = false;
-        for (size_t i=0; i<neighbors.length; i++) {
-            auto pair = neighbors.pairs[i];
+        for (size_t i = 0; i < neighbors.length; i++) {
+            auto* pair = neighbors.pairs[i];
             if (pair[0] != 0 || pair[1] != 3) {
                 continue;
             }
 
-            auto shift = neighbors.shifts[i];
+            auto* shift = neighbors.shifts[i];
             if (shift[0] == missing[0] && shift[1] == missing[1] && shift[2] == missing[2]) {
                 found = true;
                 break;

@@ -47,10 +47,12 @@ public:
            std::vector<torch::Tensor> outputs_grad);
 };
 
-NeighborListHolder::NeighborListHolder(double cutoff, bool full_list,
-                                       bool sorted)
-    : cutoff_(cutoff), full_list_(full_list), sorted_(sorted), data_(nullptr) {
-  data_ = new VesinNeighborList();
+NeighborListHolder::NeighborListHolder(double cutoff, bool full_list, bool sorted):
+    cutoff_(cutoff),
+    full_list_(full_list),
+    sorted_(sorted),
+    data_(nullptr) {
+    data_ = new VesinNeighborList();
 }
 
 NeighborListHolder::~NeighborListHolder() {
@@ -58,29 +60,36 @@ NeighborListHolder::~NeighborListHolder() {
   delete data_;
 }
 
-std::vector<torch::Tensor>
-NeighborListHolder::compute(torch::Tensor points, torch::Tensor box,
-                            bool periodic, std::string quantities, bool copy) {
-  if (points.device() != box.device()) {
-    C10_THROW_ERROR(
-        ValueError,
-        "expected `points` and `box` to have the same device, got " +
-            points.device().str() + " and " + box.device().str());
-  }
+std::vector<torch::Tensor> NeighborListHolder::compute(
+    torch::Tensor points,
+    torch::Tensor box,
+    bool periodic,
+    std::string quantities,
+    bool copy
+) {
+    // check input data
+    if (points.device() != box.device()) {
+        // clang-format off
+        C10_THROW_ERROR(ValueError,
+            "expected `points` and `box` to have the same device, got " +
+            points.device().str() + " and " + box.device().str()
+        );
+        // clang-format on
+    }
+    auto device = torch_to_vesin_device(points.device());
 
-  auto device = torch_to_vesin_device(points.device());
-
-  if (points.scalar_type() != box.scalar_type()) {
-    C10_THROW_ERROR(
-        ValueError,
-        std::string(
-            "expected `points` and `box` to have the same dtype, got ") +
+    if (points.scalar_type() != box.scalar_type()) {
+        // clang-format off
+        C10_THROW_ERROR(ValueError,
+            std::string("expected `points` and `box` to have the same dtype, got ") +
             torch::toString(points.scalar_type()) + " and " +
-            torch::toString(box.scalar_type()));
-  }
-  if (points.scalar_type() != torch::kFloat64) {
-    C10_THROW_ERROR(ValueError, "only float64 dtype is supported in vesin");
-  }
+            torch::toString(box.scalar_type())
+        );
+        // clang-format on
+    }
+    if (points.scalar_type() != torch::kFloat64) {
+        C10_THROW_ERROR(ValueError, "only float64 dtype is supported in vesin");
+    }
 
   if (points.sizes().size() != 2 || points.size(1) != 3) {
     std::ostringstream oss;
@@ -120,14 +129,14 @@ NeighborListHolder::compute(torch::Tensor points, torch::Tensor box,
     return_vectors = true;
   }
 
-  auto options = VesinOptions{
-      /*cutoff=*/this->cutoff_,
-      /*full=*/this->full_list_,
-      /*sorted=*/this->sorted_,
-      /*return_shifts=*/return_shifts,
-      /*return_distances=*/return_distances,
-      /*return_vectors=*/return_vectors,
-  };
+    auto options = VesinOptions{
+        /*cutoff=*/this->cutoff_,
+        /*full=*/this->full_list_,
+        /*sorted=*/this->sorted_,
+        /*return_shifts=*/return_shifts,
+        /*return_distances=*/return_distances,
+        /*return_vectors=*/return_vectors,
+    };
 
   if (!points.is_contiguous()) {
     points = points.contiguous();
@@ -188,9 +197,9 @@ NeighborListHolder::compute(torch::Tensor points, torch::Tensor box,
     }
   }
 
-  auto double_options = torch::TensorOptions()
-                            .device(vesin_to_torch_device(data_->device))
-                            .dtype(torch::kDouble);
+    auto double_options = torch::TensorOptions()
+                              .device(vesin_to_torch_device(data_->device))
+                              .dtype(torch::kDouble);
 
   auto distances = torch::Tensor();
   if (data_->distances != nullptr) {
@@ -244,26 +253,25 @@ NeighborListHolder::compute(torch::Tensor points, torch::Tensor box,
     }
   }
 
-  // assemble the output
-  auto output = std::vector<torch::Tensor>();
-  for (auto c : quantities) {
-    if (c == 'i') {
-      output.push_back(pairs.index({torch::indexing::Slice(), 0}));
-    } else if (c == 'j') {
-      output.push_back(pairs.index({torch::indexing::Slice(), 1}));
-    } else if (c == 'P') {
-      output.push_back(pairs);
-    } else if (c == 'S') {
-      output.push_back(shifts);
-    } else if (c == 'd') {
-      output.push_back(distances);
-    } else if (c == 'D') {
-      output.push_back(vectors);
-    } else {
-      C10_THROW_ERROR(ValueError, "unexpected character in `quantities`: " +
-                                      std::string(1, c));
+    // assemble the output
+    auto output = std::vector<torch::Tensor>();
+    for (auto c : quantities) {
+        if (c == 'i') {
+            output.push_back(pairs.index({torch::indexing::Slice(), 0}));
+        } else if (c == 'j') {
+            output.push_back(pairs.index({torch::indexing::Slice(), 1}));
+        } else if (c == 'P') {
+            output.push_back(pairs);
+        } else if (c == 'S') {
+            output.push_back(shifts);
+        } else if (c == 'd') {
+            output.push_back(distances);
+        } else if (c == 'D') {
+            output.push_back(vectors);
+        } else {
+            C10_THROW_ERROR(ValueError, "unexpected character in `quantities`: " + std::string(1, c));
+        }
     }
-  }
 
   return output;
 }
@@ -271,13 +279,17 @@ NeighborListHolder::compute(torch::Tensor points, torch::Tensor box,
 TORCH_LIBRARY(vesin, m) {
   std::string DOCSTRING;
 
-  m.class_<NeighborListHolder>("_NeighborList")
-      .def(torch::init<double, bool, bool>(), DOCSTRING,
-           {torch::arg("cutoff"), torch::arg("full_list"),
-            torch::arg("sorted") = false})
-      .def("compute", &NeighborListHolder::compute, DOCSTRING,
-           {torch::arg("points"), torch::arg("box"), torch::arg("periodic"),
-            torch::arg("quantities"), torch::arg("copy") = true});
+    // clang-format off
+    m.class_<NeighborListHolder>("_NeighborList")
+        .def(
+            torch::init<double, bool, bool>(), DOCSTRING,
+            {torch::arg("cutoff"), torch::arg("full_list"), torch::arg("sorted") = false}
+        )
+        .def("compute", &NeighborListHolder::compute, DOCSTRING,
+            {torch::arg("points"), torch::arg("box"), torch::arg("periodic"), torch::arg("quantities"), torch::arg("copy") = true}
+        )
+        ;
+    // clang-format on
 }
 
 // ========================================================================== //
@@ -350,14 +362,10 @@ AutogradNeighbors::backward(torch::autograd::AutogradContext *ctx,
     };
   }
 
-  if (points.requires_grad() || box.requires_grad()) {
-    // Do a first backward step from distances_grad to vectors_grad
-    vectors_grad +=
-        distances_grad.index(
-            {torch::indexing::Slice(), torch::indexing::None}) *
-        vectors /
-        distances.index({torch::indexing::Slice(), torch::indexing::None});
-  }
+    if (points.requires_grad() || box.requires_grad()) {
+        // Do a first backward step from distances_grad to vectors_grad
+        vectors_grad += distances_grad.index({torch::indexing::Slice(), torch::indexing::None}) * vectors / distances.index({torch::indexing::Slice(), torch::indexing::None});
+    }
 
   auto points_grad = torch::Tensor();
   if (points.requires_grad()) {

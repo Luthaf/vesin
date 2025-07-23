@@ -69,14 +69,9 @@ int get_device_id(const void *ptr) {
 vesin::cuda::CudaNeighborListExtras *
 vesin::cuda::get_cuda_extras(VesinNeighborList *neighbors) {
   if (!neighbors->opaque) {
-    try {
-      neighbors->opaque = new vesin::cuda::CudaNeighborListExtras();
-      vesin::cuda::CudaNeighborListExtras *test =
-          static_cast<vesin::cuda::CudaNeighborListExtras *>(neighbors->opaque);
-    } catch (...) {
-      neighbors->opaque = nullptr;
-      throw;
-    }
+    neighbors->opaque = new vesin::cuda::CudaNeighborListExtras();
+    vesin::cuda::CudaNeighborListExtras *test =
+        static_cast<vesin::cuda::CudaNeighborListExtras *>(neighbors->opaque);
   }
   return static_cast<vesin::cuda::CudaNeighborListExtras *>(neighbors->opaque);
 }
@@ -197,7 +192,7 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points,
                             VesinNeighborList &neighbors) {
 
   assert(neighbors.device == VesinCUDA);
-  assert(!neighbors.sort &&
+  assert(!options.sorted &&
          "Sorting is not supported in CUDA version of Vesin");
 
   auto extras = vesin::cuda::get_cuda_extras(&neighbors);

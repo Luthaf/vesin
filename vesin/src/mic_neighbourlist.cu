@@ -255,15 +255,11 @@ __global__ void compute_mic_neighbours_full_impl(
 
     if (node_index >= nnodes)
         return;
-    vec_t ri = Vector3IO<scalar_t>::pack(positions[node_index * 3 + 0], positions[node_index * 3 + 1], positions[node_index * 3 + 2]);
 
-    // vec_t ri = *reinterpret_cast<const vec_t *>(&positions[node_index * 3]);
+    vec_t ri = *reinterpret_cast<const vec_t*>(&positions[node_index * 3]);
 
     for (long j = thread_id; j < nnodes; j += WARP_SIZE) {
-        vec_t rj = Vector3IO<scalar_t>::pack(
-            positions[j * 3 + 0], positions[j * 3 + 1], positions[j * 3 + 2]
-        );
-        // vec_t rj = *reinterpret_cast<const vec_t *>(&positions[j * 3]);
+        vec_t rj = *reinterpret_cast<const vec_t*>(&positions[j * 3]);
 
         vec_t disp = ri - rj;
         int3 shift = make_int3(0, 0, 0);
@@ -342,13 +338,8 @@ __global__ void compute_mic_neighbours_half_impl(
         row--;
     const long column = index - row * (row - 1) / 2;
 
-    vec_t ri = Vector3IO<scalar_t>::pack(positions[column * 3 + 0], positions[column * 3 + 1], positions[column * 3 + 2]);
-    vec_t rj = Vector3IO<scalar_t>::pack(
-        positions[row * 3 + 0], positions[row * 3 + 1], positions[row * 3 + 2]
-    );
-
-    // vec_t ri = *reinterpret_cast<const vec_t *>(&positions[column * 3]);
-    // vec_t rj = *reinterpret_cast<const vec_t *>(&positions[row * 3]);
+    vec_t ri = *reinterpret_cast<const vec_t*>(&positions[column * 3]);
+    vec_t rj = *reinterpret_cast<const vec_t*>(&positions[row * 3]);
 
     vec_t disp = ri - rj;
     int3 shift = make_int3(0, 0, 0);
@@ -379,18 +370,10 @@ __global__ void compute_mic_neighbours_half_impl(
         edge_indices[edge_index * 2 + 1] = row;
 
         if (return_shifts) {
-            int* sh_ptr = &shifts[edge_index * 3];
-            sh_ptr[0] = shift.x;
-            sh_ptr[1] = shift.y;
-            sh_ptr[2] = shift.z;
-            // reinterpret_cast<int3 &>(shifts[edge_index * 3]) = shift;
+            reinterpret_cast<int3&>(shifts[edge_index * 3]) = shift;
         }
         if (return_vectors) {
-            scalar_t* vec_ptr = &vectors[edge_index * 3];
-            vec_ptr[0] = disp.x;
-            vec_ptr[1] = disp.y;
-            vec_ptr[2] = disp.z;
-            // reinterpret_cast<vec_t &>(vectors[edge_index * 3]) = disp;
+            reinterpret_cast<vec_t&>(vectors[edge_index * 3]) = disp;
         }
         if (return_distances) {
             distances[edge_index] = sqrt(dist2);

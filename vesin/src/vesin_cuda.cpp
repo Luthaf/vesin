@@ -107,9 +107,6 @@ void reset(VesinNeighborList& neighbors) {
 void update_capacity(VesinNeighborList& neighbors, unsigned long nnodes, int device_id) {
     assert(neighbors.device == VesinCUDA);
 
-    int deviceCount = 0;
-    CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
-
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
     if (device_id != extras->allocated_device) {
@@ -150,10 +147,10 @@ void update_capacity(VesinNeighborList& neighbors, unsigned long nnodes, int dev
         cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_edges * 3)
     );
 
-    CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(unsigned long) * deviceCount));
+    CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(unsigned long)));
 
     CUDA_CHECK(
-        cudaMemset(extras->length_ptr, 0, sizeof(unsigned long) * deviceCount)
+        cudaMemset(extras->length_ptr, 0, sizeof(unsigned long))
     );
 
     extras->allocated_device = device_id;

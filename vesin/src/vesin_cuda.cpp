@@ -36,7 +36,7 @@ void ensure_is_device_pointer(const void* p, const char* name) {
     }
 }
 
-inline bool is_device_ptr(const void* ptr, const char* name) {
+bool is_device_ptr(const void* ptr, const char* name) {
     if (!ptr)
         return false;
     try {

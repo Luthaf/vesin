@@ -247,7 +247,7 @@ __global__ void compute_mic_neighbours_full_impl(
 
     check_rcut(scell, cutoff);
 
-    if (cell != nullptr && thread_id == 0 && warp_id == 0)
+    if (cell != nullptr && threadIdx.x == 0)
         invert_cell_matrix(scell, sinv_cell);
 
     // Ensure inv_cell is ready

@@ -6,10 +6,10 @@
 namespace vesin {
 namespace cuda {
 
-#ifndef VESIN_CUDA_MAX_NEDGES_PER_NODE
-/// @brief Default maximum number of edges per node on the GPU (can be
+#ifndef VESIN_CUDA_MAX_PAIRS_PER_POINT
+/// @brief Default maximum number of pairs per point on the GPU (can be
 /// overridden).
-#define VESIN_CUDA_MAX_NEDGES_PER_NODE 1024
+#define VESIN_CUDA_MAX_PAIRS_PER_POINT 1024
 #endif
 
 /// @brief Compute the Minimum Image Convention (MIC) neighbor list on the GPU.

@@ -1,8 +1,9 @@
 #include "vesin_cuda.hpp"
 #include "mic_neighbourlist.cuh"
 
-#include <cassert>
 #include <cuda_runtime.h>
+
+#include <cassert>
 #include <memory>
 #include <mutex>
 #include <stdexcept>

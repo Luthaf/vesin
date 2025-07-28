@@ -33,11 +33,21 @@ static torch::Device vesin_to_torch_device(VesinDevice device) {
 /// to the neighbors list calculation
 class AutogradNeighbors: public torch::autograd::Function<AutogradNeighbors> {
 public:
-    static std::vector<torch::Tensor>
-    forward(torch::autograd::AutogradContext* ctx, torch::Tensor points, torch::Tensor box, bool periodic, torch::Tensor pairs, torch::optional<torch::Tensor> shifts, torch::optional<torch::Tensor> distances, torch::optional<torch::Tensor> vectors);
+    static std::vector<torch::Tensor> forward(
+        torch::autograd::AutogradContext* ctx,
+        torch::Tensor points,
+        torch::Tensor box,
+        bool periodic,
+        torch::Tensor pairs,
+        torch::optional<torch::Tensor> shifts,
+        torch::optional<torch::Tensor> distances,
+        torch::optional<torch::Tensor> vectors
+    );
 
-    static std::vector<torch::Tensor>
-    backward(torch::autograd::AutogradContext* ctx, std::vector<torch::Tensor> outputs_grad);
+    static std::vector<torch::Tensor> backward(
+        torch::autograd::AutogradContext* ctx,
+        std::vector<torch::Tensor> outputs_grad
+    );
 };
 
 NeighborListHolder::NeighborListHolder(double cutoff, bool full_list, bool sorted):
@@ -285,8 +295,16 @@ TORCH_LIBRARY(vesin, m) {
 //                                                                            //
 // ========================================================================== //
 
-std::vector<torch::Tensor>
-AutogradNeighbors::forward(torch::autograd::AutogradContext* ctx, torch::Tensor points, torch::Tensor box, bool periodic, torch::Tensor pairs, torch::optional<torch::Tensor> shifts, torch::optional<torch::Tensor> distances, torch::optional<torch::Tensor> vectors) {
+std::vector<torch::Tensor> AutogradNeighbors::forward(
+    torch::autograd::AutogradContext* ctx,
+    torch::Tensor points,
+    torch::Tensor box,
+    bool periodic,
+    torch::Tensor pairs,
+    torch::optional<torch::Tensor> shifts,
+    torch::optional<torch::Tensor> distances,
+    torch::optional<torch::Tensor> vectors
+) {
     auto shifts_tensor = shifts.value_or(torch::Tensor());
     auto distances_tensor = distances.value_or(torch::Tensor());
     auto vectors_tensor = vectors.value_or(torch::Tensor());
@@ -301,8 +319,7 @@ AutogradNeighbors::forward(torch::autograd::AutogradContext* ctx, torch::Tensor 
     ctx->saved_data["return_distances"] = return_distances;
     ctx->saved_data["return_vectors"] = return_vectors;
 
-    // only return defined tensors to make sure torch can use
-    // `get_autograd_meta()`
+    // only return defined tensors to make sure torch can use `get_autograd_meta()`
     if (return_distances && return_vectors) {
         return {distances_tensor, vectors_tensor};
     } else if (return_distances) {
@@ -314,8 +331,10 @@ AutogradNeighbors::forward(torch::autograd::AutogradContext* ctx, torch::Tensor 
     }
 }
 
-std::vector<torch::Tensor>
-AutogradNeighbors::backward(torch::autograd::AutogradContext* ctx, std::vector<torch::Tensor> outputs_grad) {
+std::vector<torch::Tensor> AutogradNeighbors::backward(
+    torch::autograd::AutogradContext* ctx,
+    std::vector<torch::Tensor> outputs_grad
+) {
     auto saved_variables = ctx->get_saved_variables();
     auto points = saved_variables[0];
     auto box = saved_variables[1];

@@ -6,25 +6,25 @@
 
 // clang-format off
 #if defined(VESIN_SHARED)
-#if defined(VESIN_EXPORTS)
-#if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
-#define VESIN_API __attribute__((visibility("default")))
-#elif defined(_MSC_VER)
-#define VESIN_API __declspec(dllexport)
+    #if defined(VESIN_EXPORTS)
+        #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+            #define VESIN_API __attribute__((visibility("default")))
+        #elif defined(_MSC_VER)
+            #define VESIN_API __declspec(dllexport)
+        #else
+            #define VESIN_API
+        #endif
+    #else
+        #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+            #define VESIN_API __attribute__((visibility("default")))
+        #elif defined(_MSC_VER)
+            #define VESIN_API __declspec(dllimport)
+        #else
+            #define VESIN_API
+        #endif
+    #endif
 #else
-#define VESIN_API
-#endif
-#else
-#if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
-#define VESIN_API __attribute__((visibility("default")))
-#elif defined(_MSC_VER)
-#define VESIN_API __declspec(dllimport)
-#else
-#define VESIN_API
-#endif
-#endif
-#else
-#define VESIN_API
+    #define VESIN_API
 #endif
 // clang-format on
 

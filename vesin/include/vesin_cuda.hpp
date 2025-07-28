@@ -5,11 +5,18 @@
 
 #include "vesin.h"
 
+
 namespace vesin {
 namespace cuda {
 
+#ifndef VESIN_CUDA_MAX_PAIRS_PER_POINT
+/// @brief Default maximum number of pairs per point on the GPU (can be
+/// overridden).
+#define VESIN_CUDA_MAX_PAIRS_PER_POINT 512
+#endif
+
 struct CudaNeighborListExtras {
-    unsigned long* length_ptr = nullptr; // GPU-side counter, 1 per device
+    unsigned long* length_ptr = nullptr; // GPU-side counter
     unsigned long capacity = 0;          // Current capacity per device
     int allocated_device = -1;           // which device are we currently allocated on
 

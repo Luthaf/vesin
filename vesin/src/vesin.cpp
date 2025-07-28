@@ -7,7 +7,16 @@
 
 thread_local std::string LAST_ERROR;
 
-extern "C" int vesin_neighbors(const double (*points)[3], size_t n_points, const double box[3][3], bool periodic, VesinDevice device, VesinOptions options, VesinNeighborList* neighbors, const char** error_message) {
+extern "C" int vesin_neighbors(
+    const double (*points)[3],
+    size_t n_points,
+    const double box[3][3],
+    bool periodic,
+    VesinDevice device,
+    VesinOptions options,
+    VesinNeighborList* neighbors,
+    const char** error_message
+) {
     if (error_message == nullptr) {
         return EXIT_FAILURE;
     }
@@ -38,8 +47,7 @@ extern "C" int vesin_neighbors(const double (*points)[3], size_t n_points, const
     }
 
     if (neighbors->device != VesinUnknownDevice && neighbors->device != device) {
-        *error_message = "`neighbors` device and data `device` do not match, free "
-                         "the neighbors first";
+        *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
         return EXIT_FAILURE;
     }
 
@@ -52,8 +60,7 @@ extern "C" int vesin_neighbors(const double (*points)[3], size_t n_points, const
         // initialize the device
         neighbors->device = device;
     } else if (neighbors->device != device) {
-        *error_message = "`neighbors.device` and `device` do not match, free the "
-                         "neighbors first";
+        *error_message = "`neighbors.device` and `device` do not match, free the neighbors first";
         return EXIT_FAILURE;
     }
 
@@ -65,7 +72,13 @@ extern "C" int vesin_neighbors(const double (*points)[3], size_t n_points, const
                 {{box[2][0], box[2][1], box[2][2]}},
             }}};
 
-            vesin::cpu::neighbors(reinterpret_cast<const vesin::Vector*>(points), n_points, vesin::BoundingBox(matrix, periodic), options, *neighbors);
+            vesin::cpu::neighbors(
+                reinterpret_cast<const vesin::Vector*>(points),
+                n_points,
+                vesin::BoundingBox(matrix, periodic),
+                options,
+                *neighbors
+            );
         } else if (device == VesinCUDA) {
             vesin::cuda::neighbors(points, n_points, periodic ? box : nullptr, options, *neighbors);
         } else {
@@ -100,9 +113,7 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
     } else if (neighbors->device == VesinCUDA) {
         vesin::cuda::free_neighbors(*neighbors);
     } else {
-        // unknown device
-        std::cerr << "unknown device " << neighbors->device
-                  << " when freeing memory" << std::endl;
+        throw std::runtime_error("unknown device " + std::to_string(neighbors->device) + " when freeing memory");
     }
     std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

@@ -3,14 +3,11 @@
 
 #include <cstddef> // for size_t
 
+#include "vesin.h"
+#include "vesin_cuda.hpp"
+
 namespace vesin {
 namespace cuda {
-
-#ifndef VESIN_CUDA_MAX_PAIRS_PER_POINT
-/// @brief Default maximum number of pairs per point on the GPU (can be
-/// overridden).
-#define VESIN_CUDA_MAX_PAIRS_PER_POINT 1024
-#endif
 
 /// @brief Compute the Minimum Image Convention (MIC) neighbor list on the GPU.
 ///
@@ -29,16 +26,16 @@ namespace cuda {
 /// computed pairs.
 /// @param pairs Pointer to device memory where neighbor index pairs will
 /// be stored.
-///        Expected shape: [n_max_edges * 2].
+///        Expected shape: [npairs * 2].
 /// @param shifts Pointer to device memory for storing shift vectors (if
 /// return_shifts is true).
-///        Shape: [n_max_edges * 3].
+///        Shape: [npairs * 3].
 /// @param distances Pointer to device memory for storing distances (if
 /// return_distances is true).
-///        Shape: [n_max_edges].
+///        Shape: [npairs].
 /// @param vectors Pointer to device memory for storing displacement vectors (if
 /// return_vectors is true).
-///        Shape: [n_max_edges * 3].
+///        Shape: [npairs * 3].
 /// @param return_shifts Whether to compute and store shift vectors.
 /// @param return_distances Whether to compute and store pairwise distances.
 /// @param return_vectors Whether to compute and store pairwise displacement
@@ -47,6 +44,8 @@ namespace cuda {
 /// (i,j).
 template <typename scalar_t>
 void compute_mic_neighbourlist(const scalar_t* positions, const scalar_t* cell, long nnodes, scalar_t cutoff, unsigned long* pair_counter, unsigned long* edge_indices, int* shifts, scalar_t* distances, scalar_t* vectors, bool return_shifts, bool return_distances, bool return_vectors, bool full);
+
+void compute_mic_neighbourlist(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors);
 
 } // namespace cuda
 } // namespace vesin

@@ -8,10 +8,6 @@
 #define NWARPS 4
 #define WARP_SIZE 32
 
-#ifndef MAX_NEIGHBOURS_PER_ATOM
-#define MAX_NEIGHBOURS_PER_ATOM 1024 // Make configurable
-#endif
-
 __device__ inline long atomicAdd(long* address, long val) {
     unsigned long long* address_as_ull =
         reinterpret_cast<unsigned long long*>(address);
@@ -224,7 +220,18 @@ apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t& displacement, int3&
 
 template <typename scalar_t>
 __global__ void compute_mic_neighbours_full_impl(
-    const scalar_t* positions, const scalar_t* cell, long nnodes, scalar_t cutoff, unsigned long* pair_counter, unsigned long* edge_indices, int* shifts, scalar_t* distances, scalar_t* vectors, bool return_shifts, bool return_distances, bool return_vectors
+    const scalar_t* positions,
+    const scalar_t* cell,
+    long nnodes,
+    scalar_t cutoff,
+    unsigned long* pair_counter,
+    unsigned long* edge_indices,
+    int* shifts,
+    scalar_t* distances,
+    scalar_t* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
 ) {
 
     using vec_t = typename Vector3IO<scalar_t>::vec_t;
@@ -301,7 +308,18 @@ __global__ void compute_mic_neighbours_full_impl(
 
 template <typename scalar_t>
 __global__ void compute_mic_neighbours_half_impl(
-    const scalar_t* positions, const scalar_t* cell, long nnodes, scalar_t cutoff, unsigned long* pair_counter, unsigned long* edge_indices, int* shifts, scalar_t* distances, scalar_t* vectors, bool return_shifts, bool return_distances, bool return_vectors
+    const scalar_t* positions,
+    const scalar_t* cell,
+    long nnodes,
+    scalar_t cutoff,
+    unsigned long* pair_counter,
+    unsigned long* edge_indices,
+    int* shifts,
+    scalar_t* distances,
+    scalar_t* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
 ) {
 
     using vec_t = typename Vector3IO<scalar_t>::vec_t;
@@ -381,62 +399,66 @@ __global__ void compute_mic_neighbours_half_impl(
     }
 }
 
-static void ensure_is_device_pointer(const void* p, const char* name) {
-
-    if (!p) {
-        throw std::runtime_error(std::string(name) + " is not defined.");
-        return;
-    }
-
-    cudaPointerAttributes attr;
-
-    cudaError_t err = cudaPointerGetAttributes(&attr, p);
-
-    if (err != cudaSuccess) {
-        throw std::runtime_error(
-            std::string("cudaPointerGetAttributes failed for ") + name + ": " +
-            cudaGetErrorString(err)
-        );
-    }
-    if (attr.type != cudaMemoryTypeDevice) {
-        throw std::runtime_error(
-            std::string(name) +
-            " is not a device pointer (type=" + std::to_string(attr.type) + ")"
-        );
-    }
-}
-
-template <typename scalar_t>
 void vesin::cuda::compute_mic_neighbourlist(
-    const scalar_t* positions, const scalar_t* cell, long nnodes, scalar_t cutoff, unsigned long* pair_counter, unsigned long* edge_indices, int* shifts, scalar_t* distances, scalar_t* vectors, bool return_shifts, bool return_distances, bool return_vectors, bool full
+    const double (*points)[3],
+    long n_points,
+    const double cell[3][3],
+    VesinOptions options,
+    VesinNeighborList& neighbors
 ) {
+
+    auto extras = vesin::cuda::get_cuda_extras(&neighbors);
+
+    const double* d_positions = reinterpret_cast<const double*>(points);
+    const double* d_cell = reinterpret_cast<const double*>(cell);
+
+    unsigned long* d_pair_indices =
+        reinterpret_cast<unsigned long*>(neighbors.pairs);
+    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
+    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
+    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
+    unsigned long* d_pair_counter = extras->length_ptr;
 
     dim3 blockDim(WARP_SIZE * NWARPS);
 
-    // --- BEGIN DEVICE-PTR CHECKS ---
-    ensure_is_device_pointer(positions, "points");
-    ensure_is_device_pointer(cell, "cell");
-    ensure_is_device_pointer(edge_indices, "pairs");
-    ensure_is_device_pointer(shifts, "shifts");
-    ensure_is_device_pointer(distances, "distances");
-    ensure_is_device_pointer(vectors, "vectors");
-    ensure_is_device_pointer(pair_counter, "length_ptr");
-    // --- END DEVICE-PTR CHECKS ---
+    if (options.full) {
+        dim3 gridDim(max((int)(n_points + NWARPS - 1) / NWARPS, 1));
 
-    if (full) {
-        dim3 gridDim(max((int)(nnodes + NWARPS - 1) / NWARPS, 1));
-        compute_mic_neighbours_full_impl<scalar_t><<<gridDim, blockDim>>>(
-            positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts, distances, vectors, return_shifts, return_distances, return_vectors
+        compute_mic_neighbours_full_impl<double><<<gridDim, blockDim>>>(
+            d_positions,
+            d_cell,
+            n_points,
+            options.cutoff,
+            d_pair_counter,
+            d_pair_indices,
+            d_shifts,
+            d_distances,
+            d_vectors,
+            options.return_shifts,
+            options.return_distances,
+            options.return_vectors
         );
+
     } else {
-        const long num_all_pairs = nnodes * (nnodes - 1) / 2;
+        const long num_all_pairs = n_points * (n_points - 1) / 2;
         int threads_per_block = WARP_SIZE * NWARPS;
         int num_blocks =
             (num_all_pairs + threads_per_block - 1) / threads_per_block;
         dim3 gridDim(max(num_blocks, 1));
 
-        compute_mic_neighbours_half_impl<scalar_t><<<gridDim, blockDim>>>(
-            positions, cell, nnodes, cutoff, pair_counter, edge_indices, shifts, distances, vectors, return_shifts, return_distances, return_vectors
+        compute_mic_neighbours_half_impl<double><<<gridDim, blockDim>>>(
+            d_positions,
+            d_cell,
+            n_points,
+            options.cutoff,
+            d_pair_counter,
+            d_pair_indices,
+            d_shifts,
+            d_distances,
+            d_vectors,
+            options.return_shifts,
+            options.return_distances,
+            options.return_vectors
         );
     }
 
@@ -445,13 +467,3 @@ void vesin::cuda::compute_mic_neighbourlist(
         throw std::runtime_error(cudaGetErrorString(err));
     }
 }
-
-// Explicit instantiation for double
-template void vesin::cuda::compute_mic_neighbourlist<double>(
-    const double* positions, const double* cell, long nnodes, double cutoff, unsigned long* pair_counter, unsigned long* edge_indices, int* shifts, double* distances, double* vectors, bool return_shifts, bool return_distances, bool return_vectors, bool full
-);
-
-// Explicit instantiation for float
-template void vesin::cuda::compute_mic_neighbourlist<float>(
-    const float* positions, const float* cell, long nnodes, float cutoff, unsigned long* pair_counter, unsigned long* edge_indices, int* shifts, float* distances, float* vectors, bool return_shifts, bool return_distances, bool return_vectors, bool full
-);

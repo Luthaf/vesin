@@ -46,6 +46,10 @@ else()
     message(STATUS "Could not find a CUDA compiler")
 endif()
 
+if (NOT CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    message(ERROR "VESIN_ENABLE_CUDA=ON but could not find a cuda compiler.")
+endif()
+
 if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
     message(STATUS "Found a CUDA compiler but VESIN_ENABLE_CUDA=OFF, set VESIN_ENABLE_CUDA=ON in order to compile with CUDA support.")
 endif()

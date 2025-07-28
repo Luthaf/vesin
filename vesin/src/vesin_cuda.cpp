@@ -6,8 +6,8 @@
 #include <cassert>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
-#include <unordered_map>
 
 using namespace vesin::cuda;
 using namespace std;
@@ -23,46 +23,43 @@ using namespace std;
         }                                                                                                                                      \
     } while (0)
 
-static void ensure_is_device_pointer(const void* p, const char* name) {
-    cudaPointerAttributes attr;
+static std::optional<cudaPointerAttributes> getPtrAttributes(const void* ptr) {
+    if (!ptr)
+        return std::nullopt;
 
-    CUDA_CHECK(cudaPointerGetAttributes(&attr, p));
+    try {
+        cudaPointerAttributes attr;
+        CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+        return attr;
+    } catch (const std::runtime_error& e) {
+        return std::nullopt;
+    }
+}
 
-    if (attr.type != cudaMemoryTypeDevice) {
+static bool is_device_ptr(const std::optional<cudaPointerAttributes>& maybe_attr, const char* name) {
+    if (maybe_attr) {
+        const cudaPointerAttributes& attr = *maybe_attr;
+        return (attr.type == cudaMemoryTypeDevice);
+    } else {
         throw std::runtime_error(
-            std::string(name) +
-            " is not a device pointer (type=" + std::to_string(attr.type) + ")"
+            "failed to resolve attributes for pointer: " + std::string(name)
         );
     }
 }
 
-bool is_device_ptr(const void* ptr, const char* name) {
-    if (!ptr)
-        return false;
-    try {
-        cudaPointerAttributes attr;
-        CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
-        return (attr.type == cudaMemoryTypeDevice);
-    } catch (const std::runtime_error& e) {
-        return false;
-    }
-}
-
 static int get_device_id(const void* ptr) {
-
     if (!ptr) {
         return -1;
     }
-
-    cudaPointerAttributes attr;
-
-    CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
-
-    if (attr.type != cudaMemoryTypeDevice) {
-        return -1;
+    auto maybe_attr = getPtrAttributes(ptr);
+    if (maybe_attr) {
+        const cudaPointerAttributes& attr = *maybe_attr;
+        if (attr.type != cudaMemoryTypeDevice) {
+            return -1;
+        }
+        return attr.device;
     }
-
-    return attr.device;
+    return -1;
 }
 
 vesin::cuda::CudaNeighborListExtras*
@@ -79,20 +76,20 @@ void reset(VesinNeighborList& neighbors) {
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-    if (neighbors.pairs && is_device_ptr(neighbors.pairs, "pairs")) {
+    if (neighbors.pairs && is_device_ptr(getPtrAttributes(neighbors.pairs), "pairs")) {
         CUDA_CHECK(cudaFree(neighbors.pairs));
     }
-    if (neighbors.shifts && is_device_ptr(neighbors.shifts, "shifts")) {
+    if (neighbors.shifts && is_device_ptr(getPtrAttributes(neighbors.shifts), "shifts")) {
         CUDA_CHECK(cudaFree(neighbors.shifts));
     }
-    if (neighbors.distances && is_device_ptr(neighbors.distances, "distances")) {
+    if (neighbors.distances && is_device_ptr(getPtrAttributes(neighbors.distances), "distances")) {
         CUDA_CHECK(cudaFree(neighbors.distances));
     }
-    if (neighbors.vectors && is_device_ptr(neighbors.vectors, "vectors")) {
+    if (neighbors.vectors && is_device_ptr(getPtrAttributes(neighbors.vectors), "vectors")) {
         CUDA_CHECK(cudaFree(neighbors.vectors));
     }
     if (extras->length_ptr &&
-        is_device_ptr(extras->length_ptr, "extras->length_ptr")) {
+        is_device_ptr(getPtrAttributes(extras->length_ptr), "extras->length_ptr")) {
         CUDA_CHECK(cudaFree(extras->length_ptr));
     }
 
@@ -102,59 +99,6 @@ void reset(VesinNeighborList& neighbors) {
     neighbors.vectors = nullptr;
     extras->length_ptr = nullptr;
     extras->capacity = 0;
-}
-
-void update_capacity(VesinNeighborList& neighbors, unsigned long nnodes, int device_id) {
-    assert(neighbors.device == VesinCUDA);
-
-    auto extras = vesin::cuda::get_cuda_extras(&neighbors);
-
-    if (device_id != extras->allocated_device) {
-        // force a reset
-
-        if (extras->allocated_device >= 0) {
-            CUDA_CHECK(cudaSetDevice(extras->allocated_device));
-        }
-
-        reset(neighbors);
-
-        if (extras->allocated_device >= 0) {
-            CUDA_CHECK(cudaSetDevice(device_id));
-        }
-    }
-
-    if (device_id == extras->allocated_device && extras->capacity >= nnodes &&
-        extras->length_ptr) {
-        CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
-        return;
-    }
-
-    // only call reset here if we've not already called it above
-    if (device_id == extras->allocated_device)
-        reset(neighbors);
-
-    unsigned long max_edges =
-        static_cast<unsigned long>(1.2 * nnodes * VESIN_CUDA_MAX_NEDGES_PER_NODE);
-
-    CUDA_CHECK(cudaMalloc((void**)&neighbors.pairs, sizeof(unsigned long) * max_edges * 2));
-    CUDA_CHECK(
-        cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_edges * 3)
-    );
-    CUDA_CHECK(
-        cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_edges)
-    );
-    CUDA_CHECK(
-        cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_edges * 3)
-    );
-
-    CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(unsigned long)));
-
-    CUDA_CHECK(
-        cudaMemset(extras->length_ptr, 0, sizeof(unsigned long))
-    );
-
-    extras->allocated_device = device_id;
-    extras->capacity = static_cast<unsigned long>(1.2 * nnodes);
 }
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
@@ -189,29 +133,58 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
     assert(neighbors.device == VesinCUDA);
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
 
+    // assert both points and cell are device pointers
+    assert(is_device_ptr(getPtrAttributes(points)) && "points pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(cell)) && "cell pointer is not allocated on a CUDA device");
+
+    int device = get_device_id(points);
+    // assert both points and cell are on the same device
+    assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
+
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-    int device_id = get_device_id(points);
-
-    ensure_is_device_pointer(points, "points");
-
-    if (cell) {
-        ensure_is_device_pointer(cell, "cell");
+    // if allocated_device is different from the input device, we need to reset
+    if (extras->allocated_device != device) {
+        // first switch to previous device
+        if (extras->allocated_device >= 0)
+            CUDA_CHECK(cudaSetDevice(extras->allocated_device));
+        // free any existing allocations
+        reset(neighbors);
+        // switch back to current device
+        CUDA_CHECK(cudaSetDevice(device));
+        extras->allocated_device = device;
     }
 
-    update_capacity(neighbors, n_points, device_id);
+    // make sure the allocations can fit n_points
+    if (extras->capacity >= n_points &&
+        extras->length_ptr) {
+        // allocation fits, so just memset set the length_ptr to 0
+        CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
+    } else {
+        // need a new allocation, so reset and reallocate
+        reset(neighbors);
+        unsigned long max_pairs =
+            static_cast<unsigned long>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
 
-    const double* d_positions = reinterpret_cast<const double*>(points);
-    const double* d_cell = reinterpret_cast<const double*>(cell);
+        CUDA_CHECK(cudaMalloc((void**)&neighbors.pairs, sizeof(unsigned long) * max_pairs * 2));
+        CUDA_CHECK(
+            cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_pairs * 3)
+        );
+        CUDA_CHECK(
+            cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_pairs)
+        );
+        CUDA_CHECK(
+            cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_pairs * 3)
+        );
 
-    unsigned long* d_edge_indices =
-        reinterpret_cast<unsigned long*>(neighbors.pairs);
-    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
-    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
-    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
-    unsigned long* d_pair_counter = extras->length_ptr;
+        CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(unsigned long)));
 
-    vesin::cuda::compute_mic_neighbourlist<double>(
-        d_positions, d_cell, n_points, (double)options.cutoff, d_pair_counter, d_edge_indices, d_shifts, d_distances, d_vectors, options.return_shifts, options.return_distances, options.return_vectors, options.full
-    );
+        CUDA_CHECK(
+            cudaMemset(extras->length_ptr, 0, sizeof(unsigned long))
+        );
+
+        extras->capacity = static_cast<unsigned long>(1.2 * n_points);
+    }
+
+    vesin::cuda::compute_mic_neighbourlist(points, n_points, cell, options, neighbors);
 }

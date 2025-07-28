@@ -1,5 +1,4 @@
 #include <cstring>
-#include <iostream>
 #include <string>
 
 #include "cpu_cell_list.hpp"

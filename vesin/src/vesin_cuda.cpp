@@ -23,7 +23,7 @@ using namespace std;
         }                                                                                                                                      \
     } while (0)
 
-void ensure_is_device_pointer(const void* p, const char* name) {
+static void ensure_is_device_pointer(const void* p, const char* name) {
     cudaPointerAttributes attr;
 
     CUDA_CHECK(cudaPointerGetAttributes(&attr, p));

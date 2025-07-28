@@ -26,8 +26,8 @@ namespace cuda {
 /// @param n_points Number of particles.
 /// @param cutoff Cutoff distance for including a neighbor.
 /// @param pair_counter Pointer to a device-side counter for the number of
-/// generated edges.
-/// @param edge_indices Pointer to device memory where neighbor index pairs will
+/// computed pairs.
+/// @param pairs Pointer to device memory where neighbor index pairs will
 /// be stored.
 ///        Expected shape: [n_max_edges * 2].
 /// @param shifts Pointer to device memory for storing shift vectors (if

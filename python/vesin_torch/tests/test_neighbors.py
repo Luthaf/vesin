@@ -33,7 +33,7 @@ def run_check_neighbors(
         )
 
 
-@pytest.mark.parametrize("device", ["cuda"] if torch.cuda.is_available() else ["cpu"])
+@pytest.mark.parametrize("device", ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"])
 @pytest.mark.parametrize("full_list", [False, True])
 def test_large_box_small_cutoff(device, full_list):
     points = torch.tensor(

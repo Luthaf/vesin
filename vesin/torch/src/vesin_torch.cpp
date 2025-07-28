@@ -2,7 +2,6 @@
 
 #include <torch/torch.h>
 
-#include <iostream>
 #include <vesin.h>
 
 #include "vesin_cuda.hpp"

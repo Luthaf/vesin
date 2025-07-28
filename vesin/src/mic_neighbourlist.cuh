@@ -23,7 +23,7 @@ namespace cuda {
 /// @param positions Pointer to an array of particle positions of shape [nnodes,
 /// 3].
 /// @param cell Pointer to a 3x3 matrix representing the simulation box.
-/// @param nnodes Number of particles (nodes).
+/// @param n_points Number of particles.
 /// @param cutoff Cutoff distance for including a neighbor.
 /// @param pair_counter Pointer to a device-side counter for the number of
 /// generated edges.

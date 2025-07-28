@@ -50,7 +50,6 @@ if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
     message(STATUS "Found a CUDA compiler but VESIN_ENABLE_CUDA=OFF, set VESIN_ENABLE_CUDA=ON in order to compile with CUDA support.")
 endif()
 
-#list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.hpp)
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu)

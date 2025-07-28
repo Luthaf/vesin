@@ -48,7 +48,7 @@ bool is_device_ptr(const void* ptr, const char* name) {
     }
 }
 
-int get_device_id(const void* ptr) {
+static int get_device_id(const void* ptr) {
 
     if (!ptr) {
         return -1;

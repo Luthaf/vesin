@@ -5,7 +5,6 @@
 
 #include "vesin.h"
 
-
 namespace vesin {
 namespace cuda {
 

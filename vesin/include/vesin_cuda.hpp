@@ -27,8 +27,9 @@ struct CudaNeighborListExtras {
 /// @param neighbors Reference to the VesinNeighborList to clean up.
 void free_neighbors(VesinNeighborList& neighbors);
 
-/// @brief Computes the neighbor list on the GPU using the Minimum Image
-/// Convention.
+/// @brief Computes the neighbor list on the GPU.
+///
+/// This function only works under Minimum Image Convention for now.
 ///
 /// This function generates a neighbor list for a set of points within a
 /// periodic simulation cell using GPU acceleration. The output is stored in a

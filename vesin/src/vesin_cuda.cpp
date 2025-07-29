@@ -12,9 +12,6 @@
 using namespace vesin::cuda;
 using namespace std;
 
-#define WARP_SIZE 32
-#define NWARPS 4
-
 #define CUDA_CHECK(expr)                                                                                                                       \
     do {                                                                                                                                       \
         cudaError_t err = (expr);                                                                                                              \
@@ -72,7 +69,7 @@ vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
     return static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors->opaque);
 }
 
-void reset(VesinNeighborList& neighbors) {
+static void reset(VesinNeighborList& neighbors) {
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
@@ -105,7 +102,8 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 
     assert(neighbors.device == VesinCUDA);
 
-    int curr_device = -1, device_id = -1;
+    int curr_device = -1;
+    int device_id = -1;
 
     if (neighbors.pairs) {
         CUDA_CHECK(cudaGetDevice(&curr_device));
@@ -167,18 +165,26 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
             static_cast<unsigned long>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
 
         CUDA_CHECK(cudaMalloc((void**)&neighbors.pairs, sizeof(unsigned long) * max_pairs * 2));
-        CUDA_CHECK(
-            cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_pairs * 3)
-        );
-        CUDA_CHECK(
-            cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_pairs)
-        );
-        CUDA_CHECK(
-            cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_pairs * 3)
-        );
+
+        if (options.return_shifts) {
+            CUDA_CHECK(
+                cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_pairs * 3)
+            );
+        }
+
+        if (options.return_distances) {
+            CUDA_CHECK(
+                cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_pairs)
+            );
+        }
+
+        if (options.return_vectors) {
+            CUDA_CHECK(
+                cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_pairs * 3)
+            );
+        }
 
         CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(unsigned long)));
-
         CUDA_CHECK(
             cudaMemset(extras->length_ptr, 0, sizeof(unsigned long))
         );

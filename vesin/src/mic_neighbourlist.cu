@@ -8,21 +8,6 @@
 #define NWARPS 4
 #define WARP_SIZE 32
 
-__device__ inline long atomicAdd(long* address, long val) {
-    unsigned long long* address_as_ull =
-        reinterpret_cast<unsigned long long*>(address);
-    unsigned long long old = *address_as_ull, assumed;
-
-    do {
-        assumed = old;
-        old = atomicCAS(
-            address_as_ull, assumed, static_cast<unsigned long long>(val + static_cast<long>(assumed))
-        );
-    } while (assumed != old);
-
-    return static_cast<long>(old);
-}
-
 __device__ inline unsigned long atomicAdd(unsigned long* address, unsigned long val) {
     unsigned long long* address_as_ull =
         reinterpret_cast<unsigned long long*>(address);
@@ -36,125 +21,62 @@ __device__ inline unsigned long atomicAdd(unsigned long* address, unsigned long 
     return static_cast<unsigned long>(old);
 }
 
-// ops for vector type deduction
-__device__ inline float3 operator-(const float3& a, const float3& b) {
-    return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
+// ops for vector types
 __device__ inline double3 operator-(const double3& a, const double3& b) {
     return make_double3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-__device__ inline float dot(const float3& a, const float3& b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 __device__ inline double dot(const double3& a, const double3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-// Vector3IO template structure for handling vectorized types
-template <typename scalar_t>
-struct Vector3IO;
-
-/* template structure for dealing with float3, double3 vectorized types */
-template <>
-struct Vector3IO<float> {
-    using scalar_t = float;
-    using vec_t = float3;
-
-    __device__ static void unpack(const vec_t& v, scalar_t& x0, scalar_t& x1, scalar_t& x2) {
-        x0 = v.x;
-        x1 = v.y;
-        x2 = v.z;
-    }
-
-    __device__ static vec_t pack(scalar_t x0, scalar_t x1, scalar_t x2) {
-        return {x0, x1, x2};
-    }
-};
-
-template <>
-struct Vector3IO<double> {
-    using scalar_t = double;
-    using vec_t = double3;
-
-    __device__ static void unpack(const vec_t& v, scalar_t& x0, scalar_t& x1, scalar_t& x2) {
-        x0 = v.x;
-        x1 = v.y;
-        x2 = v.z;
-    }
-
-    __device__ static vec_t pack(scalar_t x0, scalar_t x1, scalar_t x2) {
-        return {x0, x1, x2};
-    }
-};
-
-template <typename scalar_t>
-__device__ typename Vector3IO<scalar_t>::vec_t
-operator+(const typename Vector3IO<scalar_t>::vec_t& a, const typename Vector3IO<scalar_t>::vec_t& b) {
-    return Vector3IO<scalar_t>::pack(a.x + b.x, a.y + b.y, a.z + b.z);
-}
-
-template <typename scalar_t>
-__device__ typename Vector3IO<scalar_t>::vec_t
-operator-(const typename Vector3IO<scalar_t>::vec_t& a, const typename Vector3IO<scalar_t>::vec_t& b) {
-    return Vector3IO<scalar_t>::pack(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-template <typename scalar_t>
-__device__ scalar_t dot(const typename Vector3IO<scalar_t>::vec_t& a, const typename Vector3IO<scalar_t>::vec_t& b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-template <typename scalar_t>
-__device__ void check_rcut(const scalar_t* cell, scalar_t rcut) {
+__device__ void check_rcut(const double* cell, double rcut) {
     // Extract lattice vectors
-    scalar_t ax = cell[0], ay = cell[1], az = cell[2];
-    scalar_t bx = cell[3], by = cell[4], bz = cell[5];
-    scalar_t cx = cell[6], cy = cell[7], cz = cell[8];
+    double ax = cell[0], ay = cell[1], az = cell[2];
+    double bx = cell[3], by = cell[4], bz = cell[5];
+    double cx = cell[6], cy = cell[7], cz = cell[8];
 
     // Compute norms
-    scalar_t a_norm = sqrt(ax * ax + ay * ay + az * az);
-    scalar_t b_norm = sqrt(bx * bx + by * by + bz * bz);
-    scalar_t c_norm = sqrt(cx * cx + cy * cy + cz * cz);
+    double a_norm = sqrt(ax * ax + ay * ay + az * az);
+    double b_norm = sqrt(bx * bx + by * by + bz * bz);
+    double c_norm = sqrt(cx * cx + cy * cy + cz * cz);
 
     // Dot products
-    scalar_t ab_dot = ax * bx + ay * by + az * bz;
-    scalar_t ac_dot = ax * cx + ay * cy + az * cz;
-    scalar_t bc_dot = bx * cx + by * cy + bz * cz;
+    double ab_dot = ax * bx + ay * by + az * bz;
+    double ac_dot = ax * cx + ay * cy + az * cz;
+    double bc_dot = bx * cx + by * cy + bz * cz;
 
     // Orthogonality check (relative tolerance)
-    scalar_t tol = 1e-6;
+    double tol = 1e-6;
     bool is_orthogonal = (fabs(ab_dot) < tol * a_norm * b_norm) &&
                          (fabs(ac_dot) < tol * a_norm * c_norm) &&
                          (fabs(bc_dot) < tol * b_norm * c_norm);
 
-    scalar_t min_dim;
+    double min_dim;
 
     if (is_orthogonal) {
         min_dim = fminf(a_norm, fminf(b_norm, c_norm));
     } else {
-        // General triclinic case
-        scalar_t bc_x = by * cz - bz * cy;
-        scalar_t bc_y = bz * cx - bx * cz;
-        scalar_t bc_z = bx * cy - by * cx;
-        scalar_t ac_x = ay * cz - az * cy;
-        scalar_t ac_y = az * cx - ax * cz;
-        scalar_t ac_z = ax * cy - ay * cx;
-        scalar_t ab_x = ay * bz - az * by;
-        scalar_t ab_y = az * bx - ax * bz;
-        scalar_t ab_z = ax * by - ay * bx;
+        // General case
+        double bc_x = by * cz - bz * cy;
+        double bc_y = bz * cx - bx * cz;
+        double bc_z = bx * cy - by * cx;
+        double ac_x = ay * cz - az * cy;
+        double ac_y = az * cx - ax * cz;
+        double ac_z = ax * cy - ay * cx;
+        double ab_x = ay * bz - az * by;
+        double ab_y = az * bx - ax * bz;
+        double ab_z = ax * by - ay * bx;
 
-        scalar_t bc_norm = sqrt(bc_x * bc_x + bc_y * bc_y + bc_z * bc_z);
-        scalar_t ac_norm = sqrt(ac_x * ac_x + ac_y * ac_y + ac_z * ac_z);
-        scalar_t ab_norm = sqrt(ab_x * ab_x + ab_y * ab_y + ab_z * ab_z);
+        double bc_norm = sqrt(bc_x * bc_x + bc_y * bc_y + bc_z * bc_z);
+        double ac_norm = sqrt(ac_x * ac_x + ac_y * ac_y + ac_z * ac_z);
+        double ab_norm = sqrt(ab_x * ab_x + ab_y * ab_y + ab_z * ab_z);
 
-        scalar_t V = fabs(ax * bc_x + ay * bc_y + az * bc_z);
+        double V = fabs(ax * bc_x + ay * bc_y + az * bc_z);
 
-        scalar_t d_a = V / bc_norm;
-        scalar_t d_b = V / ac_norm;
-        scalar_t d_c = V / ab_norm;
+        double d_a = V / bc_norm;
+        double d_b = V / ac_norm;
+        double d_c = V / ab_norm;
 
         min_dim = fminf(d_a, fminf(d_b, d_c));
     }
@@ -165,15 +87,14 @@ __device__ void check_rcut(const scalar_t* cell, scalar_t rcut) {
     }
 }
 
-template <typename scalar_t>
-__device__ void invert_cell_matrix(const scalar_t* cell, scalar_t* inv_cell) {
-    scalar_t a = cell[0], b = cell[1], c = cell[2];
-    scalar_t d = cell[3], e = cell[4], f = cell[5];
-    scalar_t g = cell[6], h = cell[7], i = cell[8];
+__device__ void invert_cell_matrix(const double* cell, double* inv_cell) {
+    double a = cell[0], b = cell[1], c = cell[2];
+    double d = cell[3], e = cell[4], f = cell[5];
+    double g = cell[6], h = cell[7], i = cell[8];
 
-    scalar_t det =
+    double det =
         a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-    scalar_t invdet = scalar_t(1.0) / det;
+    double invdet = double(1.0) / det;
 
     inv_cell[0] = (e * i - f * h) * invdet;
     inv_cell[1] = (c * h - b * i) * invdet;
@@ -185,10 +106,9 @@ __device__ void invert_cell_matrix(const scalar_t* cell, scalar_t* inv_cell) {
     inv_cell[7] = (b * g - a * h) * invdet;
     inv_cell[8] = (a * e - b * d) * invdet;
 }
-template <typename scalar_t>
 __device__ void
-apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t& displacement, int3& shift, const scalar_t* cell, const scalar_t* inv_cell) {
-    using vec_t = typename Vector3IO<scalar_t>::vec_t;
+apply_periodic_boundary(double3& displacement, int3& shift, const double* cell, const double* inv_cell) {
+    using vec_t = double3;
 
     vec_t frac;
     frac.x = displacement.x * inv_cell[0] + displacement.y * inv_cell[1] +
@@ -218,31 +138,30 @@ apply_periodic_boundary(typename Vector3IO<scalar_t>::vec_t& displacement, int3&
     displacement = wrapped;
 }
 
-template <typename scalar_t>
 __global__ void compute_mic_neighbours_full_impl(
-    const scalar_t* positions,
-    const scalar_t* cell,
+    const double* positions,
+    const double* cell,
     long nnodes,
-    scalar_t cutoff,
+    double cutoff,
     unsigned long* pair_counter,
     unsigned long* edge_indices,
     int* shifts,
-    scalar_t* distances,
-    scalar_t* vectors,
+    double* distances,
+    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors
 ) {
 
-    using vec_t = typename Vector3IO<scalar_t>::vec_t;
+    using vec_t = double3;
 
-    __shared__ scalar_t scell[9];
-    __shared__ scalar_t sinv_cell[9];
+    __shared__ double scell[9];
+    __shared__ double sinv_cell[9];
     const int warp_id = threadIdx.x / WARP_SIZE;
     const int thread_id = threadIdx.x % WARP_SIZE;
 
     const int node_index = blockIdx.x * NWARPS + warp_id;
-    const scalar_t cutoff2 = cutoff * cutoff;
+    const double cutoff2 = cutoff * cutoff;
 
     if (cell != nullptr) {
         if (threadIdx.x < 9) {
@@ -271,10 +190,10 @@ __global__ void compute_mic_neighbours_full_impl(
         vec_t disp = ri - rj;
         int3 shift = make_int3(0, 0, 0);
         if (cell != nullptr)
-            apply_periodic_boundary<scalar_t>(disp, shift, scell, sinv_cell);
+            apply_periodic_boundary(disp, shift, scell, sinv_cell);
 
-        scalar_t dist2 = dot(disp, disp);
-        bool is_valid = (dist2 < cutoff2 && dist2 > scalar_t(0.0));
+        double dist2 = dot(disp, disp);
+        bool is_valid = (dist2 < cutoff2 && dist2 > double(0.0));
 
         unsigned int mask = __activemask();
         unsigned int ballot = __ballot_sync(mask, is_valid);
@@ -306,23 +225,22 @@ __global__ void compute_mic_neighbours_full_impl(
     }
 }
 
-template <typename scalar_t>
 __global__ void compute_mic_neighbours_half_impl(
-    const scalar_t* positions,
-    const scalar_t* cell,
+    const double* positions,
+    const double* cell,
     long nnodes,
-    scalar_t cutoff,
+    double cutoff,
     unsigned long* pair_counter,
     unsigned long* edge_indices,
     int* shifts,
-    scalar_t* distances,
-    scalar_t* vectors,
+    double* distances,
+    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors
 ) {
 
-    using vec_t = typename Vector3IO<scalar_t>::vec_t;
+    using vec_t = double3;
 
     const long index = blockIdx.x * blockDim.x + threadIdx.x;
     const long num_all_pairs = nnodes * (nnodes - 1) / 2;
@@ -330,10 +248,10 @@ __global__ void compute_mic_neighbours_half_impl(
     if (index >= num_all_pairs)
         return;
 
-    __shared__ scalar_t scell[9];
-    __shared__ scalar_t sinv_cell[9];
+    __shared__ double scell[9];
+    __shared__ double sinv_cell[9];
 
-    const scalar_t cutoff2 = cutoff * cutoff;
+    const double cutoff2 = cutoff * cutoff;
 
     if (cell != nullptr) {
         if (threadIdx.x < 9) {
@@ -362,10 +280,10 @@ __global__ void compute_mic_neighbours_half_impl(
     vec_t disp = ri - rj;
     int3 shift = make_int3(0, 0, 0);
     if (cell != nullptr)
-        apply_periodic_boundary<scalar_t>(disp, shift, scell, sinv_cell);
+        apply_periodic_boundary(disp, shift, scell, sinv_cell);
 
-    scalar_t dist2 = dot(disp, disp);
-    bool is_valid = (dist2 < cutoff2 && dist2 > scalar_t(0.0));
+    double dist2 = dot(disp, disp);
+    bool is_valid = (dist2 < cutoff2 && dist2 > double(0.0));
 
     int warp_id = threadIdx.x / WARP_SIZE;
     int warp_rank = threadIdx.x % WARP_SIZE;
@@ -424,7 +342,7 @@ void vesin::cuda::compute_mic_neighbourlist(
     if (options.full) {
         dim3 gridDim(max((int)(n_points + NWARPS - 1) / NWARPS, 1));
 
-        compute_mic_neighbours_full_impl<double><<<gridDim, blockDim>>>(
+        compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
             d_positions,
             d_cell,
             n_points,
@@ -446,7 +364,7 @@ void vesin::cuda::compute_mic_neighbourlist(
             (num_all_pairs + threads_per_block - 1) / threads_per_block;
         dim3 gridDim(max(num_blocks, 1));
 
-        compute_mic_neighbours_half_impl<double><<<gridDim, blockDim>>>(
+        compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
             d_positions,
             d_cell,
             n_points,

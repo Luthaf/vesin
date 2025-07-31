@@ -420,7 +420,6 @@ void vesin::cuda::compute_mic_neighbourlist(
     cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost);
 
     if (h_cell_check != 0) {
-        cudaFree(d_cell_check);
         throw std::runtime_error("Invalid cutoff: too large for cell dimensions");
     }
 

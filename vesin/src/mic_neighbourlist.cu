@@ -30,63 +30,6 @@ __device__ inline double dot(const double3& a, const double3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-__device__ void check_rcut(const double* cell, double rcut) {
-    // Extract lattice vectors
-    double ax = cell[0], ay = cell[1], az = cell[2];
-    double bx = cell[3], by = cell[4], bz = cell[5];
-    double cx = cell[6], cy = cell[7], cz = cell[8];
-
-    // Compute norms
-    double a_norm = sqrt(ax * ax + ay * ay + az * az);
-    double b_norm = sqrt(bx * bx + by * by + bz * bz);
-    double c_norm = sqrt(cx * cx + cy * cy + cz * cz);
-
-    // Dot products
-    double ab_dot = ax * bx + ay * by + az * bz;
-    double ac_dot = ax * cx + ay * cy + az * cz;
-    double bc_dot = bx * cx + by * cy + bz * cz;
-
-    // Orthogonality check (relative tolerance)
-    double tol = 1e-6;
-    bool is_orthogonal = (fabs(ab_dot) < tol * a_norm * b_norm) &&
-                         (fabs(ac_dot) < tol * a_norm * c_norm) &&
-                         (fabs(bc_dot) < tol * b_norm * c_norm);
-
-    double min_dim;
-
-    if (is_orthogonal) {
-        min_dim = fminf(a_norm, fminf(b_norm, c_norm));
-    } else {
-        // General case
-        double bc_x = by * cz - bz * cy;
-        double bc_y = bz * cx - bx * cz;
-        double bc_z = bx * cy - by * cx;
-        double ac_x = ay * cz - az * cy;
-        double ac_y = az * cx - ax * cz;
-        double ac_z = ax * cy - ay * cx;
-        double ab_x = ay * bz - az * by;
-        double ab_y = az * bx - ax * bz;
-        double ab_z = ax * by - ay * bx;
-
-        double bc_norm = sqrt(bc_x * bc_x + bc_y * bc_y + bc_z * bc_z);
-        double ac_norm = sqrt(ac_x * ac_x + ac_y * ac_y + ac_z * ac_z);
-        double ab_norm = sqrt(ab_x * ab_x + ab_y * ab_y + ab_z * ab_z);
-
-        double V = fabs(ax * bc_x + ay * bc_y + az * bc_z);
-
-        double d_a = V / bc_norm;
-        double d_b = V / ac_norm;
-        double d_c = V / ab_norm;
-
-        min_dim = fminf(d_a, fminf(d_b, d_c));
-    }
-
-    if (rcut * 2.0 > min_dim) {
-        printf("ERROR: rcut (%g) must be <= half the smallest cell dimension (%g)\n", (double)rcut, (double)(min_dim * 0.5));
-        assert(false);
-    }
-}
-
 __device__ void invert_cell_matrix(const double* cell, double* inv_cell) {
     double a = cell[0], b = cell[1], c = cell[2];
     double d = cell[3], e = cell[4], f = cell[5];
@@ -170,8 +113,6 @@ __global__ void compute_mic_neighbours_full_impl(
     }
 
     __syncthreads();
-
-    check_rcut(scell, cutoff);
 
     if (cell != nullptr && threadIdx.x == 0)
         invert_cell_matrix(scell, sinv_cell);
@@ -260,8 +201,6 @@ __global__ void compute_mic_neighbours_half_impl(
     }
 
     __syncthreads();
-
-    check_rcut(scell, cutoff);
 
     if (cell != nullptr && threadIdx.x == 0)
         invert_cell_matrix(scell, sinv_cell);

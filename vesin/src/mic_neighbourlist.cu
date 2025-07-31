@@ -3,7 +3,6 @@
 #include <assert.h>
 #include <cstdio>
 #include <cuda_runtime.h>
-#include <iostream>
 
 #define NWARPS 4
 #define WARP_SIZE 32

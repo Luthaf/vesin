@@ -317,10 +317,86 @@ __global__ void compute_mic_neighbours_half_impl(
     }
 }
 
+__global__ void mic_cell_check(const double* cell, const double cutoff, int* status) {
+
+    __shared__ double scell[9];
+    __shared__ double sinv_cell[9];
+
+    const double cutoff2 = cutoff * cutoff;
+
+    if (cell != nullptr) {
+        if (threadIdx.x < 9) {
+            scell[threadIdx.x] = cell[threadIdx.x];
+        }
+    }
+
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+
+        // Extract lattice vectors
+        double ax = scell[0], ay = scell[1], az = scell[2];
+        double bx = scell[3], by = scell[4], bz = scell[5];
+        double cx = scell[6], cy = scell[7], cz = scell[8];
+
+        // Compute norms
+        double a_norm = sqrt(ax * ax + ay * ay + az * az);
+        double b_norm = sqrt(bx * bx + by * by + bz * bz);
+        double c_norm = sqrt(cx * cx + cy * cy + cz * cz);
+
+        // Dot products
+        double ab_dot = ax * bx + ay * by + az * bz;
+        double ac_dot = ax * cx + ay * cy + az * cz;
+        double bc_dot = bx * cx + by * cy + bz * cz;
+
+        // Orthogonality check (relative tolerance)
+        double tol = 1e-6;
+        bool is_orthogonal = (fabs(ab_dot) < tol * a_norm * b_norm) &&
+                             (fabs(ac_dot) < tol * a_norm * c_norm) &&
+                             (fabs(bc_dot) < tol * b_norm * c_norm);
+
+        double min_dim;
+
+        if (is_orthogonal) {
+            min_dim = fminf(a_norm, fminf(b_norm, c_norm));
+        } else {
+            // General case
+            double bc_x = by * cz - bz * cy;
+            double bc_y = bz * cx - bx * cz;
+            double bc_z = bx * cy - by * cx;
+            double ac_x = ay * cz - az * cy;
+            double ac_y = az * cx - ax * cz;
+            double ac_z = ax * cy - ay * cx;
+            double ab_x = ay * bz - az * by;
+            double ab_y = az * bx - ax * bz;
+            double ab_z = ax * by - ay * bx;
+
+            double bc_norm = sqrt(bc_x * bc_x + bc_y * bc_y + bc_z * bc_z);
+            double ac_norm = sqrt(ac_x * ac_x + ac_y * ac_y + ac_z * ac_z);
+            double ab_norm = sqrt(ab_x * ab_x + ab_y * ab_y + ab_z * ab_z);
+
+            double V = fabs(ax * bc_x + ay * bc_y + az * bc_z);
+
+            double d_a = V / bc_norm;
+            double d_b = V / ac_norm;
+            double d_c = V / ab_norm;
+
+            min_dim = fminf(d_a, fminf(d_b, d_c));
+        }
+
+        if (cutoff * 2.0 > min_dim) {
+            status[0] = 1; // ERROR
+        } else {
+            status[0] = 0;
+        }
+    }
+}
+
 void vesin::cuda::compute_mic_neighbourlist(
     const double (*points)[3],
     long n_points,
     const double cell[3][3],
+    int* d_cell_check,
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
@@ -338,6 +414,15 @@ void vesin::cuda::compute_mic_neighbourlist(
     unsigned long* d_pair_counter = extras->length_ptr;
 
     dim3 blockDim(WARP_SIZE * NWARPS);
+
+    mic_cell_check<<<1, 32>>>(d_cell, options.cutoff, d_cell_check);
+    int h_cell_check = 0;
+    cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost);
+
+    if (h_cell_check != 0) {
+        cudaFree(d_cell_check);
+        throw std::runtime_error("Invalid cutoff: too large for cell dimensions");
+    }
 
     if (options.full) {
         dim3 gridDim(max((int)(n_points + NWARPS - 1) / NWARPS, 1));

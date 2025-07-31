@@ -89,6 +89,10 @@ static void reset(VesinNeighborList& neighbors) {
         is_device_ptr(getPtrAttributes(extras->length_ptr), "extras->length_ptr")) {
         CUDA_CHECK(cudaFree(extras->length_ptr));
     }
+    if (extras->cell_check_ptr &&
+        is_device_ptr(getPtrAttributes(extras->cell_check_ptr), "extras->cell_check_ptr")) {
+        CUDA_CHECK(cudaFree(extras->cell_check_ptr));
+    }
 
     neighbors.pairs = nullptr;
     neighbors.shifts = nullptr;
@@ -158,6 +162,7 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
         extras->length_ptr) {
         // allocation fits, so just memset set the length_ptr to 0
         CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
+        CUDA_CHECK(cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
     } else {
         // need a new allocation, so reset and reallocate
         reset(neighbors);
@@ -189,8 +194,11 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
             cudaMemset(extras->length_ptr, 0, sizeof(unsigned long))
         );
 
+        CUDA_CHECK(cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int)));
+        CUDA_CHECK(cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
+
         extras->capacity = static_cast<unsigned long>(1.2 * n_points);
     }
 
-    vesin::cuda::compute_mic_neighbourlist(points, n_points, cell, options, neighbors);
+    vesin::cuda::compute_mic_neighbourlist(points, n_points, cell, extras->cell_check_ptr, options, neighbors);
 }

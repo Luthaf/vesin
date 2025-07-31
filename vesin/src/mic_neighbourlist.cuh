@@ -22,8 +22,10 @@ namespace cuda {
 /// conditions.
 /// @param options Struct holding parameters such as cutoff, symmetry, etc.
 /// @param neighbors Output neighbor list (device memory will be allocated as
+/// @param d_cell_check device-allocated status checking valid cell size with
+/// respect to cutoff
 /// needed).
-void compute_mic_neighbourlist(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors);
+void compute_mic_neighbourlist(const double (*points)[3], long n_points, const double cell[3][3], int* d_cell_check, VesinOptions options, VesinNeighborList& neighbors);
 
 } // namespace cuda
 } // namespace vesin

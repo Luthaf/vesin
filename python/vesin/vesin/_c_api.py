@@ -26,6 +26,7 @@ class VesinNeighborList(ctypes.Structure):
         ("shifts", POINTER(ARRAY(ctypes.c_int32, 3))),
         ("distances", POINTER(ctypes.c_double)),
         ("vectors", POINTER(ARRAY(ctypes.c_double, 3))),
+        ("opaque", ctypes.c_void_p),
     ]
 
 

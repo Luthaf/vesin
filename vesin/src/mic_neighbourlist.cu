@@ -1,8 +1,10 @@
 #include "mic_neighbourlist.cuh"
 
+#include <stdexcept>
 #include <assert.h>
 #include <cstdio>
 #include <cuda_runtime.h>
+
 
 #define NWARPS 4
 #define WARP_SIZE 32

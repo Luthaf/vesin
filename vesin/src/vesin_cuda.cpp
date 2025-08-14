@@ -9,6 +9,7 @@
 
 #include "cuda_cache.hpp"
 #include "dynamic_cuda.hpp"
+#include "cuda_types_wrapper.hpp"
 
 using namespace vesin::cuda;
 using namespace std;

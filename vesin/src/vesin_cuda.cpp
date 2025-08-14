@@ -287,7 +287,7 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
             "compute_mic_neighbours_full_impl",
             CUDA_CODE,
             "mic_neighbourlist.cu",
-            {"-std=c++17", "-DNWARPS=4", "-DWARP_SIZE=32"}
+            {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
         );
 
         dim3 gridDim(std::max((int)(n_points + NWARPS - 1) / NWARPS, 1));
@@ -300,7 +300,7 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
             "compute_mic_neighbours_half_impl",
             CUDA_CODE,
             "mic_neighbourlist.cu",
-            {"-std=c++17", "-DNWARPS=4", "-DWARP_SIZE=32"}
+            {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
         );
 
         const long num_all_pairs = n_points * (n_points - 1) / 2;

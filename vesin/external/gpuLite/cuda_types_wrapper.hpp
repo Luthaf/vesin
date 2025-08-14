@@ -42,14 +42,18 @@ typedef enum cudaMemcpyKind {
     cudaMemcpyDefault = 4
 } cudaMemcpyKind;
 
+//global definition for CUDA memory types
+typedef enum cudaMemoryType {
+      cudaMemoryTypeUnregistered = 0,
+      cudaMemoryTypeHost = 1,
+      cudaMemoryTypeDevice = 2,
+      cudaMemoryTypeManaged = 3
+} cudaMemoryType;
+
+
 // CUDA pointer attributes structure
 typedef struct cudaPointerAttributes {
-    enum cudaMemoryType {
-        cudaMemoryTypeUnregistered = 0,
-        cudaMemoryTypeHost = 1,
-        cudaMemoryTypeDevice = 2,
-        cudaMemoryTypeManaged = 3
-    } type;
+    enum cudaMemoryType type;
     int device;
     void* devicePointer;
     void* hostPointer;

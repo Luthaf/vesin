@@ -30,6 +30,8 @@ option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJEC
 option(VESIN_TORCH "Build the vesin_torch library" OFF)
 option(VESIN_ENABLE_CUDA "Build the CUDA backend of Vesin" OFF)
 
+add_subdirectory(external/gpuLite)
+
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
@@ -64,6 +66,10 @@ endif()
 
 
 add_library(vesin ${VESIN_SOURCES})
+
+target_link_libraries(vesin PRIVATE gpuLite)
+# Link system libraries required by gpuLite
+target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})

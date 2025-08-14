@@ -249,13 +249,13 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
     bool _return_distances = options.return_distances;
     bool _return_vectors = options.return_vectors;
 
+    // Prepare arguments for neighbor computation kernel
     std::vector<void*>
         args = {
             &d_positions, &d_cell, &n_points, &_cutoff, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &_return_shifts, &_return_distances, &_return_vectors
         };
 
     // Prepare arguments for cell check kernel
-    void* d_cell_check_ptr = static_cast<void*>(d_cell_check);
     std::vector<void*> cell_check_args = {&d_cell, &_cutoff, &d_cell_check};
 
     // Launch cell check kernel

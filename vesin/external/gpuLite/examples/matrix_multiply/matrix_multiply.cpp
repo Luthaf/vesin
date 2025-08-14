@@ -1,10 +1,10 @@
-#include "../../dynamic_cuda.hpp"
 #include "../../cuda_cache.hpp"
-#include <iostream>
-#include <vector>
-#include <random>
+#include "../../dynamic_cuda.hpp"
 #include <chrono>
 #include <iomanip>
+#include <iostream>
+#include <random>
+#include <vector>
 
 int main() {
     try {
@@ -23,12 +23,12 @@ int main() {
 
         // Initialize host matrices
         std::vector<float> h_a(N * N), h_b(N * N), h_c(N * N), h_c_ref(N * N);
-        
+
         // Fill matrices with random data
         std::random_device rd;
         std::mt19937 gen(42); // Fixed seed for reproducible results
         std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-        
+
         for (int i = 0; i < N * N; i++) {
             h_a[i] = dist(gen);
             h_b[i] = dist(gen);
@@ -95,7 +95,7 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
         // CPU reference implementation for verification
         std::cout << "Computing CPU reference..." << std::endl;
         auto cpu_start = std::chrono::high_resolution_clock::now();
-        
+
         for (int i = 0; i < N; i++) {
             for (int j = 0; j < N; j++) {
                 float sum = 0.0f;
@@ -105,7 +105,7 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
                 h_c_ref[i * N + j] = sum;
             }
         }
-        
+
         auto cpu_end = std::chrono::high_resolution_clock::now();
         auto cpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(cpu_end - cpu_start);
         std::cout << "CPU computation time: " << cpu_time.count() << " ms" << std::endl;
@@ -123,16 +123,16 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
         // Create and cache kernel
         auto& factory = KernelFactory::instance();
         std::cout << "Compiling kernel..." << std::endl;
-        
+
         auto compile_start = std::chrono::high_resolution_clock::now();
         auto* kernel = factory.create(
-            "matrix_multiply",                      // kernel name
-            kernel_source,                          // kernel source code
-            "matrix_multiply.cu",                   // virtual source filename
-            {"-std=c++17", "--use_fast_math"}       // compilation options
+            "matrix_multiply",                // kernel name
+            kernel_source,                    // kernel source code
+            "matrix_multiply.cu",             // virtual source filename
+            {"-std=c++17", "--use_fast_math"} // compilation options
         );
         auto compile_end = std::chrono::high_resolution_clock::now();
-        
+
         auto compile_time = std::chrono::duration_cast<std::chrono::milliseconds>(compile_end - compile_start);
         std::cout << "Kernel compiled in: " << compile_time.count() << " ms" << std::endl;
 
@@ -141,7 +141,7 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
         dim3 blockSize(TILE_SIZE, TILE_SIZE);
         dim3 gridSize((N + TILE_SIZE - 1) / TILE_SIZE, (N + TILE_SIZE - 1) / TILE_SIZE);
 
-        std::cout << "Launching kernel with " << gridSize.x << "x" << gridSize.y 
+        std::cout << "Launching kernel with " << gridSize.x << "x" << gridSize.y
                   << " blocks of " << blockSize.x << "x" << blockSize.y << " threads" << std::endl;
 
         // Prepare kernel arguments
@@ -149,15 +149,15 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
         void* d_b_ptr = static_cast<void*>(d_b);
         void* d_c_ptr = static_cast<void*>(d_c);
         std::vector<void*> args = {&d_a_ptr, &d_b_ptr, &d_c_ptr, const_cast<void*>(static_cast<const void*>(&N))};
-        
+
         // Warm up run
         kernel->launch(gridSize, blockSize, 0, nullptr, args, true);
-        
+
         // Launch kernel and measure execution time
         auto gpu_start = std::chrono::high_resolution_clock::now();
         kernel->launch(gridSize, blockSize, 0, nullptr, args, true);
         auto gpu_end = std::chrono::high_resolution_clock::now();
-        
+
         auto gpu_time = std::chrono::duration_cast<std::chrono::microseconds>(gpu_end - gpu_start);
         std::cout << "GPU kernel executed in: " << gpu_time.count() << " μs" << std::endl;
 
@@ -168,13 +168,13 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
         std::cout << "Verifying results..." << std::endl;
         bool success = true;
         float max_error = 0.0f;
-        
+
         for (int i = 0; i < N * N; i++) {
             float error = std::abs(h_c[i] - h_c_ref[i]);
             max_error = std::max(max_error, error);
-            if (error > 1e-3) {  // Relaxed tolerance for floating-point arithmetic
-                std::cout << "Error at index " << i << ": expected " << h_c_ref[i] << ", got " << h_c[i] 
-                         << " (error: " << error << ")" << std::endl;
+            if (error > 1e-3) { // Relaxed tolerance for floating-point arithmetic
+                std::cout << "Error at index " << i << ": expected " << h_c_ref[i] << ", got " << h_c[i]
+                          << " (error: " << error << ")" << std::endl;
                 success = false;
                 break;
             }
@@ -183,11 +183,11 @@ extern "C" __global__ void matrix_multiply(float* A, float* B, float* C, int N) 
         if (success) {
             std::cout << "SUCCESS: Matrix multiplication completed correctly!" << std::endl;
             std::cout << "Maximum error: " << std::scientific << std::setprecision(2) << max_error << std::endl;
-            
+
             // Calculate performance metrics
             double gflops = (2.0 * N * N * N) / (gpu_time.count() * 1e-6) / 1e9;
             double speedup = (double)cpu_time.count() / (gpu_time.count() * 1e-3);
-            
+
             std::cout << std::fixed << std::setprecision(2);
             std::cout << "GPU Performance: " << gflops << " GFLOPS" << std::endl;
             std::cout << "Speedup over CPU: " << speedup << "x" << std::endl;

@@ -5,6 +5,25 @@ string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
 project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
 
+#[[
+ This function wraps the input file with the appropriate string to allow us to
+ static-initialize string variables, for example:
+     static const char* CUDA_CODE =
+#include "generated/cuda_impl.cu"
+        ;
+]]
+function(make_includeable INPUT_FILE OUTPUT_FILE)
+    if(NOT EXISTS ${INPUT_FILE})
+        message(FATAL_ERROR "Error: The input file '${INPUT_FILE}' does not exist.")
+    endif()
+    file(READ ${INPUT_FILE} content)
+    # Format the content to be included as a raw string in C++
+    set(content "R\"======(\n${content}\n)======\"")
+    # Write the formatted content to the output file
+    file(WRITE ${OUTPUT_FILE} "${content}")
+endfunction()
+
+
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(VESIN_MAIN_PROJECT ON)
 else()
@@ -30,7 +49,6 @@ option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJEC
 option(VESIN_TORCH "Build the vesin_torch library" OFF)
 option(VESIN_ENABLE_CUDA "Build the CUDA backend of Vesin" OFF)
 
-add_subdirectory(external/gpuLite)
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
@@ -56,20 +74,29 @@ if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
     message(STATUS "Found a CUDA compiler but VESIN_ENABLE_CUDA=OFF, set VESIN_ENABLE_CUDA=ON in order to compile with CUDA support.")
 endif()
 
-
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp)
 else()
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda_stub.cpp)
 endif()
 
-
 add_library(vesin ${VESIN_SOURCES})
 
-target_link_libraries(vesin PRIVATE gpuLite)
-# Link system libraries required by gpuLite
-target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    # Include gpuLite headers
+    target_include_directories(vesin PRIVATE external/gpuLite)
+    target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
+
+    target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    
+    # Create generated directory
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    
+    # Generate the CUDA source file for NVRTC compilation
+    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/mic_neighbourlist.cu)
+endif()
+
+
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
@@ -77,6 +104,7 @@ endif()
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
     $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 

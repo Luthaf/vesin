@@ -1,7 +1,7 @@
 #include "vesin_cuda.hpp"
-#include "mic_neighbourlist.cuh"
 
 #include <cassert>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -9,7 +9,6 @@
 
 #include "cuda_cache.hpp"
 #include "dynamic_cuda.hpp"
-#include "cuda_types_wrapper.hpp"
 
 using namespace vesin::cuda;
 using namespace std;
@@ -124,10 +123,40 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
     }
 }
 
+void checkCuda() {
+    if (!CUDA_DRIVER_INSTANCE.loaded()) {
+        throw std::runtime_error(
+            "Failed to load libcuda.so. Try appending the directory containing this library to "
+            "your $LD_LIBRARY_PATH environment variable."
+        );
+    }
+
+    if (!CUDART_INSTANCE.loaded()) {
+        throw std::runtime_error(
+            "Failed to load libcudart.so. Try appending the directory containing this library to "
+            "your $LD_LIBRARY_PATH environment variable."
+        );
+    }
+
+    if (!NVRTC_INSTANCE.loaded()) {
+        throw std::runtime_error(
+            "Failed to load libnvrtc.so. Try appending the directory containing this library to "
+            "your $LD_LIBRARY_PATH environment variable."
+        );
+    }
+}
+
 void vesin::cuda::neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors) {
+
+    static const char* CUDA_CODE =
+#include "generated/mic_neighbourlist.cu"
+        ;
 
     assert(neighbors.device == VesinCUDA);
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
+
+    // Check if CUDA is available
+    checkCuda();
 
     // assert both points and cell are device pointers
     assert(is_device_ptr(getPtrAttributes(points)) && "points pointer is not allocated on a CUDA device");
@@ -194,5 +223,94 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
         extras->capacity = static_cast<unsigned long>(1.2 * n_points);
     }
 
-    vesin::cuda::compute_mic_neighbourlist(points, n_points, cell, extras->cell_check_ptr, options, neighbors);
+    const double* d_positions = reinterpret_cast<const double*>(points);
+    const double* d_cell = reinterpret_cast<const double*>(cell);
+
+    unsigned long* d_pair_indices = reinterpret_cast<unsigned long*>(neighbors.pairs);
+    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
+    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
+    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
+    unsigned long* d_pair_counter = extras->length_ptr;
+    int* d_cell_check = extras->cell_check_ptr;
+
+    // Get or create kernel factory
+    auto& factory = KernelFactory::instance();
+
+    // First check cell dimensions with mic_cell_check kernel
+    auto* cell_check_kernel = factory.create(
+        "mic_cell_check",
+        CUDA_CODE,
+        "mic_neighbourlist.cu",
+        {"-std=c++17"}
+    );
+
+    double _cutoff = options.cutoff;
+    bool _return_shifts = options.return_shifts;
+    bool _return_distances = options.return_distances;
+    bool _return_vectors = options.return_vectors;
+
+    std::vector<void*>
+        args = {
+            &d_positions, &d_cell, &n_points, &_cutoff, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &_return_shifts, &_return_distances, &_return_vectors
+        };
+
+    // Prepare arguments for cell check kernel
+    void* d_cell_check_ptr = static_cast<void*>(d_cell_check);
+    std::vector<void*> cell_check_args = {&d_cell, &_cutoff, &d_cell_check};
+
+    // Launch cell check kernel
+    cell_check_kernel->launch(
+        dim3(1),         // grid size
+        dim3(32),        // block size
+        0,               // shared memory
+        nullptr,         // stream
+        cell_check_args, // arguments
+        true             // synchronize
+    );
+
+    // Check cell validity, assume fail
+    int h_cell_check = 1;
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost));
+
+    if (h_cell_check != 0) {
+        throw std::runtime_error("Invalid cutoff: too large for cell dimensions");
+    }
+
+    // Launch appropriate neighbor computation kernel
+    const int WARP_SIZE = 32;
+    const int NWARPS = 4;
+    dim3 blockDim(WARP_SIZE * NWARPS);
+
+    if (options.full) {
+        // Full neighbor list kernel
+        auto* full_kernel = factory.create(
+            "compute_mic_neighbours_full_impl",
+            CUDA_CODE,
+            "mic_neighbourlist.cu",
+            {"-std=c++17", "-DNWARPS=4", "-DWARP_SIZE=32"}
+        );
+
+        dim3 gridDim(std::max((int)(n_points + NWARPS - 1) / NWARPS, 1));
+
+        full_kernel->launch(gridDim, blockDim, 0, nullptr, args, true);
+
+    } else {
+        // Half neighbor list kernel
+        auto* half_kernel = factory.create(
+            "compute_mic_neighbours_half_impl",
+            CUDA_CODE,
+            "mic_neighbourlist.cu",
+            {"-std=c++17", "-DNWARPS=4", "-DWARP_SIZE=32"}
+        );
+
+        const long num_all_pairs = n_points * (n_points - 1) / 2;
+        int threads_per_block = WARP_SIZE * NWARPS;
+        int num_blocks = (num_all_pairs + threads_per_block - 1) / threads_per_block;
+        dim3 gridDim(std::max(num_blocks, 1));
+
+        half_kernel->launch(gridDim, blockDim, 0, nullptr, args, true);
+    }
+
+    // Copy final pair count back to host
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(unsigned long), cudaMemcpyDeviceToHost));
 }

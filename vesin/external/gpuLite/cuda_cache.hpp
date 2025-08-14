@@ -3,11 +3,11 @@
 #define CUDA_CACHE_HPP
 
 #include <fstream>
-#include <vector>
-#include <unordered_map>
-#include <string>
 #include <memory>
+#include <string>
 #include <typeinfo>
+#include <unordered_map>
+#include <vector>
 
 #include <cxxabi.h>
 
@@ -30,10 +30,12 @@ std::string demangleTypeName(const std::string& name) {
 std::string getKernelName(const std::string& fn_name) { return fn_name; }
 
 // Function to get type name of a single type
-template <typename T> std::string typeName() { return demangleTypeName(typeid(T).name()); }
+template <typename T>
+std::string typeName() { return demangleTypeName(typeid(T).name()); }
 
 // Variadic template function to build type list
-template <typename T, typename... Ts> void buildTemplateTypes(std::string& base) {
+template <typename T, typename... Ts>
+void buildTemplateTypes(std::string& base) {
     base += typeName<T>(); // Add the first type
     // If there are more types, add a comma and recursively call for the remaining types
     if constexpr (sizeof...(Ts) > 0) {
@@ -43,7 +45,8 @@ template <typename T, typename... Ts> void buildTemplateTypes(std::string& base)
 }
 
 // Helper function to start building the types
-template <typename T, typename... Ts> std::string buildTemplateTypes() {
+template <typename T, typename... Ts>
+std::string buildTemplateTypes() {
     std::string result;
     buildTemplateTypes<T, Ts...>(result); // Use recursive variadic template
     return result;
@@ -52,9 +55,10 @@ template <typename T, typename... Ts> std::string buildTemplateTypes() {
 /*
 Function to get the kernel name with the list of templated types if any:
 */
-template <typename T, typename... Ts> std::string getKernelName(const std::string& fn_name) {
+template <typename T, typename... Ts>
+std::string getKernelName(const std::string& fn_name) {
     std::string type_list = buildTemplateTypes<T, Ts...>(); // Build type list
-    return fn_name + "<" + type_list + ">"; // Return function name with type list in angle brackets
+    return fn_name + "<" + type_list + ">";                 // Return function name with type list in angle brackets
 }
 
 // Function to load CUDA source code from a file
@@ -75,7 +79,7 @@ on first launch.
 */
 class CachedKernel {
 
-  public:
+public:
     CachedKernel(
         std::string kernel_name,
         std::string kernel_code,
@@ -161,7 +165,7 @@ class CachedKernel {
         }
     }
 
-  private:
+private:
     /*
     The default shared memory space on most recent NVIDIA cards is defaulted
     49152 bytes. This method
@@ -357,7 +361,7 @@ Allows both compiling from a source file, or for compiling from a variable conta
 */
 class KernelFactory {
 
-  public:
+public:
     static KernelFactory& instance() {
         static KernelFactory instance;
         return instance;
@@ -417,7 +421,7 @@ class KernelFactory {
         return this->getKernel(kernel_name);
     }
 
-  private:
+private:
     KernelFactory() {}
     std::unordered_map<std::string, std::unique_ptr<CachedKernel>> kernel_cache;
 

@@ -7,58 +7,59 @@
 #else
 #error "Platform not supported"
 #endif
+#include <any>
+#include <functional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <functional>
 #include <unordered_map>
-#include <any>
-#include <sstream>
 
 #include "cuda_types_wrapper.hpp"
 
-#define NVRTC_SAFE_CALL(x)                                                                         \
-    do {                                                                                           \
-        nvrtcResult result = x;                                                                    \
-        if (result != NVRTC_SUCCESS) {                                                             \
-            std::ostringstream errorMsg;                                                           \
-            errorMsg << "\nerror: " #x " failed with error "                                       \
-                     << NVRTC_INSTANCE.nvrtcGetErrorString(result) << '\n'                         \
-                     << "File: " << __FILE__ << '\n'                                               \
-                     << "Line: " << static_cast<int>(__LINE__) << '\n';                            \
-            throw std::runtime_error(errorMsg.str());                                              \
-        }                                                                                          \
+#define NVRTC_SAFE_CALL(x)                                                 \
+    do {                                                                   \
+        nvrtcResult result = x;                                            \
+        if (result != NVRTC_SUCCESS) {                                     \
+            std::ostringstream errorMsg;                                   \
+            errorMsg << "\nerror: " #x " failed with error "               \
+                     << NVRTC_INSTANCE.nvrtcGetErrorString(result) << '\n' \
+                     << "File: " << __FILE__ << '\n'                       \
+                     << "Line: " << static_cast<int>(__LINE__) << '\n';    \
+            throw std::runtime_error(errorMsg.str());                      \
+        }                                                                  \
     } while (0)
 
-#define CUDADRIVER_SAFE_CALL(x)                                                                    \
-    do {                                                                                           \
-        CUresult result = x;                                                                       \
-        if (result != CUDA_SUCCESS) {                                                              \
-            const char* msg;                                                                       \
-            CUDA_DRIVER_INSTANCE.cuGetErrorName(result, &msg);                                     \
-            std::ostringstream errorMsg;                                                           \
-            errorMsg << "\nerror: " #x " failed with error " << (msg ? msg : "Unknown error")      \
-                     << '\n'                                                                       \
-                     << "File: " << __FILE__ << '\n'                                               \
-                     << "Line: " << static_cast<int>(__LINE__) << '\n';                            \
-            throw std::runtime_error(errorMsg.str());                                              \
-        }                                                                                          \
+#define CUDADRIVER_SAFE_CALL(x)                                                               \
+    do {                                                                                      \
+        CUresult result = x;                                                                  \
+        if (result != CUDA_SUCCESS) {                                                         \
+            const char* msg;                                                                  \
+            CUDA_DRIVER_INSTANCE.cuGetErrorName(result, &msg);                                \
+            std::ostringstream errorMsg;                                                      \
+            errorMsg << "\nerror: " #x " failed with error " << (msg ? msg : "Unknown error") \
+                     << '\n'                                                                  \
+                     << "File: " << __FILE__ << '\n'                                          \
+                     << "Line: " << static_cast<int>(__LINE__) << '\n';                       \
+            throw std::runtime_error(errorMsg.str());                                         \
+        }                                                                                     \
     } while (0)
 
-#define CUDART_SAFE_CALL(call)                                                                     \
-    do {                                                                                           \
-        cudaError_t cudaStatus = (call);                                                           \
-        if (cudaStatus != cudaSuccess) {                                                           \
-            std::ostringstream errorMsg;                                                           \
-            const char* error = CUDART_INSTANCE.cudaGetErrorString(cudaStatus);                    \
-            errorMsg << "\nfailed with error " << (error ? error : "Unknown error") << '\n'        \
-                     << "File: " << __FILE__ << '\n'                                               \
-                     << "Line: " << static_cast<int>(__LINE__) << '\n';                            \
-            throw std::runtime_error(errorMsg.str());                                              \
-        }                                                                                          \
+#define CUDART_SAFE_CALL(call)                                                              \
+    do {                                                                                    \
+        cudaError_t cudaStatus = (call);                                                    \
+        if (cudaStatus != cudaSuccess) {                                                    \
+            std::ostringstream errorMsg;                                                    \
+            const char* error = CUDART_INSTANCE.cudaGetErrorString(cudaStatus);             \
+            errorMsg << "\nfailed with error " << (error ? error : "Unknown error") << '\n' \
+                     << "File: " << __FILE__ << '\n'                                        \
+                     << "Line: " << static_cast<int>(__LINE__) << '\n';                     \
+            throw std::runtime_error(errorMsg.str());                                       \
+        }                                                                                   \
     } while (0)
 
 // Define a template to dynamically load symbols
-template <typename FuncType> FuncType load(void* handle, const char* functionName) {
+template <typename FuncType>
+FuncType load(void* handle, const char* functionName) {
     auto func = reinterpret_cast<FuncType>(dlsym(handle, functionName));
     if (!func) {
         throw std::runtime_error(std::string("Failed to load function: ") + functionName);
@@ -72,7 +73,7 @@ within the libcudart.so library (see CUDA Runtime API:
 https://docs.nvidia.com/cuda/cuda-runtime-api/index.html).
 */
 class CUDART {
-  public:
+public:
     static CUDART& instance() {
         static CUDART instance;
         return instance;
@@ -165,7 +166,7 @@ https://docs.nvidia.com/cuda/cuda-driver-api/index.html).
 */
 class CUDADriver {
 
-  public:
+public:
     static CUDADriver& instance() {
         static CUDADriver instance;
         return instance;
@@ -293,7 +294,7 @@ libnvrtc.so library (see NVRTC API: https://docs.nvidia.com/cuda/nvrtc/index.htm
 */
 class NVRTC {
 
-  public:
+public:
     static NVRTC& instance() {
         static NVRTC instance;
         return instance;

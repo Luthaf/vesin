@@ -1,10 +1,10 @@
-#include "../../dynamic_cuda.hpp"
 #include "../../cuda_cache.hpp"
-#include <iostream>
-#include <vector>
-#include <random>
+#include "../../dynamic_cuda.hpp"
 #include <chrono>
 #include <iomanip>
+#include <iostream>
+#include <random>
+#include <vector>
 
 int main() {
     try {
@@ -23,12 +23,12 @@ int main() {
 
         // Initialize host vectors
         std::vector<float> h_a(N), h_b(N), h_c(N);
-        
+
         // Fill vectors with random data
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_real_distribution<float> dist(-10.0f, 10.0f);
-        
+
         for (int i = 0; i < N; i++) {
             h_a[i] = dist(gen);
             h_b[i] = dist(gen);
@@ -57,16 +57,16 @@ extern "C" __global__ void vector_add(float* a, float* b, float* c, int n) {
         // Create and cache kernel
         auto& factory = KernelFactory::instance();
         std::cout << "Compiling kernel..." << std::endl;
-        
+
         auto start = std::chrono::high_resolution_clock::now();
         auto* kernel = factory.create(
-            "vector_add",           // kernel name
-            kernel_source,          // kernel source code
-            "vector_add.cu",        // virtual source filename
-            {"-std=c++17"}          // compilation options
+            "vector_add",    // kernel name
+            kernel_source,   // kernel source code
+            "vector_add.cu", // virtual source filename
+            {"-std=c++17"}   // compilation options
         );
         auto end = std::chrono::high_resolution_clock::now();
-        
+
         auto compile_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         std::cout << "Kernel compiled in: " << compile_time.count() << " ms" << std::endl;
 
@@ -81,19 +81,19 @@ extern "C" __global__ void vector_add(float* a, float* b, float* c, int n) {
         void* d_b_ptr = static_cast<void*>(d_b);
         void* d_c_ptr = static_cast<void*>(d_c);
         std::vector<void*> args = {&d_a_ptr, &d_b_ptr, &d_c_ptr, const_cast<void*>(static_cast<const void*>(&N))};
-        
+
         // Launch kernel and measure execution time
         start = std::chrono::high_resolution_clock::now();
         kernel->launch(
-            dim3(blocksPerGrid),    // grid size
-            dim3(threadsPerBlock),  // block size
-            0,                      // shared memory size
-            nullptr,                // stream (default)
-            args,                   // kernel arguments
-            true                    // synchronize after launch
+            dim3(blocksPerGrid),   // grid size
+            dim3(threadsPerBlock), // block size
+            0,                     // shared memory size
+            nullptr,               // stream (default)
+            args,                  // kernel arguments
+            true                   // synchronize after launch
         );
         end = std::chrono::high_resolution_clock::now();
-        
+
         auto kernel_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         std::cout << "Kernel executed in: " << kernel_time.count() << " μs" << std::endl;
 
@@ -114,7 +114,7 @@ extern "C" __global__ void vector_add(float* a, float* b, float* c, int n) {
 
         if (success) {
             std::cout << "SUCCESS: Vector addition completed correctly!" << std::endl;
-            
+
             // Calculate performance metrics
             double bandwidth = (3.0 * N * sizeof(float)) / (kernel_time.count() * 1e-6) / 1e9;
             std::cout << "Memory bandwidth: " << std::fixed << std::setprecision(2) << bandwidth << " GB/s" << std::endl;

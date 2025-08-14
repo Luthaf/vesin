@@ -1,11 +1,3 @@
-#include "mic_neighbourlist.cuh"
-
-#include <stdexcept>
-#include <assert.h>
-#include <cstdio>
-#include <cuda_runtime.h>
-
-
 #define NWARPS 4
 #define WARP_SIZE 32
 
@@ -329,83 +321,5 @@ __global__ void mic_cell_check(const double* cell, const double cutoff, int* sta
         } else {
             status[0] = 0;
         }
-    }
-}
-
-void vesin::cuda::compute_mic_neighbourlist(
-    const double (*points)[3],
-    long n_points,
-    const double cell[3][3],
-    int* d_cell_check,
-    VesinOptions options,
-    VesinNeighborList& neighbors
-) {
-
-    auto extras = vesin::cuda::get_cuda_extras(&neighbors);
-
-    const double* d_positions = reinterpret_cast<const double*>(points);
-    const double* d_cell = reinterpret_cast<const double*>(cell);
-
-    unsigned long* d_pair_indices =
-        reinterpret_cast<unsigned long*>(neighbors.pairs);
-    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
-    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
-    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
-    unsigned long* d_pair_counter = extras->length_ptr;
-
-    dim3 blockDim(WARP_SIZE * NWARPS);
-
-    mic_cell_check<<<1, 32>>>(d_cell, options.cutoff, d_cell_check);
-    int h_cell_check = 0;
-    cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost);
-
-    if (h_cell_check != 0) {
-        throw std::runtime_error("Invalid cutoff: too large for cell dimensions");
-    }
-
-    if (options.full) {
-        dim3 gridDim(max((int)(n_points + NWARPS - 1) / NWARPS, 1));
-
-        compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
-            d_positions,
-            d_cell,
-            n_points,
-            options.cutoff,
-            d_pair_counter,
-            d_pair_indices,
-            d_shifts,
-            d_distances,
-            d_vectors,
-            options.return_shifts,
-            options.return_distances,
-            options.return_vectors
-        );
-
-    } else {
-        const long num_all_pairs = n_points * (n_points - 1) / 2;
-        int threads_per_block = WARP_SIZE * NWARPS;
-        int num_blocks =
-            (num_all_pairs + threads_per_block - 1) / threads_per_block;
-        dim3 gridDim(max(num_blocks, 1));
-
-        compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
-            d_positions,
-            d_cell,
-            n_points,
-            options.cutoff,
-            d_pair_counter,
-            d_pair_indices,
-            d_shifts,
-            d_distances,
-            d_vectors,
-            options.return_shifts,
-            options.return_distances,
-            options.return_vectors
-        );
-    }
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(cudaGetErrorString(err));
     }
 }

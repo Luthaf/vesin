@@ -29,8 +29,11 @@ typedef struct _nvrtcProgram* nvrtcProgram;
 // dim3 structure for kernel launch parameters
 struct dim3 {
     unsigned int x, y, z;
-    
-    dim3(unsigned int x = 1, unsigned int y = 1, unsigned int z = 1) : x(x), y(y), z(z) {}
+
+    dim3(unsigned int x = 1, unsigned int y = 1, unsigned int z = 1):
+        x(x),
+        y(y),
+        z(z) {}
 };
 
 // CUDA memory copy kinds
@@ -42,14 +45,13 @@ typedef enum cudaMemcpyKind {
     cudaMemcpyDefault = 4
 } cudaMemcpyKind;
 
-//global definition for CUDA memory types
+// global definition for CUDA memory types
 typedef enum cudaMemoryType {
-      cudaMemoryTypeUnregistered = 0,
-      cudaMemoryTypeHost = 1,
-      cudaMemoryTypeDevice = 2,
-      cudaMemoryTypeManaged = 3
+    cudaMemoryTypeUnregistered = 0,
+    cudaMemoryTypeHost = 1,
+    cudaMemoryTypeDevice = 2,
+    cudaMemoryTypeManaged = 3
 } cudaMemoryType;
-
 
 // CUDA pointer attributes structure
 typedef struct cudaPointerAttributes {

@@ -59,9 +59,8 @@ set(VESIN_SOURCES
 include(CheckLanguage)
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
-    find_package(CUDAToolkit REQUIRED)
-    set(CUDA_USE_STATIC_CUDA_RUNTIME OFF CACHE BOOL "" FORCE)
+    # gpuLite does not depend directly on the CUDAToolkit
+    # so we do not need to enable_language(CUDA) or find_package(CUDAToolkit)
 else()
     message(STATUS "Could not find a CUDA compiler")
 endif()
@@ -85,9 +84,8 @@ add_library(vesin ${VESIN_SOURCES})
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # Include gpuLite headers
     target_include_directories(vesin PRIVATE external/gpuLite)
-    target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
-
     target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
     
     # Create generated directory
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -96,15 +94,8 @@ if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/mic_neighbourlist.cu)
 endif()
 
-
-
-if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-endif()
-
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
     $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 

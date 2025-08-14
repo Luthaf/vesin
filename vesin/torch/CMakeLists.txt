@@ -8,9 +8,8 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 include(CheckLanguage)
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
-    find_package(CUDAToolkit REQUIRED)
-    set(CUDA_USE_STATIC_CUDA_RUNTIME OFF CACHE BOOL "" FORCE)
+    # gpuLite does not depend directly on the CUDAToolkit
+    # so we do not need to enable_language(CUDA) or find_package(CUDAToolkit)
 else()
     message(STATUS "Could not find a CUDA compiler")
 endif()
@@ -20,11 +19,9 @@ add_library(vesin_torch SHARED src/vesin_torch.cpp ${VESIN_SOURCES})
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # Include gpuLite headers
     target_include_directories(vesin_torch PRIVATE ../external/gpuLite)
-    target_link_libraries(vesin_torch PRIVATE ${CMAKE_DL_LIBS})
-    
-    target_include_directories(vesin_torch PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
     target_include_directories(vesin_torch PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/..)
-    
+    target_link_libraries(vesin_torch PRIVATE ${CMAKE_DL_LIBS})
+
     # Create generated directory
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../generated)
     

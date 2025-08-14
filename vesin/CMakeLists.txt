@@ -84,7 +84,9 @@ add_library(vesin ${VESIN_SOURCES})
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # Include gpuLite headers
     target_include_directories(vesin PRIVATE external/gpuLite)
+    # Include the current binary directory for generated files
     target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    # Link against the dynamic library loader
     target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
     
     # Create generated directory

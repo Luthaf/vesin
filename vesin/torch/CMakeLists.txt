@@ -19,7 +19,9 @@ add_library(vesin_torch SHARED src/vesin_torch.cpp ${VESIN_SOURCES})
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # Include gpuLite headers
     target_include_directories(vesin_torch PRIVATE ../external/gpuLite)
+    # Include the current binary directory for generated files
     target_include_directories(vesin_torch PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/..)
+    # Link against the dynamic library loader
     target_link_libraries(vesin_torch PRIVATE ${CMAKE_DL_LIBS})
 
     # Create generated directory

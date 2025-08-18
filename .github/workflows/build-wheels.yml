@@ -93,9 +93,6 @@ jobs:
           # CUDA exclusions
           - {os: macos-14, cuda: cu121}
           - {os: windows-2022, cuda: cu121}
-          # ARM Linux only supported from PyTorch 2.5+
-          - {os: ubuntu-22.04-arm, torch-version: '2.3'}
-          - {os: ubuntu-22.04-arm, torch-version: '2.4'}
           # ARM CUDA only supported from PyTorch 2.5+
           - {os: ubuntu-22.04-arm, cuda: cu121, torch-version: '2.3'}
           - {os: ubuntu-22.04-arm, cuda: cu121, torch-version: '2.4'}

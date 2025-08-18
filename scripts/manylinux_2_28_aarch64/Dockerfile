@@ -12,7 +12,8 @@ RUN yum install -y yum-utils && \
     cuda-cudart-${CUDA_VER}.${ARCH} \
     cuda-cudart-devel-${CUDA_VER}.${ARCH} \
     cuda-nvcc-${CUDA_VER}.${ARCH} \
-    cuda-crt-${CUDA_VER}.${ARCH} && \
+    cuda-crt-${CUDA_VER}.${ARCH} \
+    cuda-nvtx-${CUDA_VER}.${ARCH} && \
     yum clean all && \
     rm -rf /var/cache/yum/* /tmp/* /var/tmp/*
 

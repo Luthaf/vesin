@@ -1,0 +1,23 @@
+# Ignore all directories beginning with a dot
+**/.*
+
+# Build directories
+build/
+*/build/
+
+# Compiled binaries
+*.exe
+*.out
+vector_add
+matrix_multiply
+templated_kernels
+test_compile
+
+# IDE and editor files
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -3,6 +3,7 @@ dist/
 .cache/
 .tox/
 __pycache__/
+local/
 
 *.egg-info
 

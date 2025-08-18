@@ -154,9 +154,14 @@ jobs:
       - name: Build custom manylinux Docker Image with CUDA
         if: matrix.cuda == 'cu121'
         run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            DOCKER_ARCH="aarch64"
+          else
+            DOCKER_ARCH="${{ matrix.arch }}"
+          fi
           docker build --no-cache \
-          -t vesin_manylinux_2_28_${{ matrix.arch }} \
-          scripts/manylinux_2_28_${{ matrix.arch }}
+          -t vesin_manylinux_2_28_$DOCKER_ARCH \
+          scripts/manylinux_2_28_$DOCKER_ARCH
 
 
       - name: build vesin-torch wheel

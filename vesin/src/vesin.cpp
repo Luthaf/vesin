@@ -1,9 +1,9 @@
 #include <cstring>
 #include <string>
 
-#include "vesin.h"
-
 #include "cpu_cell_list.hpp"
+#include "vesin.h"
+#include "vesin_cuda.hpp"
 
 thread_local std::string LAST_ERROR;
 
@@ -79,6 +79,8 @@ extern "C" int vesin_neighbors(
                 options,
                 *neighbors
             );
+        } else if (device == VesinCUDA) {
+            vesin::cuda::neighbors(points, n_points, periodic ? box : nullptr, options, *neighbors);
         } else {
             throw std::runtime_error("unknown device " + std::to_string(device));
         }
@@ -99,6 +101,7 @@ extern "C" int vesin_neighbors(
 }
 
 extern "C" void vesin_free(VesinNeighborList* neighbors) {
+
     if (neighbors == nullptr) {
         return;
     }
@@ -107,7 +110,10 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
         // nothing to do
     } else if (neighbors->device == VesinCPU) {
         vesin::cpu::free_neighbors(*neighbors);
+    } else if (neighbors->device == VesinCUDA) {
+        vesin::cuda::free_neighbors(*neighbors);
+    } else {
+        throw std::runtime_error("unknown device " + std::to_string(neighbors->device) + " when freeing memory");
     }
-
     std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

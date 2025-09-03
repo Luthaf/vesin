@@ -58,6 +58,8 @@ enum VesinDevice {
     VesinUnknownDevice = 0,
     /// CPU device
     VesinCPU = 1,
+    // CUDA device
+    VesinCUDA = 2,
 };
 
 /// The actual neighbor list
@@ -108,6 +110,9 @@ struct VESIN_API VesinNeighborList {
     /// each pair. This is only set if `options.return_vector` was `true`
     /// during the calculation.
     double (*vectors)[3];
+
+    // pointer to hold any additional structs
+    void* opaque = nullptr;
 
     // TODO: custom memory allocators?
 };

@@ -28,3 +28,4 @@ endif()
 
 set(VESIN_INSTALL ${VESIN_MAIN_PROJECT} CACHE BOOL "Install Vesin's headers and libraries")
 add_subdirectory(vesin)
+enable_testing()

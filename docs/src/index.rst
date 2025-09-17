@@ -405,6 +405,7 @@ API Reference
     python-api
     torch-api
     c-api
+    fortran-api
     metatomic
 
 

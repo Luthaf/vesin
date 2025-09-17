@@ -4,7 +4,22 @@ find_package(Torch 1.12 REQUIRED)
 # when using a different runtime library from the one used by torch.dll & co.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
+# Find CUDA
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    set(CUDA_USE_STATIC_CUDA_RUNTIME OFF CACHE BOOL "" FORCE)
+else()
+    message(STATUS "Could not find a CUDA compiler")
+endif()
+
 add_library(vesin_torch SHARED src/vesin_torch.cpp ${VESIN_SOURCES})
+
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    target_include_directories(vesin_torch PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+endif()
 
 target_link_libraries(vesin_torch torch)
 

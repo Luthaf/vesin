@@ -1,7 +1,11 @@
 program main
-  use vesin_wrapper
-  use vesin_wrapper, only: rp=>double, ip=>size_t
+  use vesin_wrapper, only: NeighborList
+  ! use, intrinsic :: iso_fortran_env, only: rp => real64
+  ! use, intrinsic :: iso_c_binding, only: rp => c_float
+  ! use, intrinsic :: iso_c_binding, only: ip => c_size_t
   implicit none
+  integer, parameter :: rp=kind(1.d0)
+  integer, parameter :: ip=kind(1)
   integer(ip) :: nat
   real(rp), allocatable :: pos(:,:)
   real(rp) :: lat(3,3)

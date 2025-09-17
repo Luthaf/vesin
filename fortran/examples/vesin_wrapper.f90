@@ -65,19 +65,8 @@ module vesin_wrapper
   implicit none
 
   private
-  public :: double, size_t
   public :: NeighborList
 
-  ! precision, modify as needed
-  integer, parameter :: double = c_double
-  integer, parameter :: size_t = c_size_t
-  !
-  ! in a real use case, this would be something like (without exporting them as `public`):
-  !
-  !~~~~~~~~~~~~{.f90}
-  ! use my_precision_module, only: double => my_real_precision
-  ! use my_precision_module, only: size_t => my_integer_precision
-  !~~~~~~~~~~~~
 
 
   !> @brief Neighbor list computed by `vesin`.
@@ -116,24 +105,37 @@ module vesin_wrapper
      !< vectors corresponding to pair positions, shape[3, length]
 
    contains
-     procedure :: options => vesin_set_options
-     procedure :: compute => vesin_compute
-     procedure :: free => vesin_destroy
+
+     !> Set or change one or more Vesin options.
+     procedure, public :: options => vesin_set_options
+
+     !> Compute the neighbor list.
+     procedure, private :: vesin_compute_c_size_t_c_float
+     procedure, private :: vesin_compute_c_size_t_c_double
+     procedure, private :: vesin_compute_c_int_c_float
+     procedure, private :: vesin_compute_c_int_c_double
+     generic, public :: compute => vesin_compute_c_size_t_c_float
+     generic, public :: compute => vesin_compute_c_size_t_c_double
+     generic, public :: compute => vesin_compute_c_int_c_float
+     generic, public :: compute => vesin_compute_c_int_c_double
+
+     !> Destructor.
+     procedure, public :: free => vesin_destroy
   end type NeighborList
-
-  ! overload name
-  interface NeighborList
-     procedure :: vesin_construct
-  end interface NeighborList
-
-contains
 
   !> @brief Constructor for `type(NeighborList)`.
   !! @details Creates a new instance of `NeighborList`.
   !! The value for `cutoff` is mandatory, other options can optionally be set.
-  function vesin_construct( cutoff, full, sorted, return_shifts, &
+  interface NeighborList
+     procedure :: vesin_construct_c_float
+     procedure :: vesin_construct_c_double
+  end interface NeighborList
+
+contains
+
+  function vesin_construct_c_float( cutoff, full, sorted, return_shifts, &
          return_distances, return_vectors, device ) result( self )
-    real(double), intent(in) :: cutoff
+    real(c_float), intent(in) :: cutoff
     logical, intent(in), optional :: full
     logical, intent(in), optional :: sorted
     logical, intent(in), optional :: return_shifts
@@ -141,12 +143,40 @@ contains
     logical, intent(in), optional :: return_vectors
     integer, intent(in), optional :: device
     type( neighborlist ) :: self
-
-    ! set the cutoff, and other options
-    call self% options( cutoff, full, sorted, return_shifts, return_distances, return_vectors, device )
-    ! flag as initialized
+    ! set the cutoff and other stuff
+    call self% options( &
+         cutoff=real(cutoff, c_double), &
+         full=full, &
+         sorted=sorted, &
+         return_shifts=return_shifts, &
+         return_distances=return_distances, &
+         return_vectors=return_vectors, &
+         device=device )
+    ! flag as active
     self% active = .true.
-  end function vesin_construct
+  end function vesin_construct_c_float
+  function vesin_construct_c_double( cutoff, full, sorted, return_shifts, &
+         return_distances, return_vectors, device ) result( self )
+    real(c_double), intent(in) :: cutoff
+    logical, intent(in), optional :: full
+    logical, intent(in), optional :: sorted
+    logical, intent(in), optional :: return_shifts
+    logical, intent(in), optional :: return_distances
+    logical, intent(in), optional :: return_vectors
+    integer, intent(in), optional :: device
+    type( neighborlist ) :: self
+    ! set the cutoff and other stuff
+    call self% options( &
+         cutoff=real(cutoff, c_double), &
+         full=full, &
+         sorted=sorted, &
+         return_shifts=return_shifts, &
+         return_distances=return_distances, &
+         return_vectors=return_vectors, &
+         device=device )
+    ! flag as active
+    self% active = .true.
+  end function vesin_construct_c_double
 
 
   !> @brief Set or change one or more Vesin options.
@@ -154,7 +184,7 @@ contains
                               return_distances, return_vectors, device )
     implicit none
     class( neighborlist ), intent(inout) :: self
-    real(double), intent(in), optional :: cutoff
+    class(*), intent(in), optional :: cutoff
     logical, intent(in), optional :: full
     logical, intent(in), optional :: sorted
     logical, intent(in), optional :: return_shifts
@@ -162,45 +192,43 @@ contains
     logical, intent(in), optional :: return_vectors
     integer, intent(in), optional :: device
 
-    if(present(cutoff)) self%opts%cutoff = real( cutoff, c_double )
+    if(present(cutoff)) then
+       select type(cutoff)
+       type is( real(c_float) ); self%opts%cutoff = real( cutoff, c_double )
+       type is( real(c_double) ); self%opts%cutoff = real( cutoff, c_double )
+       end select
+    end if
     if(present(full)) self%opts%full = full
     if(present(sorted)) self%opts%sorted = sorted
     if(present(return_shifts)) self%opts%return_shifts = return_shifts
     if(present(return_distances)) self%opts%return_distances = return_distances
     if(present(return_vectors)) self%opts%return_vectors = return_vectors
     if(present(device)) self%device = int( device, c_int )
-
   end subroutine vesin_set_options
 
 
-  !> @brief Compute the neighbor list.
-  !! @details
-  !! Set the pointers in `self` to computed C data.
-  function vesin_compute( self, nat, pos, box, periodic ) result( ierr )
+  ! Set the pointers in `self` to computed C data.
+  function vesin_compute_c_size_t_c_float( self, nat, pos, box, periodic ) result( ierr )
     implicit none
     class( NeighborList ), intent(inout) :: self
-    integer( size_t ), intent(in) :: nat
-    real( double ), intent(in) :: pos(3,nat)
-    real( double ), intent(in) :: box(3,3)
+    integer( c_size_t ), intent(in) :: nat
+    real( c_float ), intent(in) :: pos(3,nat)
+    real( c_float ), intent(in) :: box(3,3)
     logical, intent(in), optional :: periodic
     integer :: ierr
 
     logical( c_bool ) :: c_periodic
     type( c_ptr ) :: c_errmsg = c_null_ptr
-
     integer :: n
-
     ! self has not been initialized
     if( .not. self% active ) then
        self% errmsg="NeighborList has to be initialized before computing."
        ierr = -1
        return
     end if
-
     ! periodic by default
     c_periodic = .true.
     if( present(periodic))c_periodic = periodic
-
     ! call iterface to c, with data in prescribed c precision
     ierr = int( c_vesin_neighbors( &
          real(pos, c_double), &
@@ -211,12 +239,10 @@ contains
          self%opts, &
          self%cdata, &
          c_errmsg) )
-
     if( ierr /= 0 ) then
        self% errmsg = c2f_string(c_errmsg)
        return
     end if
-
     ! cast cdata to f, in the returned C precision
     n = int( self%cdata%length )
     self% length = self%cdata%length
@@ -230,7 +256,154 @@ contains
     if(c_associated(self%cdata%shifts)) call c_f_pointer(self%cdata%shifts, self%shifts, shape=[3,n])
     if(c_associated(self%cdata%distances)) call c_f_pointer(self%cdata%distances, self%distances, shape=[n])
     if(c_associated(self%cdata%vectors)) call c_f_pointer(self%cdata%vectors, self%vectors, shape=[3,n])
-  end function vesin_compute
+  end function vesin_compute_c_size_t_c_float
+  function vesin_compute_c_int_c_float( self, nat, pos, box, periodic ) result( ierr )
+    implicit none
+    class( NeighborList ), intent(inout) :: self
+    integer( c_int ), intent(in) :: nat
+    real( c_float ), intent(in) :: pos(3,nat)
+    real( c_float ), intent(in) :: box(3,3)
+    logical, intent(in), optional :: periodic
+    integer :: ierr
+
+    logical( c_bool ) :: c_periodic
+    type( c_ptr ) :: c_errmsg = c_null_ptr
+    integer :: n
+    ! self has not been initialized
+    if( .not. self% active ) then
+       self% errmsg="NeighborList has to be initialized before computing."
+       ierr = -1
+       return
+    end if
+    ! periodic by default
+    c_periodic = .true.
+    if( present(periodic))c_periodic = periodic
+    ! call iterface to c, with data in prescribed c precision
+    ierr = int( c_vesin_neighbors( &
+         real(pos, c_double), &
+         int(nat, c_size_t), &
+         real(box, c_double), &
+         c_periodic, &
+         self%device, &
+         self%opts, &
+         self%cdata, &
+         c_errmsg) )
+    if( ierr /= 0 ) then
+       self% errmsg = c2f_string(c_errmsg)
+       return
+    end if
+    ! cast cdata to f, in the returned C precision
+    n = int( self%cdata%length )
+    self% length = self%cdata%length
+    ! nullify pointers in self
+    if( associated(self%pairs))nullify(self%pairs)
+    if( associated(self%shifts))nullify(self%shifts)
+    if( associated(self%distances))nullify(self%distances)
+    if( associated(self%vectors))nullify(self%vectors)
+    ! set
+    if(c_associated(self%cdata%pairs)) call c_f_pointer(self%cdata%pairs, self%pairs, shape=[2,n])
+    if(c_associated(self%cdata%shifts)) call c_f_pointer(self%cdata%shifts, self%shifts, shape=[3,n])
+    if(c_associated(self%cdata%distances)) call c_f_pointer(self%cdata%distances, self%distances, shape=[n])
+    if(c_associated(self%cdata%vectors)) call c_f_pointer(self%cdata%vectors, self%vectors, shape=[3,n])
+  end function vesin_compute_c_int_c_float
+  function vesin_compute_c_size_t_c_double( self, nat, pos, box, periodic ) result( ierr )
+    implicit none
+    class( NeighborList ), intent(inout) :: self
+    integer( c_size_t ), intent(in) :: nat
+    real( c_double ), intent(in) :: pos(3,nat)
+    real( c_double ), intent(in) :: box(3,3)
+    logical, intent(in), optional :: periodic
+    integer :: ierr
+
+    logical( c_bool ) :: c_periodic
+    type( c_ptr ) :: c_errmsg = c_null_ptr
+    integer :: n
+    ! self has not been initialized
+    if( .not. self% active ) then
+       self% errmsg="NeighborList has to be initialized before computing."
+       ierr = -1
+       return
+    end if
+    ! periodic by default
+    c_periodic = .true.
+    if( present(periodic))c_periodic = periodic
+    ! call iterface to c, with data in prescribed c precision
+    ierr = int( c_vesin_neighbors( &
+         real(pos, c_double), &
+         int(nat, c_size_t), &
+         real(box, c_double), &
+         c_periodic, &
+         self%device, &
+         self%opts, &
+         self%cdata, &
+         c_errmsg) )
+    if( ierr /= 0 ) then
+       self% errmsg = c2f_string(c_errmsg)
+       return
+    end if
+    ! cast cdata to f, in the returned C precision
+    n = int( self%cdata%length )
+    self% length = self%cdata%length
+    ! nullify pointers in self
+    if( associated(self%pairs))nullify(self%pairs)
+    if( associated(self%shifts))nullify(self%shifts)
+    if( associated(self%distances))nullify(self%distances)
+    if( associated(self%vectors))nullify(self%vectors)
+    ! set
+    if(c_associated(self%cdata%pairs)) call c_f_pointer(self%cdata%pairs, self%pairs, shape=[2,n])
+    if(c_associated(self%cdata%shifts)) call c_f_pointer(self%cdata%shifts, self%shifts, shape=[3,n])
+    if(c_associated(self%cdata%distances)) call c_f_pointer(self%cdata%distances, self%distances, shape=[n])
+    if(c_associated(self%cdata%vectors)) call c_f_pointer(self%cdata%vectors, self%vectors, shape=[3,n])
+  end function vesin_compute_c_size_t_c_double
+  function vesin_compute_c_int_c_double( self, nat, pos, box, periodic ) result( ierr )
+    implicit none
+    class( NeighborList ), intent(inout) :: self
+    integer( c_int ), intent(in) :: nat
+    real( c_double ), intent(in) :: pos(3,nat)
+    real( c_double ), intent(in) :: box(3,3)
+    logical, intent(in), optional :: periodic
+    integer :: ierr
+
+    logical( c_bool ) :: c_periodic
+    type( c_ptr ) :: c_errmsg = c_null_ptr
+    integer :: n
+    ! self has not been initialized
+    if( .not. self% active ) then
+       self% errmsg="NeighborList has to be initialized before computing."
+       ierr = -1
+       return
+    end if
+    ! periodic by default
+    c_periodic = .true.
+    if( present(periodic))c_periodic = periodic
+    ! call iterface to c, with data in prescribed c precision
+    ierr = int( c_vesin_neighbors( &
+         real(pos, c_double), &
+         int(nat, c_size_t), &
+         real(box, c_double), &
+         c_periodic, &
+         self%device, &
+         self%opts, &
+         self%cdata, &
+         c_errmsg) )
+    if( ierr /= 0 ) then
+       self% errmsg = c2f_string(c_errmsg)
+       return
+    end if
+    ! cast cdata to f, in the returned C precision
+    n = int( self%cdata%length )
+    self% length = self%cdata%length
+    ! nullify pointers in self
+    if( associated(self%pairs))nullify(self%pairs)
+    if( associated(self%shifts))nullify(self%shifts)
+    if( associated(self%distances))nullify(self%distances)
+    if( associated(self%vectors))nullify(self%vectors)
+    ! set
+    if(c_associated(self%cdata%pairs)) call c_f_pointer(self%cdata%pairs, self%pairs, shape=[2,n])
+    if(c_associated(self%cdata%shifts)) call c_f_pointer(self%cdata%shifts, self%shifts, shape=[3,n])
+    if(c_associated(self%cdata%distances)) call c_f_pointer(self%cdata%distances, self%distances, shape=[n])
+    if(c_associated(self%cdata%vectors)) call c_f_pointer(self%cdata%vectors, self%vectors, shape=[3,n])
+  end function vesin_compute_c_int_c_double
 
 
   !> @brief Destructor.
@@ -275,3 +448,4 @@ contains
   end function c2f_string
 
 end module vesin_wrapper
+

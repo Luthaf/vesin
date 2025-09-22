@@ -156,7 +156,7 @@ module vesin
      !!~~~~~~~~~
      !! cast to fortran array as:
      !!~~~~~~~~~{.f90}
-     !! integer( c_size_t ), pointer :: f_pairs(:) => null()
+     !! integer( c_size_t ), pointer :: f_pairs(:,:) => null()
      !! if(c_associated(self%pairs)) call c_f_pointer( self%pairs, f_pairs, shape=[2, self%length] )
      !!~~~~~~~~~
 

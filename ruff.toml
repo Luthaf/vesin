@@ -5,6 +5,7 @@ ignore = ["B018", "B904"]
 [lint.isort]
 lines-after-imports = 2
 known-first-party = ["vesin"]
+known-third-party = ["torch"]
 
 [format]
 docstring-code-format = true

@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
-file(READ "VERSION" VESIN_VERSION)
+file(READ "vesin/VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
-project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
+project(vesin-torch LANGUAGES CXX VERSION ${VESIN_VERSION})
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(VESIN_MAIN_PROJECT ON)
@@ -25,62 +25,51 @@ if (VESIN_MAIN_PROJECT)
 endif()
 
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
-option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 
-set(VESIN_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
-)
-add_library(vesin_objects OBJECT ${VESIN_SOURCES})
+add_subdirectory(vesin)
 
-target_include_directories(vesin_objects PUBLIC
+find_package(Torch 1.12 REQUIRED)
+
+# PyTorch requires passing std::string & co. across DLL boundaries, which fails
+# when using a different runtime library from the one used by torch.dll & co.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+
+add_library(vesin_torch SHARED src/vesin_torch.cpp)
+
+target_link_libraries(vesin_torch PRIVATE vesin_objects)
+target_link_libraries(vesin_torch PUBLIC torch)
+
+target_include_directories(vesin_torch PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-)
-
-target_compile_features(vesin_objects PRIVATE cxx_std_17)
-
-set_target_properties(vesin_objects PROPERTIES
-    # hide non-exported symbols by default
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-    POSITION_INDEPENDENT_CODE ON
-    EXCLUDE_FROM_ALL ON
-)
-
-target_compile_definitions(vesin_objects PRIVATE VESIN_EXPORTS)
-if (BUILD_SHARED_LIBS)
-    target_compile_definitions(vesin_objects PUBLIC VESIN_SHARED)
-endif()
-
-add_library(vesin)
-target_link_libraries(vesin vesin_objects)
-
-target_include_directories(vesin PUBLIC
     $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 
-if (BUILD_SHARED_LIBS)
-    target_compile_definitions(vesin PUBLIC VESIN_SHARED)
-endif()
+target_compile_features(vesin_torch PUBLIC cxx_std_17)
+target_compile_definitions(vesin_torch PRIVATE VESIN_EXPORTS)
 
-if (VESIN_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
+set_target_properties(vesin_torch PROPERTIES
+    # hide non-exported symbols by default
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
+if (BUILD_SHARED_LIBS)
+    target_compile_definitions(vesin_torch PUBLIC VESIN_SHARED)
 endif()
 
 #------------------------------------------------------------------------------#
 # Installation configuration
 #------------------------------------------------------------------------------#
 if (VESIN_INSTALL)
-    message(STATUS "Installing vesin target")
-    install(TARGETS vesin
+    message(STATUS "Installing vesin-torch target")
+    install(TARGETS vesin_torch
         ARCHIVE DESTINATION "lib"
         LIBRARY DESTINATION "lib"
         RUNTIME DESTINATION "bin"
     )
 
-    install(FILES "include/vesin.h" DESTINATION "include")
+    install(FILES "include/vesin_torch.hpp" DESTINATION "include")
 else()
-    set_target_properties(vesin PROPERTIES EXCLUDE_FROM_ALL ON)
+    set_target_properties(vesin_torch PROPERTIES EXCLUDE_FROM_ALL ON)
 endif()

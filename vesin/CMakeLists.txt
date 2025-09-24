@@ -13,21 +13,20 @@ endif()
 
 if (VESIN_MAIN_PROJECT)
     if("${CMAKE_BUILD_TYPE}" STREQUAL "" AND "${CMAKE_CONFIGURATION_TYPES}" STREQUAL "")
-        message(STATUS "Setting build type to 'release' as none was specified.")
+        message(STATUS "Setting build type to 'Release' as none was specified.")
         set(
-            CMAKE_BUILD_TYPE "release"
+            CMAKE_BUILD_TYPE "Release"
             CACHE STRING
-            "Choose the type of build, options are: none(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) debug release relwithdebinfo minsizerel."
+            "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel."
             FORCE
         )
-        set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS release debug relwithdebinfo minsizerel none)
+        set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release RelWithDebInfo Debug MinSizeRel None)
     endif()
 endif()
 
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
-option(VESIN_TORCH "Build the vesin_torch library" OFF)
 option(VESIN_ENABLE_CUDA "Build the CUDA backend of Vesin" OFF)
 
 set(VESIN_SOURCES
@@ -63,26 +62,38 @@ else()
 endif()
 
 
-add_library(vesin ${VESIN_SOURCES})
+add_library(vesin_objects OBJECT ${VESIN_SOURCES})
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+    target_include_directories(vesin_objects PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 endif()
 
-target_include_directories(vesin PUBLIC
+target_include_directories(vesin_objects PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 
-target_compile_features(vesin PRIVATE cxx_std_17)
+target_compile_features(vesin_objects PRIVATE cxx_std_17)
 
-set_target_properties(vesin PROPERTIES
+set_target_properties(vesin_objects PROPERTIES
     # hide non-exported symbols by default
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
+    POSITION_INDEPENDENT_CODE ON
+    EXCLUDE_FROM_ALL ON
 )
 
-target_compile_definitions(vesin PRIVATE VESIN_EXPORTS)
+target_compile_definitions(vesin_objects PRIVATE VESIN_EXPORTS)
+if (BUILD_SHARED_LIBS)
+    target_compile_definitions(vesin_objects PUBLIC VESIN_SHARED)
+endif()
+
+add_library(vesin)
+target_link_libraries(vesin vesin_objects)
+
+target_include_directories(vesin PUBLIC
+    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
+)
+
 if (BUILD_SHARED_LIBS)
     target_compile_definitions(vesin PUBLIC VESIN_SHARED)
 endif()
@@ -92,14 +103,11 @@ if (VESIN_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-if (VESIN_TORCH)
-    add_subdirectory(torch)
-endif()
-
 #------------------------------------------------------------------------------#
 # Installation configuration
 #------------------------------------------------------------------------------#
 if (VESIN_INSTALL)
+    message(STATUS "Installing vesin target")
     install(TARGETS vesin
         ARCHIVE DESTINATION "lib"
         LIBRARY DESTINATION "lib"
@@ -107,4 +115,6 @@ if (VESIN_INSTALL)
     )
 
     install(FILES "include/vesin.h" DESTINATION "include")
+else()
+    set_target_properties(vesin PROPERTIES EXCLUDE_FROM_ALL ON)
 endif()

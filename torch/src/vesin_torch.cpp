@@ -4,7 +4,6 @@
 
 #include <vesin.h>
 
-#include "vesin_cuda.hpp"
 #include "vesin_torch.hpp"
 
 using namespace vesin_torch;
@@ -169,18 +168,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
-    auto length_cu = torch::Tensor();
-
-    if (device == VesinCUDA) {
-        vesin::cuda::CudaNeighborListExtras* extras =
-            vesin::cuda::get_cuda_extras(data_);
-        length_cu = torch::from_blob(extras->length_ptr, {1}, size_t_options)
-                        .to(torch::kInt64);
-    }
-
-    int64_t length = device == VesinCUDA ? length_cu.item<int64_t>()
-                                         : static_cast<int64_t>(data_->length);
-
+    int64_t length = static_cast<int64_t>(data_->length);
     auto pairs = torch::from_blob(data_->pairs, {length, 2}, size_t_options)
                      .to(torch::kInt64);
 

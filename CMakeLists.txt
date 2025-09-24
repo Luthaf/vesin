@@ -26,5 +26,11 @@ if (VESIN_MAIN_PROJECT)
     endif()
 endif()
 
+option(VESIN_TORCH "Build the vesin_torch library" OFF)
+
 set(VESIN_INSTALL ${VESIN_MAIN_PROJECT} CACHE BOOL "Install Vesin's headers and libraries")
 add_subdirectory(vesin)
+
+if (VESIN_TORCH)
+    add_subdirectory(torch)
+endif()

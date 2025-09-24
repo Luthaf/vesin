@@ -345,8 +345,7 @@ void vesin::cuda::compute_mic_neighbourlist(
     const double* d_positions = reinterpret_cast<const double*>(points);
     const double* d_cell = reinterpret_cast<const double*>(cell);
 
-    unsigned long* d_pair_indices =
-        reinterpret_cast<unsigned long*>(neighbors.pairs);
+    unsigned long* d_pair_indices = reinterpret_cast<unsigned long*>(neighbors.pairs);
     int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
     double* d_distances = reinterpret_cast<double*>(neighbors.distances);
     double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
@@ -407,4 +406,7 @@ void vesin::cuda::compute_mic_neighbourlist(
     if (err != cudaSuccess) {
         throw std::runtime_error(cudaGetErrorString(err));
     }
+
+    // set the length from the cuda extra data
+    cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(size_t), cudaMemcpyDeviceToHost);
 }

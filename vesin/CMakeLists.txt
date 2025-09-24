@@ -28,6 +28,9 @@ option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 
+option(VESIN_EXPORT_SYMBOLS "Export vesin's symbols publicly" ON)
+mark_as_advanced(VESIN_EXPORT_SYMBOLS)
+
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
@@ -48,17 +51,17 @@ set_target_properties(vesin_objects PROPERTIES
     EXCLUDE_FROM_ALL ON
 )
 
-target_compile_definitions(vesin_objects PRIVATE VESIN_EXPORTS)
+if (VESIN_EXPORT_SYMBOLS)
+    target_compile_definitions(vesin_objects PRIVATE VESIN_EXPORTS)
+endif()
+
 if (BUILD_SHARED_LIBS)
     target_compile_definitions(vesin_objects PUBLIC VESIN_SHARED)
 endif()
 
 add_library(vesin)
 target_link_libraries(vesin vesin_objects)
-
-target_include_directories(vesin PUBLIC
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
-)
+target_include_directories(vesin PUBLIC $<INSTALL_INTERFACE:include>)
 
 if (BUILD_SHARED_LIBS)
     target_compile_definitions(vesin PUBLIC VESIN_SHARED)

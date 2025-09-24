@@ -27,6 +27,7 @@ endif()
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 
+set(VESIN_EXPORT_SYMBOLS OFF)
 add_subdirectory(vesin)
 
 find_package(Torch 1.12 REQUIRED)
@@ -42,7 +43,7 @@ target_link_libraries(vesin_torch PUBLIC torch)
 
 target_include_directories(vesin_torch PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_compile_features(vesin_torch PUBLIC cxx_std_17)

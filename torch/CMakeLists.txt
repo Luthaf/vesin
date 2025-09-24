@@ -24,7 +24,6 @@ if (VESIN_MAIN_PROJECT)
     endif()
 endif()
 
-option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 
 add_subdirectory(vesin)
@@ -42,21 +41,17 @@ target_link_libraries(vesin_torch PUBLIC torch)
 
 target_include_directories(vesin_torch PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_compile_features(vesin_torch PUBLIC cxx_std_17)
-target_compile_definitions(vesin_torch PRIVATE VESIN_EXPORTS)
 
+target_compile_definitions(vesin_torch PRIVATE VESIN_TORCH_EXPORTS)
 set_target_properties(vesin_torch PROPERTIES
     # hide non-exported symbols by default
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
-
-if (BUILD_SHARED_LIBS)
-    target_compile_definitions(vesin_torch PUBLIC VESIN_SHARED)
-endif()
 
 #------------------------------------------------------------------------------#
 # Installation configuration

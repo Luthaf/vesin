@@ -2,7 +2,6 @@
 
 #include <vesin.h>
 
-
 TEST_CASE("Re-use allocations") {
     double points[][3] = {
         {0.0, 0.0, 0.0},
@@ -81,7 +80,6 @@ TEST_CASE("Re-use allocations") {
     CHECK(neighbors.shifts != nullptr);
     CHECK(neighbors.distances == nullptr);
     CHECK(neighbors.vectors == nullptr);
-
 
     vesin_free(&neighbors);
 }

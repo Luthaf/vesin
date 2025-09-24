@@ -7,7 +7,9 @@ namespace vesin {
 
 class BoundingBox {
 public:
-    BoundingBox(Matrix matrix, bool periodic): matrix_(matrix), periodic_(periodic) {
+    BoundingBox(Matrix matrix, bool periodic):
+        matrix_(matrix),
+        periodic_(periodic) {
         if (periodic) {
             auto det = matrix_.determinant();
             if (std::abs(det) < 1e-30) {
@@ -16,11 +18,13 @@ public:
 
             this->inverse_ = matrix_.inverse();
         } else {
+            // clang-format off
             this->matrix_ = Matrix{{{
                 {{1, 0, 0}},
                 {{0, 1, 0}},
                 {{0, 0, 1}}
             }}};
+            // clang-format on
             this->inverse_ = matrix_;
         }
     }
@@ -67,7 +71,6 @@ private:
     bool periodic_;
 };
 
-
 /// A cell shift represents the displacement along cell axis between the actual
 /// position of an atom and a periodic image of this atom.
 ///
@@ -101,7 +104,6 @@ inline CellShift operator-(CellShift a, CellShift b) {
         a[2] - b[2],
     };
 }
-
 
 } // namespace vesin
 

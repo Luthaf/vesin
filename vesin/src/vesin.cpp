@@ -98,7 +98,6 @@ extern "C" int vesin_neighbors(
     return EXIT_SUCCESS;
 }
 
-
 extern "C" void vesin_free(VesinNeighborList* neighbors) {
     if (neighbors == nullptr) {
         return;

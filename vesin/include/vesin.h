@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// clang-format off
 #if defined(VESIN_SHARED)
     #if defined(VESIN_EXPORTS)
         #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
@@ -25,6 +26,7 @@
 #else
     #define VESIN_API
 #endif
+// clang-format on
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,7 +60,6 @@ enum VesinDevice {
     VesinCPU = 1,
 };
 
-
 /// The actual neighbor list
 ///
 /// This is organized as a list of pairs, where each pair can contain the
@@ -86,8 +87,7 @@ struct VESIN_API VesinNeighborList {
         pairs(nullptr),
         shifts(nullptr),
         distances(nullptr),
-        vectors(nullptr)
-    {}
+        vectors(nullptr) {}
 #endif
 
     /// Number of pairs in this neighbor list
@@ -103,7 +103,7 @@ struct VESIN_API VesinNeighborList {
     /// Array of pair distance (i.e. distance between the two points), one for
     /// each pair. This is only set if `options.return_distances` was `true`
     /// during the calculation.
-    double *distances;
+    double* distances;
     /// Array of pair vector (i.e. vector between the two points), one for
     /// each pair. This is only set if `options.return_vector` was `true`
     /// during the calculation.
@@ -147,7 +147,6 @@ int VESIN_API vesin_neighbors(
     struct VesinNeighborList* neighbors,
     const char** error_message
 );
-
 
 #ifdef __cplusplus
 

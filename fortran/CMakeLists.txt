@@ -28,7 +28,7 @@ option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJEC
 
 add_subdirectory(vesin)
 
-add_library(vesin_fortran src/vesin.f90)
+add_library(vesin_fortran src/vesin.f90 src/cdef.f90)
 
 target_link_libraries(vesin_fortran PRIVATE vesin_objects)
 set_target_properties(vesin_fortran PROPERTIES Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
@@ -40,7 +40,6 @@ target_include_directories(vesin_fortran PUBLIC
 
 if (VESIN_BUILD_TESTS)
     add_subdirectory(tests)
-    add_subdirectory(examples)
 endif()
 
 if (VESIN_INSTALL)

@@ -1,64 +1,18 @@
-!> @brief
-!! This is an example wrapper to the fortran interface of `vesin`.
+!> High-level fortran interface to vesin.
 !!
-!! @details
-!! It is suggested to copy and modify this file as needed by your application.
-!! The basic functionalities are there, but for example the data conversion
-!! from C precision to your precision has to be added. Likewise any additional
-!! functionality to process the neighbor list.
-!!
-!! Example usage:
-!!
-!!~~~~~~~~~~~~~{.f90}
-!! program main
-!!     use vesin, only: NeighborList
-!!
-!!     implicit none
-!!
-!!     real, allocatable :: positions(:,:)
-!!     real :: box(3,3)
-!!     integer :: i, ierr
-!!     type(NeighborList) :: neighbor_list
-!!
-!!     ! we have 2000 points in this example
-!!     allocate(positions(3, 2000))
-!!
-!!     ! set the values for points `positions` and bounding `box` here
-!!     ! positions = ...
-!!     ! box = ...
-!!
-!!     ! initialize `neighbor_list` with some options
-!!     neighbor_list = NeighborList(cutoff=4.2, full=.true., sorted=.true.)
-!!     ! compute
-!!     call neighbor_list%compute(positions, box, periodic=.true., status=ierr)
-!!     if (ierr /= 0) then
-!!         write(*,*) neighbor_list%errmsg
-!!         stop
-!!     end if
-!!
-!!     write(*,*) "we got ", neighbor_list%length, "pairs"
-!!     do i=1,neighbor_list%length
-!!         write(*,*) " - ", i, ":", neighbor_list%pairs(:, i)
-!!     end do
-!!
-!!     ! release allocated memory
-!!     call neighbor_list%free()
-!! end program main
-!!~~~~~~~~~~~~~
-
+!! This is the recomended interface to vesin, taking care of data conversion
+!! from and to the C API for you.
 module vesin
     use, intrinsic :: iso_c_binding
 
-    ! import the C-interoperable vesin interface
-    use vesin_cdef, only: VesinOptions, VesinNeighborList, vesin_neighbors, vesin_free, VesinUnknownDevice, VesinCPU
-
+    use vesin_c, only: VesinOptions, VesinNeighborList, vesin_neighbors, vesin_free, VesinUnknownDevice, VesinCPU
 
     implicit none
 
     private
     public :: NeighborList
 
-    !> @brief A neighbor list calculator.
+    !> A neighbor list calculator.
     !!
     !! This type contains pointers to the computed C data, in C precision.
     type :: NeighborList
@@ -106,6 +60,10 @@ module vesin
         procedure, public :: free => vesin_destroy
     end type NeighborList
 
+    !> Initialize a `NeighborList`.
+    !!
+    !! The `cutoff` and `full` options are mandatory, the other are optional
+    !! and default to `.false.`
     interface NeighborList
         procedure :: vesin_construct_c_float
         procedure :: vesin_construct_c_double
@@ -113,17 +71,31 @@ module vesin
 
 contains
     function vesin_construct_c_double(cutoff, full, sorted, return_shifts, return_distances, return_vectors) result(self)
+        !> Spherical cutoff, only pairs below this cutoff will be included
         real(c_double), intent(in) :: cutoff
-        logical, intent(in), optional :: full
+
+        !> Should the returned neighbor list be a full list (include both `i -> j`
+        !! and `j -> i` pairs) or a half list (include only `i -> j`)?
+        logical, intent(in) :: full
+
+        !> Should the neighbor list be sorted? If yes, the returned pairs will be
+        !! sorted using lexicographic order.
         logical, intent(in), optional :: sorted
+
+        !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
+
+        !> Should the returned `VesinNeighborList` contain `distances`?
         logical, intent(in), optional :: return_distances
+
+        !> Should the returned `VesinNeighborList` contain `vector`?
         logical, intent(in), optional :: return_vectors
+
         type(neighborlist) :: self
 
         self%options%cutoff = cutoff
+        self%options%full = full
 
-        if (present(full)) self%options%full = full
         if (present(sorted)) self%options%sorted = sorted
         if (present(return_shifts)) self%options%return_shifts = return_shifts
         if (present(return_distances)) self%options%return_distances = return_distances
@@ -133,24 +105,48 @@ contains
     end function vesin_construct_c_double
 
     function vesin_construct_c_float(cutoff, full, sorted, return_shifts, return_distances, return_vectors) result(self)
+        !> Spherical cutoff, only pairs below this cutoff will be included
         real(c_float), intent(in) :: cutoff
-        logical, intent(in), optional :: full
+
+        !> Should the returned neighbor list be a full list (include both `i -> j`
+        !! and `j -> i` pairs) or a half list (include only `i -> j`)?
+        logical, intent(in) :: full
+
+        !> Should the neighbor list be sorted? If yes, the returned pairs will be
+        !! sorted using lexicographic order.
         logical, intent(in), optional :: sorted
+
+        !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
+
+        !> Should the returned `VesinNeighborList` contain `distances`?
         logical, intent(in), optional :: return_distances
+
+        !> Should the returned `VesinNeighborList` contain `vector`?
         logical, intent(in), optional :: return_vectors
+
         type(neighborlist) :: self
-        ! set the cutoff and other stuff
+
         self = vesin_construct_c_double(real(cutoff, c_double), full, sorted, return_shifts, return_distances, return_vectors)
     end function vesin_construct_c_float
 
-    !> Compute the neighbor list for data in `c_double` precision
+    !> Compute the neighbor list for data in `c_double`/`real64` precision
     subroutine vesin_compute_c_double(self, points, box, periodic, status)
         implicit none
+        !> The neighbor list calculator
         class(NeighborList), intent(inout) :: self
+        !> Positions of all points to consider, this must be a `3 x n_points`
+        !! array.
         real(c_double), intent(in) :: points(:, :)
+        !> Bounding box for the system. If the system is non-periodic,
+        !! this is ignored. This should contain the three vectors of the
+        !! bounding box, one vector per column of the matrix.
         real(c_double), intent(in) :: box(3, 3)
+        !> Is the system using periodic boundary conditions?
         logical, intent(in) :: periodic
+        !> Status code of the operation, this will be 0 if there are no error,
+        !! and non-zero otherwise. The full error message will be stored in
+        !! `self%errmsg`.
         integer, optional :: status
 
         integer :: points_shape(2)
@@ -167,6 +163,12 @@ contains
 
         c_periodic = periodic
         points_shape = shape(points)
+
+        if (points_shape(1) /= 3) then
+            self%errmsg = "`points` should be a [3, n_points] array"
+            status = -1
+            return
+        end if
 
         status = int(vesin_neighbors(           &
             points,                             &
@@ -206,13 +208,23 @@ contains
         endif
     end subroutine vesin_compute_c_double
 
-    !> Compute the neighbor list for data in `c_float` precision
+    !> Compute the neighbor list for data in `c_float`/`real32` precision
     subroutine vesin_compute_c_float(self, points, box, periodic, status)
         implicit none
+        !> The neighbor list calculator
         class(NeighborList), intent(inout) :: self
+        !> Positions of all points to consider, this must be a `3 x n_points`
+        !! array.
         real(c_float), intent(in) :: points(:, :)
+        !> Bounding box for the system. If the system is non-periodic,
+        !! this is ignored. This should contain the three vectors of the
+        !! bounding box, one vector per column of the matrix.
         real(c_float), intent(in) :: box(3, 3)
+        !> Is the system using periodic boundary conditions?
         logical, intent(in) :: periodic
+        !> Status code of the operation, this will be 0 if there are no error,
+        !! and non-zero otherwise. The full error message will be stored in
+        !! `self%errmsg`.
         integer, optional :: status
 
         call vesin_compute_c_double(self, real(points, c_double), real(box, c_double), periodic, status)
@@ -222,12 +234,16 @@ contains
     !!
     !! This function should be called when you no longer need the data.
     subroutine vesin_destroy(self)
+        !> The neighbor list calculator
         class(NeighborList), intent(inout) :: self
+
         if (associated(self%pairs)) nullify(self%pairs)
         if (associated(self%shifts)) nullify(self%shifts)
         if (associated(self%distances)) nullify(self%distances)
         if (associated(self%vectors)) nullify(self%vectors)
+
         call vesin_free(self%c_neighbors)
+
         self%initialized = .false.
     end subroutine vesin_destroy
 

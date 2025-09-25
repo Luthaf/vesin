@@ -1,5 +1,4 @@
 Fortran API reference
 =====================
 
-The fortran interface to vesin is documented with doxygen `here
-<fortran/namespacevesin.html>`_.
+The fortran interface to vesin is documented `here <fortran/index.html>`_.

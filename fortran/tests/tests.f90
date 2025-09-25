@@ -30,13 +30,13 @@ program vesin_test
     endif
 
     ! check that we can initialize with float or double
-    neighbor_list = NeighborList(cutoff=3.3, return_distances=.true.)
+    neighbor_list = NeighborList(cutoff=3.3, full=.true.)
 
     call neighbor_list%free()
-    neighbor_list = NeighborList(cutoff=real(3.3, c_double), sorted=.true.)
+    neighbor_list = NeighborList(cutoff=real(3.3, c_double), full=.false.)
 
     call neighbor_list%free()
-    neighbor_list = NeighborList(cutoff=real(3.3, c_float), return_distances=.true.)
+    neighbor_list = NeighborList(cutoff=real(3.3, c_float), full=.false., return_distances=.true., sorted=.true.)
 
     call neighbor_list%compute(points, box, periodic=.true., status=ierr)
     if (ierr /= 0) call print_and_exit(neighbor_list%errmsg)
@@ -81,7 +81,7 @@ program vesin_test
     if (associated(neighbor_list%vectors)) call print_and_exit("vectors should not be there")
 
     call neighbor_list%free()
-    neighbor_list = NeighborList(cutoff=3.3, return_distances=.false., return_vectors=.true., return_shifts=.true.)
+    neighbor_list = NeighborList(cutoff=3.3, full=.false., return_distances=.false., return_vectors=.true., return_shifts=.true., sorted=.true.)
 
     call neighbor_list%compute(points, box, periodic=.true., status=ierr)
     if (ierr /= 0) call print_and_exit(neighbor_list%errmsg)

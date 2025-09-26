@@ -4,9 +4,9 @@
 !! from and to the C API for you.
 module vesin
     use, intrinsic :: iso_c_binding
-
-    use vesin_c, only: VesinOptions, VesinNeighborList, vesin_neighbors, vesin_free, VesinUnknownDevice, VesinCPU
-
+    use vesin_c, only: VesinOptions, VesinNeighborList, &
+                       vesin_neighbors, vesin_free, &
+                       VesinUnknownDevice, VesinCPU
     implicit none
 
     private
@@ -127,7 +127,14 @@ contains
 
         type(neighborlist) :: self
 
-        self = vesin_construct_c_double(real(cutoff, c_double), full, sorted, return_shifts, return_distances, return_vectors)
+        self = vesin_construct_c_double(        &
+            real(cutoff, c_double),             &
+            full,                               &
+            sorted,                             &
+            return_shifts,                      &
+            return_distances,                   &
+            return_vectors                      &
+        )
     end function vesin_construct_c_float
 
     !> Compute the neighbor list for data in `c_double`/`real64` precision

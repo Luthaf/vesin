@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
+# if the vesin target already exists, do not create one again.
+if (TARGET vesin)
+    return()
+endif()
+
 file(READ "VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 

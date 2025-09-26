@@ -25,6 +25,7 @@ if (VESIN_MAIN_PROJECT)
 endif()
 
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
+option(VESIN_FORTRAN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 
 add_subdirectory(vesin)
 
@@ -38,7 +39,8 @@ target_include_directories(vesin_fortran PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-if (VESIN_BUILD_TESTS)
+if (VESIN_FORTRAN_BUILD_TESTS)
+    enable_testing()
     add_subdirectory(tests)
 endif()
 

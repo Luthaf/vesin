@@ -1,4 +1,4 @@
-name: C++ tests
+name: C++ & Fortran tests
 
 on:
   push:
@@ -18,41 +18,45 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             compiler: GCC - Valgrind
-            cc: gcc-13
-            cxx: g++-13
+            cc: gcc-14
+            cxx: g++-14
+            fc: gfortran-14
             do-valgrind: true
             setup-dependencies: |
               sudo add-apt-repository ppa:ubuntu-toolchain-r/test
               sudo apt-get update
-              sudo apt-get install -y gcc-13 g++-13
+              sudo apt-get install -y gcc-14 g++-14 gfortran-14
 
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             compiler: Clang
-            cc: clang-18
-            cxx: clang++-18
+            cc: clang-21
+            cxx: clang++-21
+            fc: gfortran
             setup-dependencies: |
               wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
               sudo apt-get update
-              sudo apt-add-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main"
-              sudo apt-get install -y clang-18
+              sudo apt-add-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main"
+              sudo apt-get install -y clang-21 gfortran
 
           # check the build on a stock Ubuntu 20.04, which uses cmake 3.16
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             compiler: GCC
             cc: gcc
             cxx: g++
+            fc: gfortran
             container: ubuntu:20.04
             setup-dependencies: |
               apt update
               apt install -y software-properties-common
-              apt install -y cmake make gcc g++ git curl
+              apt install -y cmake make gcc g++ gfortran git curl
 
           - os: macos-14
             compiler: Clang
             cc: clang
             cxx: clang++
+            fc: gfortran-15
 
           - os: windows-2022
             compiler: MSVC
@@ -85,21 +89,46 @@ jobs:
       - name: configure cmake
         shell: bash
         run: |
-          mkdir build && cd build
+          mkdir vesin/build && cd vesin/build
           cmake ${{ join(matrix.cmake-extra-args, ' ') }} \
               -DCMAKE_BUILD_TYPE=Debug \
               -DCMAKE_C_COMPILER=${{ matrix.cc }} \
               -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
               -DVESIN_BUILD_TESTS=ON \
               -DCMAKE_VERBOSE_MAKEFILE=ON \
-              ../vesin
+              ..
 
       - name: build
         run: |
-          cd build
+          cd vesin/build
           cmake --build . --config Debug --parallel 2
 
       - name: run tests
         run: |
-          cd build
+          cd vesin/build
+          ctest --output-on-failure --build-config Debug --parallel 2
+
+      - name: configure Fortran
+        if: matrix.fc != null
+        run: |
+          mkdir fortran/build && cd fortran/build
+          cmake ${{ join(matrix.cmake-extra-args, ' ') }} \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
+              -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+              -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+              -DVESIN_FORTRAN_BUILD_TESTS=ON \
+              -DCMAKE_VERBOSE_MAKEFILE=ON \
+              ..
+
+      - name: build Fortran
+        if: matrix.fc != null
+        run: |
+          cd fortran/build
+          cmake --build . --config Debug --parallel 2
+
+      - name: run Fortran tests
+        if: matrix.fc != null
+        run: |
+          cd fortran/build
           ctest --output-on-failure --build-config Debug --parallel 2

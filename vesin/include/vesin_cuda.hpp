@@ -51,7 +51,7 @@ void free_neighbors(VesinNeighborList& neighbors);
 /// needed).
 void neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors);
 
-// used in front-end and back-end to grab the length ptr
+/// Get the `CudaNeighborListExtras` stored inside `VesinNeighborList`'s opaque pointer
 CudaNeighborListExtras* get_cuda_extras(VesinNeighborList* neighbors);
 
 } // namespace cuda

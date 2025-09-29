@@ -111,7 +111,7 @@ struct VESIN_API VesinNeighborList {
     /// during the calculation.
     double (*vectors)[3];
 
-    // pointer to hold any additional structs
+    // private pointer used to hold additional internal data
     void* opaque = nullptr;
 
     // TODO: custom memory allocators?

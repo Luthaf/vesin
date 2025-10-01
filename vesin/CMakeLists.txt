@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
+# if the vesin target already exists, do not create one again.
+if (TARGET vesin)
+    return()
+endif()
+
 file(READ "VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
@@ -61,7 +66,9 @@ else()
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda_stub.cpp)
 endif()
 
-
+# create two targets: `vesin` is the main one, while `vesin_objects` will
+# be used by language bindings to embed vesin inside another (SHARED) library
+add_library(vesin ${VESIN_SOURCES})
 add_library(vesin_objects OBJECT ${VESIN_SOURCES})
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
@@ -72,8 +79,12 @@ target_include_directories(vesin_objects PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-target_compile_features(vesin_objects PRIVATE cxx_std_17)
+target_include_directories(vesin PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
 
+target_compile_features(vesin_objects PRIVATE cxx_std_17)
 set_target_properties(vesin_objects PROPERTIES
     # hide non-exported symbols by default
     CXX_VISIBILITY_PRESET hidden
@@ -82,20 +93,16 @@ set_target_properties(vesin_objects PROPERTIES
     EXCLUDE_FROM_ALL ON
 )
 
-target_compile_definitions(vesin_objects PRIVATE VESIN_EXPORTS)
-if (BUILD_SHARED_LIBS)
-    target_compile_definitions(vesin_objects PUBLIC VESIN_SHARED)
-endif()
-
-add_library(vesin)
-target_link_libraries(vesin vesin_objects)
-
-target_include_directories(vesin PUBLIC
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
+target_compile_features(vesin PRIVATE cxx_std_17)
+set_target_properties(vesin PROPERTIES
+    # hide non-exported symbols by default
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
 )
 
 if (BUILD_SHARED_LIBS)
     target_compile_definitions(vesin PUBLIC VESIN_SHARED)
+    target_compile_definitions(vesin PRIVATE VESIN_EXPORTS)
 endif()
 
 if (VESIN_BUILD_TESTS)

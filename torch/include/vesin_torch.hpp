@@ -3,6 +3,26 @@
 
 #include <torch/data.h>
 
+// clang-format off
+#if defined(VESIN_TORCH_EXPORTS)
+    #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+        #define VESIN_TORCH_API __attribute__((visibility("default")))
+    #elif defined(_MSC_VER)
+        #define VESIN_TORCH_API __declspec(dllexport)
+    #else
+        #define VESIN_TORCH_API
+    #endif
+#else
+    #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+        #define VESIN_TORCH_API __attribute__((visibility("default")))
+    #elif defined(_MSC_VER)
+        #define VESIN_TORCH_API __declspec(dllimport)
+    #else
+        #define VESIN_TORCH_API
+    #endif
+#endif
+// clang-format on
+
 struct VesinNeighborList;
 
 namespace vesin_torch {
@@ -13,7 +33,7 @@ class NeighborListHolder;
 using NeighborList = torch::intrusive_ptr<NeighborListHolder>;
 
 /// Neighbor list calculator compatible with TorchScript
-class NeighborListHolder: public torch::CustomClassHolder {
+class VESIN_TORCH_API NeighborListHolder: public torch::CustomClassHolder {
 public:
     /// Create a new calculator with the given `cutoff`.
     ///

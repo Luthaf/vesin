@@ -1,7 +1,6 @@
 #ifndef MIC_NEIGHBOURLIST_CUH
 #define MIC_NEIGHBOURLIST_CUH
 
-
 #include "vesin.h"
 #include "vesin_cuda.hpp"
 

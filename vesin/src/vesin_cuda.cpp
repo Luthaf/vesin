@@ -59,6 +59,15 @@ static int get_device_id(const void* ptr) {
     return -1;
 }
 
+CudaNeighborListExtras::~CudaNeighborListExtras() {
+    if (this->length_ptr) {
+        cudaFree(this->length_ptr);
+    }
+    if (this->cell_check_ptr) {
+        cudaFree(this->cell_check_ptr);
+    }
+}
+
 vesin::cuda::CudaNeighborListExtras*
 vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
     if (!neighbors->opaque) {
@@ -85,14 +94,6 @@ static void reset(VesinNeighborList& neighbors) {
     if (neighbors.vectors && is_device_ptr(getPtrAttributes(neighbors.vectors), "vectors")) {
         CUDA_CHECK(cudaFree(neighbors.vectors));
     }
-    if (extras->length_ptr &&
-        is_device_ptr(getPtrAttributes(extras->length_ptr), "extras->length_ptr")) {
-        CUDA_CHECK(cudaFree(extras->length_ptr));
-    }
-    if (extras->cell_check_ptr &&
-        is_device_ptr(getPtrAttributes(extras->cell_check_ptr), "extras->cell_check_ptr")) {
-        CUDA_CHECK(cudaFree(extras->cell_check_ptr));
-    }
 
     neighbors.pairs = nullptr;
     neighbors.shifts = nullptr;
@@ -104,7 +105,7 @@ static void reset(VesinNeighborList& neighbors) {
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 
-    assert(neighbors.device == VesinCUDA);
+    assert(neighbors.device.type == VesinCUDA);
 
     int curr_device = -1;
     int device_id = -1;
@@ -132,7 +133,7 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 
 void vesin::cuda::neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors) {
 
-    assert(neighbors.device == VesinCUDA);
+    assert(neighbors.device.type == VesinCUDA);
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
 
     // assert both points and cell are device pointers
@@ -142,6 +143,7 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
     int device = get_device_id(points);
     // assert both points and cell are on the same device
     assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
+    assert((device == neighbors.device.device_id) && "points and cell device differs from input neighbors device_id");
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 

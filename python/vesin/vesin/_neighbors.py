@@ -5,7 +5,7 @@ from typing import List
 import numpy as np
 import numpy.typing as npt
 
-from ._c_api import VesinCPU, VesinNeighborList, VesinOptions
+from ._c_api import VesinCPU, VesinDevice, VesinNeighborList, VesinOptions
 from ._c_lib import _get_library
 
 
@@ -97,7 +97,7 @@ class NeighborList:
             points.shape[0],
             box,
             periodic,
-            VesinCPU,
+            VesinDevice(VesinCPU, 0),
             options,
             self._neighbors,
             error_message,

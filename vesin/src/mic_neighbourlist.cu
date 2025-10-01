@@ -224,7 +224,6 @@ __global__ void compute_mic_neighbours_half_impl(
     double dist2 = dot(disp, disp);
     bool is_valid = (dist2 < cutoff2 && dist2 > double(0.0));
 
-    int warp_id = threadIdx.x / WARP_SIZE;
     int warp_rank = threadIdx.x % WARP_SIZE;
 
     unsigned int mask = __activemask();
@@ -259,7 +258,6 @@ __global__ void compute_mic_neighbours_half_impl(
 __global__ void mic_cell_check(const double* cell, const double cutoff, int* status) {
 
     __shared__ double scell[9];
-    __shared__ double sinv_cell[9];
 
     const double cutoff2 = cutoff * cutoff;
 

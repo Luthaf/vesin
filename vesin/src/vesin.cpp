@@ -46,26 +46,26 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
-    if (neighbors->device != VesinUnknownDevice && neighbors->device != device) {
+    if (neighbors->device.type != VesinUnknownDevice && neighbors->device.type != device.type) {
         *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
         return EXIT_FAILURE;
     }
 
-    if (device == VesinUnknownDevice) {
+    if (device.type == VesinUnknownDevice) {
         *error_message = "got an unknown device to use when running simulation";
         return EXIT_FAILURE;
     }
 
-    if (neighbors->device == VesinUnknownDevice) {
+    if (neighbors->device.type == VesinUnknownDevice) {
         // initialize the device
         neighbors->device = device;
-    } else if (neighbors->device != device) {
+    } else if (neighbors->device.type != device.type) {
         *error_message = "`neighbors.device` and `device` do not match, free the neighbors first";
         return EXIT_FAILURE;
     }
 
     try {
-        if (device == VesinCPU) {
+        if (device.type == VesinCPU) {
             auto matrix = vesin::Matrix{{{
                 {{box[0][0], box[0][1], box[0][2]}},
                 {{box[1][0], box[1][1], box[1][2]}},
@@ -79,10 +79,10 @@ extern "C" int vesin_neighbors(
                 options,
                 *neighbors
             );
-        } else if (device == VesinCUDA) {
+        } else if (device.type == VesinCUDA) {
             vesin::cuda::neighbors(points, n_points, periodic ? box : nullptr, options, *neighbors);
         } else {
-            throw std::runtime_error("unknown device " + std::to_string(device));
+            throw std::runtime_error("unknown device " + std::to_string(device.type));
         }
     } catch (const std::bad_alloc&) {
         LAST_ERROR = "failed to allocate memory";
@@ -106,14 +106,14 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
         return;
     }
 
-    if (neighbors->device == VesinUnknownDevice) {
+    if (neighbors->device.type == VesinUnknownDevice) {
         // nothing to do
-    } else if (neighbors->device == VesinCPU) {
+    } else if (neighbors->device.type == VesinCPU) {
         vesin::cpu::free_neighbors(*neighbors);
-    } else if (neighbors->device == VesinCUDA) {
+    } else if (neighbors->device.type == VesinCUDA) {
         vesin::cuda::free_neighbors(*neighbors);
     } else {
-        throw std::runtime_error("unknown device " + std::to_string(neighbors->device) + " when freeing memory");
+        throw std::runtime_error("unknown device " + std::to_string(neighbors->device.type) + " when freeing memory");
     }
     std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

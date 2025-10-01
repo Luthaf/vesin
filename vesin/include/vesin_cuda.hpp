@@ -20,9 +20,7 @@ struct CudaNeighborListExtras {
     int* cell_check_ptr = nullptr;       // GPU-side status code for checking cell
     int allocated_device = -1;           // which device are we currently allocated on
 
-    ~CudaNeighborListExtras() {
-        // cleanup handled in `free_neighbors`
-    }
+    ~CudaNeighborListExtras();
 };
 
 /// @brief Frees GPU memory associated with a VesinNeighborList.

@@ -73,6 +73,7 @@ add_library(vesin_objects OBJECT ${VESIN_SOURCES})
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     target_include_directories(vesin_objects PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+    target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 endif()
 
 target_include_directories(vesin_objects PUBLIC

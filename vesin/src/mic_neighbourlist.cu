@@ -259,8 +259,6 @@ __global__ void mic_cell_check(const double* cell, const double cutoff, int* sta
 
     __shared__ double scell[9];
 
-    const double cutoff2 = cutoff * cutoff;
-
     if (cell != nullptr) {
         if (threadIdx.x < 9) {
             scell[threadIdx.x] = cell[threadIdx.x];

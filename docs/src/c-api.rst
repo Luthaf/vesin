@@ -14,4 +14,6 @@ Vesin's C API is defined in the ``vesin.h`` header. The main function is
 
 .. doxygenstruct:: VesinOptions
 
-.. doxygenenum:: VesinDevice
+.. doxygenstruct:: VesinDevice
+
+.. doxygenenum:: VesinDeviceKind

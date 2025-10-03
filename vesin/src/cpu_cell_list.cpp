@@ -520,7 +520,7 @@ void GrowableNeighborList::sort() {
 }
 
 void vesin::cpu::free_neighbors(VesinNeighborList& neighbors) {
-    assert(neighbors.device == VesinCPU);
+    assert(neighbors.device.type == VesinCPU);
 
     std::free(neighbors.pairs);
     std::free(neighbors.shifts);

@@ -1,6 +1,14 @@
 import ctypes
 from ctypes import ARRAY, POINTER
 
+try:
+    import cupy as cp
+
+    HAS_CUPY = True
+except ImportError:
+    HAS_CUPY = False
+    cp = None
+
 
 VesinDeviceKind = ctypes.c_int
 VesinUnknownDevice = 0
@@ -38,10 +46,27 @@ class VesinNeighborList(ctypes.Structure):
     ]
 
 
+def get_device_from_array(array):
+    """
+    Determine the VesinDevice from a numpy or cupy array.
+
+    :param array: numpy array or cupy array
+    :return: VesinDevice structure
+    """
+    if HAS_CUPY and isinstance(array, cp.ndarray):
+        device_id = array.device.id
+        return VesinDevice(VesinCUDA, device_id)
+    else:
+        return VesinDevice(VesinCPU, 0)
+
+
 def setup_functions(lib):
     lib.vesin_free.argtypes = [POINTER(VesinNeighborList)]
     lib.vesin_free.restype = None
 
+    # Note: In C, `const double box[3][3]` is actually a pointer when passed as a parameter,
+    # but ctypes treats it as an array value for type checking. We keep the array type
+    # for the signature but can pass either an array value or a pointer that looks like an array.
     lib.vesin_neighbors.argtypes = [
         POINTER(ARRAY(ctypes.c_double, 3)),  # points
         ctypes.c_size_t,  # n_points

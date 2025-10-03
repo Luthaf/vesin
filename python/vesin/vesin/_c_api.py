@@ -2,9 +2,17 @@ import ctypes
 from ctypes import ARRAY, POINTER
 
 
-VesinDevice = ctypes.c_int
+VesinDeviceKind = ctypes.c_int
 VesinUnknownDevice = 0
 VesinCPU = 1
+VesinCUDA = 2
+
+
+class VesinDevice(ctypes.Structure):
+    _fields_ = [
+        ("type", VesinDeviceKind),
+        ("device_id", ctypes.c_int),
+    ]
 
 
 class VesinOptions(ctypes.Structure):
@@ -26,6 +34,7 @@ class VesinNeighborList(ctypes.Structure):
         ("shifts", POINTER(ARRAY(ctypes.c_int32, 3))),
         ("distances", POINTER(ctypes.c_double)),
         ("vectors", POINTER(ARRAY(ctypes.c_double, 3))),
+        ("opaque", ctypes.c_void_p),
     ]
 
 

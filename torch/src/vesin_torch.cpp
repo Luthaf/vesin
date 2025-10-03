@@ -10,15 +10,19 @@ using namespace vesin_torch;
 
 static VesinDevice torch_to_vesin_device(torch::Device device) {
     if (device.is_cpu()) {
-        return VesinCPU;
+        return {VesinCPU, 0};
+    } else if (device.is_cuda()) {
+        return {VesinCUDA, device.index()};
     } else {
         throw std::runtime_error("device " + device.str() + " is not supported in vesin");
     }
 }
 
 static torch::Device vesin_to_torch_device(VesinDevice device) {
-    if (device == VesinCPU) {
-        return torch::Device("cpu");
+    if (device.type == VesinCPU) {
+        return torch::Device(torch::kCPU);
+    } else if (device.type == VesinCUDA) {
+        return torch::Device(torch::kCUDA, device.device_id);
     } else {
         throw std::runtime_error("vesin device is not supported in torch");
     }
@@ -74,7 +78,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         );
         // clang-format on
     }
-    auto device = torch_to_vesin_device(points.device());
+    auto vesin_device = torch_to_vesin_device(points.device());
 
     if (points.scalar_type() != box.scalar_type()) {
         // clang-format off
@@ -108,7 +112,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     // create calculation options
     auto n_points = static_cast<size_t>(points.size(0));
 
-    if (data_->device != VesinUnknownDevice && data_->device != device) {
+    if (data_->device.type != VesinUnknownDevice && data_->device.type != vesin_device.type) {
         vesin_free(data_);
         std::memset(data_, 0, sizeof(VesinNeighborList));
     }
@@ -120,7 +124,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     auto return_distances = quantities.find('d') != std::string::npos;
     auto return_vectors = quantities.find('D') != std::string::npos;
-    if ((points.requires_grad() || box.requires_grad()) && (return_distances || return_vectors)) {
+    if ((points.requires_grad() || box.requires_grad()) &&
+        (return_distances || return_vectors)) {
         // gradients requires both distances & vectors data to be present
         return_distances = true;
         return_vectors = true;
@@ -145,14 +150,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()),
-        n_points,
-        reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()),
-        periodic,
-        device,
-        options,
-        data_,
-        &error_message
+        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic, vesin_device, options, data_, &error_message
     );
 
     if (status != EXIT_SUCCESS) {
@@ -160,7 +158,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     }
 
     // wrap vesin data in tensors
-    auto size_t_options = torch::TensorOptions().device(vesin_to_torch_device(data_->device));
+    auto size_t_options =
+        torch::TensorOptions().device(vesin_to_torch_device(data_->device));
     if (sizeof(size_t) == sizeof(uint32_t)) {
         size_t_options = size_t_options.dtype(torch::kUInt32);
     } else if (sizeof(size_t) == sizeof(uint64_t)) {
@@ -169,12 +168,9 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
-    auto pairs = torch::from_blob(
-        data_->pairs,
-        {static_cast<int64_t>(data_->length), 2},
-        size_t_options
-    );
-    pairs = pairs.to(torch::kInt64);
+    int64_t length = static_cast<int64_t>(data_->length);
+    auto pairs = torch::from_blob(data_->pairs, {length, 2}, size_t_options)
+                     .to(torch::kInt64);
 
     auto shifts = torch::Tensor();
     if (data_->shifts != nullptr) {
@@ -182,11 +178,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
                                  .device(vesin_to_torch_device(data_->device))
                                  .dtype(torch::kInt32);
 
-        shifts = torch::from_blob(
-            data_->shifts,
-            {static_cast<int64_t>(data_->length), 3},
-            int32_options
-        );
+        shifts = torch::from_blob(data_->shifts, {length, 3}, int32_options);
 
         if (copy) {
             shifts = shifts.clone();
@@ -199,11 +191,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     auto distances = torch::Tensor();
     if (data_->distances != nullptr) {
-        distances = torch::from_blob(
-            data_->distances,
-            {static_cast<int64_t>(data_->length)},
-            double_options
-        );
+        distances = torch::from_blob(data_->distances, {length}, double_options);
 
         if (copy) {
             distances = distances.clone();
@@ -212,11 +200,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     auto vectors = torch::Tensor();
     if (data_->vectors != nullptr) {
-        vectors = torch::from_blob(
-            data_->vectors,
-            {static_cast<int64_t>(data_->length), 3},
-            double_options
-        );
+        vectors = torch::from_blob(data_->vectors, {length, 3}, double_options);
 
         if (copy) {
             vectors = vectors.clone();
@@ -242,15 +226,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
             vectors_optional = vectors;
         }
 
-        auto outputs = AutogradNeighbors::apply(
-            points,
-            box,
-            periodic,
-            pairs,
-            shifts_optional,
-            distances_optional,
-            vectors_optional
-        );
+        auto outputs =
+            AutogradNeighbors::apply(points, box, periodic, pairs, shifts_optional, distances_optional, vectors_optional);
 
         if (return_distances && return_vectors) {
             distances = outputs[0];
@@ -320,7 +297,9 @@ std::vector<torch::Tensor> AutogradNeighbors::forward(
     auto distances_tensor = distances.value_or(torch::Tensor());
     auto vectors_tensor = vectors.value_or(torch::Tensor());
 
-    ctx->save_for_backward({points, box, pairs, shifts_tensor, distances_tensor, vectors_tensor});
+    ctx->save_for_backward(
+        {points, box, pairs, shifts_tensor, distances_tensor, vectors_tensor}
+    );
     ctx->saved_data["periodic"] = periodic;
 
     auto return_distances = distances.has_value();
@@ -387,20 +366,18 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
     auto points_grad = torch::Tensor();
     if (points.requires_grad()) {
         points_grad = torch::zeros_like(points);
-        points_grad = torch::index_add(
-            points_grad,
-            /*dim=*/0,
-            /*index=*/pairs.index({torch::indexing::Slice(), 1}),
-            /*source=*/vectors_grad,
-            /*alpha=*/1.0
-        );
-        points_grad = torch::index_add(
-            points_grad,
-            /*dim=*/0,
-            /*index=*/pairs.index({torch::indexing::Slice(), 0}),
-            /*source=*/vectors_grad,
-            /*alpha=*/-1.0
-        );
+        points_grad =
+            torch::index_add(points_grad,
+                             /*dim=*/0,
+                             /*index=*/pairs.index({torch::indexing::Slice(), 1}),
+                             /*source=*/vectors_grad,
+                             /*alpha=*/1.0);
+        points_grad =
+            torch::index_add(points_grad,
+                             /*dim=*/0,
+                             /*index=*/pairs.index({torch::indexing::Slice(), 0}),
+                             /*source=*/vectors_grad,
+                             /*alpha=*/-1.0);
     }
 
     auto box_grad = torch::Tensor();

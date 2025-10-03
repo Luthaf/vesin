@@ -37,7 +37,7 @@ static void check_neighbors(
         n_points,
         box,
         periodic,
-        VesinDevice::VesinCPU,
+        {VesinDeviceKind::VesinCPU, 0},
         options,
         &neighbors,
         &error_message
@@ -284,7 +284,7 @@ TEST_CASE("Slanted box") {
         /*n_points=*/4,
         box,
         /*periodic=*/true,
-        VesinDevice::VesinCPU,
+        {VesinDeviceKind::VesinCPU, 0},
         options,
         &neighbors,
         &error_message

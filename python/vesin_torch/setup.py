@@ -69,6 +69,12 @@ class cmake_ext(build_ext):
             "-DBUILD_SHARED_LIBS=ON",
         ]
 
+        CUDA_HOME = os.environ.get("CUDA_HOME")
+
+        if CUDA_HOME is not None:
+            cmake_options.append(f"-DCUDA_TOOLKIT_ROOT_DIR={CUDA_HOME}")
+            cmake_options.append("-DVESIN_ENABLE_CUDA=ON")
+
         subprocess.run(
             ["cmake", source_dir, *cmake_options],
             cwd=build_dir,

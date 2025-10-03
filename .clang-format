@@ -18,18 +18,19 @@ SpaceBeforeCaseColon: false
 SpaceBeforeCtorInitializerColon: false
 SpaceBeforeInheritanceColon: false
 
-BreakBeforeBraces: Custom
+InsertBraces: true
+BreakBeforeBraces: Attach
 BraceWrapping:
-  AfterCaseLabel:  false
-  AfterClass:      false
-  AfterControlStatement: false
-  AfterEnum:       false
-  AfterFunction:   false
-  AfterNamespace:  false
-  AfterStruct:     false
-  AfterUnion:      false
-  AfterExternBlock: false
-  BeforeCatch:     false
-  BeforeElse:      false
-  IndentBraces:    false
-  SplitEmptyFunction: true
+  AfterCaseLabel:         false
+  AfterClass:             false
+  AfterControlStatement:  true
+  AfterEnum:              false
+  AfterFunction:          false
+  AfterNamespace:         false
+  AfterStruct:            false
+  AfterUnion:             false
+  AfterExternBlock:       false
+  BeforeCatch:            false
+  BeforeElse:             false
+  IndentBraces:           false
+  SplitEmptyFunction:     true

@@ -24,7 +24,7 @@ TEST_CASE("Re-use allocations") {
             n_points,
             box,
             periodic,
-            VesinDevice::VesinCPU,
+            {VesinDeviceKind::VesinCPU, 0},
             options,
             &neighbors,
             &error_message

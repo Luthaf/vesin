@@ -13,6 +13,7 @@ from ._c_api import (
 )
 from ._c_lib import _get_library
 
+
 if HAS_CUPY:
     import cupy as cp
 
@@ -170,7 +171,9 @@ class NeighborList:
             if error_message.value:
                 raise RuntimeError(error_message.value.decode("utf8"))
             else:
-                raise RuntimeError(f"vesin_neighbors failed with status {status} but no error message")
+                raise RuntimeError(
+                    f"vesin_neighbors failed with status {status} but no error message"
+                )
 
         # Create arrays for the output data
         n_pairs = self._neighbors.length
@@ -190,36 +193,48 @@ class NeighborList:
             def wrap_gpu_array(ptr, shape, dtype_cp, dtype_c):
                 ptr_val = ctypes.cast(ptr, ctypes.c_void_p).value
                 size = np.prod(shape) * ctypes.sizeof(dtype_c)
-                mem = cp.cuda.memory.UnownedMemory(ptr_val, size, self._neighbors, device_id)
-                return cp.ndarray(shape, dtype=dtype_cp, memptr=cp.cuda.MemoryPointer(mem, 0))
+                mem = cp.cuda.memory.UnownedMemory(
+                    ptr_val, size, self._neighbors, device_id
+                )
+                return cp.ndarray(
+                    shape, dtype=dtype_cp, memptr=cp.cuda.MemoryPointer(mem, 0)
+                )
 
-            pairs = wrap_gpu_array(self._neighbors.pairs, (n_pairs, 2), cp.uint64, ctypes.c_size_t)
+            pairs = wrap_gpu_array(
+                self._neighbors.pairs, (n_pairs, 2), cp.uint64, ctypes.c_size_t
+            )
             if "S" in quantities:
-                shifts = wrap_gpu_array(self._neighbors.shifts, (n_pairs, 3), cp.int32, ctypes.c_int32)
+                shifts = wrap_gpu_array(
+                    self._neighbors.shifts, (n_pairs, 3), cp.int32, ctypes.c_int32
+                )
             if "d" in quantities:
-                distances = wrap_gpu_array(self._neighbors.distances, (n_pairs,), cp.float64, ctypes.c_double)
+                distances = wrap_gpu_array(
+                    self._neighbors.distances, (n_pairs,), cp.float64, ctypes.c_double
+                )
             if "D" in quantities:
-                vectors = wrap_gpu_array(self._neighbors.vectors, (n_pairs, 3), cp.float64, ctypes.c_double)
+                vectors = wrap_gpu_array(
+                    self._neighbors.vectors, (n_pairs, 3), cp.float64, ctypes.c_double
+                )
         else:
             # CPU results - wrap as NumPy arrays
             pairs = np.ctypeslib.as_array(
                 ctypes.cast(self._neighbors.pairs, POINTER(ctypes.c_size_t)),
-                shape=(n_pairs, 2)
+                shape=(n_pairs, 2),
             )
             if "S" in quantities:
                 shifts = np.ctypeslib.as_array(
                     ctypes.cast(self._neighbors.shifts, POINTER(ctypes.c_int32)),
-                    shape=(n_pairs, 3)
+                    shape=(n_pairs, 3),
                 )
             if "d" in quantities:
                 distances = np.ctypeslib.as_array(
                     ctypes.cast(self._neighbors.distances, POINTER(ctypes.c_double)),
-                    shape=(n_pairs,)
+                    shape=(n_pairs,),
                 )
             if "D" in quantities:
                 vectors = np.ctypeslib.as_array(
                     ctypes.cast(self._neighbors.vectors, POINTER(ctypes.c_double)),
-                    shape=(n_pairs, 3)
+                    shape=(n_pairs, 3),
                 )
 
         # assemble output

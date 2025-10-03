@@ -8,6 +8,7 @@ import pytest
 
 import vesin
 
+
 try:
     import cupy as cp
 
@@ -144,7 +145,9 @@ def test_errors():
         nl.compute(points, box, periodic=True, quantities="ij")
 
 
-@pytest.mark.skipif(not (HAS_CUPY and CUDA_AVAILABLE), reason="CuPy not available or CUDA not available")
+@pytest.mark.skipif(
+    not (HAS_CUPY and CUDA_AVAILABLE), reason="CuPy not available or CUDA not available"
+)
 @pytest.mark.parametrize("full_list", [False, True])
 def test_cupy_large_box_small_cutoff(full_list):
     """Test CuPy with synthetic data - large box and small cutoff"""
@@ -224,7 +227,9 @@ def test_cupy_large_box_small_cutoff(full_list):
     assert sorted(pairs_np) == expected_pairs
 
 
-@pytest.mark.skipif(not (HAS_CUPY and CUDA_AVAILABLE), reason="CuPy not available or CUDA not available")
+@pytest.mark.skipif(
+    not (HAS_CUPY and CUDA_AVAILABLE), reason="CuPy not available or CUDA not available"
+)
 def test_cupy_no_neighbors():
     """Test CuPy when there are no neighbors"""
     points_np = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float64)

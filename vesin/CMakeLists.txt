@@ -66,6 +66,7 @@ set_target_properties(vesin PROPERTIES
     # hide non-exported symbols by default
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
+    POSITION_INDEPENDENT_CODE ON
 )
 
 if (BUILD_SHARED_LIBS)

@@ -201,7 +201,7 @@ def test_cupy_large_box_small_cutoff(full_list):
     assert isinstance(S_cp, cp.ndarray)
 
     # Verify expected pairs based on full_list
-    pairs_np = list(zip(i_np.tolist(), j_np.tolist()))
+    pairs_np = list(zip(i_np.tolist(), j_np.tolist(), strict=True))
     if full_list:
         expected_pairs = sorted(
             [

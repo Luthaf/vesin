@@ -74,7 +74,7 @@ def test_large_box_small_cutoff(device, full_list):
     d = d[sort_idx]
 
     # Convert to plain Python lists for easy matching
-    actual_pairs = sorted(zip(i.tolist(), j.tolist()))
+    actual_pairs = sorted(zip(i.tolist(), j.tolist(), strict=True))
     actual_dists = [d.item() for d in d]
 
     if full_list:
@@ -91,7 +91,7 @@ def test_large_box_small_cutoff(device, full_list):
     )
 
     # Check distances approximately
-    for actual, expected in zip(actual_dists, expected_dists):
+    for actual, expected in zip(actual_dists, expected_dists, strict=True):
         assert abs(actual - expected) < 1e-8, (
             f"Expected distance {expected}, got {actual}"
         )

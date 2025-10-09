@@ -88,21 +88,14 @@ static void reset(VesinNeighborList& neighbors) {
     if (neighbors.vectors && is_device_ptr(getPtrAttributes(neighbors.vectors), "vectors")) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.vectors));
     }
-    if (extras->length_ptr &&
-        is_device_ptr(getPtrAttributes(extras->length_ptr), "extras->length_ptr")) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->length_ptr));
-    }
-    if (extras->cell_check_ptr &&
-        is_device_ptr(getPtrAttributes(extras->cell_check_ptr), "extras->cell_check_ptr")) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->cell_check_ptr));
-    }
 
     neighbors.pairs = nullptr;
     neighbors.shifts = nullptr;
     neighbors.distances = nullptr;
     neighbors.vectors = nullptr;
     extras->length_ptr = nullptr;
-    extras->capacity = 0;
+
+    *extras = CudaNeighborListExtras();
 }
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {

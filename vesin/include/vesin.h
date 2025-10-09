@@ -52,7 +52,7 @@ struct VesinOptions {
 };
 
 /// Device on which the data can be
-enum VesinDevice {
+enum VesinDeviceKind {
     /// Unknown device, used for default initialization and to indicate no
     /// allocated data.
     VesinUnknownDevice = 0,
@@ -60,6 +60,21 @@ enum VesinDevice {
     VesinCPU = 1,
     // CUDA device
     VesinCUDA = 2,
+};
+
+/// Represents a device on which data can be allocated.
+///
+/// This structure combines the device type (CPU or CUDA) with an optional
+/// device index. For CPU allocations, `device_id` is always 0. For CUDA
+/// allocations, `device_id` specifies which GPU to use (e.g., 0, 1, 2).
+///
+/// Example usage:
+///   VesinDevice cpu { VesinCPU, 0 };
+///   VesinDevice gpu0 { VesinCUDA, 0 };
+///   VesinDevice gpu1 { VesinCUDA, 1 };
+struct VesinDevice {
+    VesinDeviceKind type;
+    int device_id = 0;
 };
 
 /// The actual neighbor list
@@ -85,7 +100,7 @@ struct VESIN_API VesinNeighborList {
 #ifdef __cplusplus
     VesinNeighborList():
         length(0),
-        device(VesinUnknownDevice),
+        device({VesinUnknownDevice, 0}),
         pairs(nullptr),
         shifts(nullptr),
         distances(nullptr),
@@ -111,7 +126,7 @@ struct VESIN_API VesinNeighborList {
     /// during the calculation.
     double (*vectors)[3];
 
-    // pointer to hold any additional structs
+    // private pointer used to hold additional internal data
     void* opaque = nullptr;
 
     // TODO: custom memory allocators?

@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
+# if the vesin target already exists, do not create one again.
+if (TARGET vesin)
+    return()
+endif()
+
 file(READ "VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
@@ -32,14 +37,14 @@ endif()
 
 if (VESIN_MAIN_PROJECT)
     if("${CMAKE_BUILD_TYPE}" STREQUAL "" AND "${CMAKE_CONFIGURATION_TYPES}" STREQUAL "")
-        message(STATUS "Setting build type to 'release' as none was specified.")
+        message(STATUS "Setting build type to 'Release' as none was specified.")
         set(
-            CMAKE_BUILD_TYPE "release"
+            CMAKE_BUILD_TYPE "Release"
             CACHE STRING
-            "Choose the type of build, options are: none(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) debug release relwithdebinfo minsizerel."
+            "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel."
             FORCE
         )
-        set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS release debug relwithdebinfo minsizerel none)
+        set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release RelWithDebInfo Debug MinSizeRel None)
     endif()
 endif()
 
@@ -48,7 +53,6 @@ option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 option(VESIN_TORCH "Build the vesin_torch library" OFF)
 option(VESIN_ENABLE_CUDA "Build the CUDA backend of Vesin" OFF)
-
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
@@ -66,7 +70,7 @@ else()
 endif()
 
 if (NOT CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    message(ERROR "VESIN_ENABLE_CUDA=ON but could not find a cuda compiler.")
+    message(FATAL_ERROR "VESIN_ENABLE_CUDA=ON but could not find a cuda compiler.")
 endif()
 
 if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
@@ -74,44 +78,71 @@ if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
 endif()
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    # NOTE: for gpulite, we do NOT add mic_neighbourlist.cu to sources
+    # because it's embedded as a string for NVRTC runtime compilation
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp)
 else()
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda_stub.cpp)
 endif()
 
+# create two targets: `vesin` is the main one, while `vesin_objects` will
+# be used by language bindings to embed vesin inside another (SHARED) library
 add_library(vesin ${VESIN_SOURCES})
+add_library(vesin_objects OBJECT ${VESIN_SOURCES})
 
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    # Include gpuLite headers
+    target_include_directories(vesin_objects PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+    target_include_directories(vesin PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+endif()
+
+target_include_directories(vesin_objects PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    # Include gpuLite headers for both targets
     target_include_directories(vesin PRIVATE external/gpuLite)
+    target_include_directories(vesin_objects PRIVATE external/gpuLite)
+
     # Include the current binary directory for generated files
     target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_include_directories(vesin_objects PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
     # Link against the dynamic library loader
     target_link_libraries(vesin PRIVATE ${CMAKE_DL_LIBS})
-    
+
     # Create generated directory
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
-    
+
     # Generate the CUDA source file for NVRTC compilation
     make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/mic_neighbourlist.cu)
 endif()
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
+
+target_compile_features(vesin_objects PRIVATE cxx_std_17)
+set_target_properties(vesin_objects PROPERTIES
+    # hide non-exported symbols by default
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+    POSITION_INDEPENDENT_CODE ON
+    EXCLUDE_FROM_ALL ON
 )
 
 target_compile_features(vesin PRIVATE cxx_std_17)
-
 set_target_properties(vesin PROPERTIES
     # hide non-exported symbols by default
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
+    POSITION_INDEPENDENT_CODE ON
 )
 
-target_compile_definitions(vesin PRIVATE VESIN_EXPORTS)
 if (BUILD_SHARED_LIBS)
     target_compile_definitions(vesin PUBLIC VESIN_SHARED)
+    target_compile_definitions(vesin PRIVATE VESIN_EXPORTS)
 endif()
 
 if (VESIN_BUILD_TESTS)
@@ -119,14 +150,11 @@ if (VESIN_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-if (VESIN_TORCH)
-    add_subdirectory(torch)
-endif()
-
 #------------------------------------------------------------------------------#
 # Installation configuration
 #------------------------------------------------------------------------------#
 if (VESIN_INSTALL)
+    message(STATUS "Installing vesin target")
     install(TARGETS vesin
         ARCHIVE DESTINATION "lib"
         LIBRARY DESTINATION "lib"
@@ -134,4 +162,6 @@ if (VESIN_INSTALL)
     )
 
     install(FILES "include/vesin.h" DESTINATION "include")
+else()
+    set_target_properties(vesin PROPERTIES EXCLUDE_FROM_ALL ON)
 endif()

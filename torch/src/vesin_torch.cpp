@@ -4,26 +4,25 @@
 
 #include <vesin.h>
 
-#include "vesin_cuda.hpp"
 #include "vesin_torch.hpp"
 
 using namespace vesin_torch;
 
 static VesinDevice torch_to_vesin_device(torch::Device device) {
     if (device.is_cpu()) {
-        return VesinCPU;
+        return {VesinCPU, 0};
     } else if (device.is_cuda()) {
-        return VesinCUDA;
+        return {VesinCUDA, device.index()};
     } else {
         throw std::runtime_error("device " + device.str() + " is not supported in vesin");
     }
 }
 
 static torch::Device vesin_to_torch_device(VesinDevice device) {
-    if (device == VesinCPU) {
-        return torch::Device("cpu");
-    } else if (device == VesinCUDA) {
-        return torch::Device("cuda");
+    if (device.type == VesinCPU) {
+        return torch::Device(torch::kCPU);
+    } else if (device.type == VesinCUDA) {
+        return torch::Device(torch::kCUDA, device.device_id);
     } else {
         throw std::runtime_error("vesin device is not supported in torch");
     }
@@ -79,7 +78,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         );
         // clang-format on
     }
-    auto device = torch_to_vesin_device(points.device());
+    auto vesin_device = torch_to_vesin_device(points.device());
 
     if (points.scalar_type() != box.scalar_type()) {
         // clang-format off
@@ -113,7 +112,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     // create calculation options
     auto n_points = static_cast<size_t>(points.size(0));
 
-    if (data_->device != VesinUnknownDevice && data_->device != device) {
+    if (data_->device.type != VesinUnknownDevice && data_->device.type != vesin_device.type) {
         vesin_free(data_);
         std::memset(data_, 0, sizeof(VesinNeighborList));
     }
@@ -151,7 +150,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic, device, options, data_, &error_message
+        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic, vesin_device, options, data_, &error_message
     );
 
     if (status != EXIT_SUCCESS) {
@@ -169,18 +168,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
-    auto length_cu = torch::Tensor();
-
-    if (device == VesinCUDA) {
-        vesin::cuda::CudaNeighborListExtras* extras =
-            vesin::cuda::get_cuda_extras(data_);
-        length_cu = torch::from_blob(extras->length_ptr, {1}, size_t_options)
-                        .to(torch::kInt64);
-    }
-
-    int64_t length = device == VesinCUDA ? length_cu.item<int64_t>()
-                                         : static_cast<int64_t>(data_->length);
-
+    int64_t length = static_cast<int64_t>(data_->length);
     auto pairs = torch::from_blob(data_->pairs, {length, 2}, size_t_options)
                      .to(torch::kInt64);
 

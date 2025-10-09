@@ -14,8 +14,9 @@ using namespace vesin::cuda;
 using namespace std;
 
 static std::optional<cudaPointerAttributes> getPtrAttributes(const void* ptr) {
-    if (!ptr)
+    if (!ptr) {
         return std::nullopt;
+    }
 
     try {
         cudaPointerAttributes attr;
@@ -50,6 +51,15 @@ static int get_device_id(const void* ptr) {
         return attr.device;
     }
     return -1;
+}
+
+CudaNeighborListExtras::~CudaNeighborListExtras() {
+    if (this->length_ptr) {
+        CUDART_INSTANCE.cudaFree(this->length_ptr);
+    }
+    if (this->cell_check_ptr) {
+        CUDART_INSTANCE.cudaFree(this->cell_check_ptr);
+    }
 }
 
 vesin::cuda::CudaNeighborListExtras*
@@ -97,7 +107,7 @@ static void reset(VesinNeighborList& neighbors) {
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 
-    assert(neighbors.device == VesinCUDA);
+    assert(neighbors.device.type == VesinCUDA);
 
     int curr_device = -1;
     int device_id = -1;
@@ -146,13 +156,13 @@ void checkCuda() {
     }
 }
 
-void vesin::cuda::neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors) {
+void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors) {
 
     static const char* CUDA_CODE =
 #include "generated/mic_neighbourlist.cu"
         ;
 
-    assert(neighbors.device == VesinCUDA);
+    assert(neighbors.device.type == VesinCUDA);
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
 
     // Check if CUDA is available
@@ -165,14 +175,16 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
     int device = get_device_id(points);
     // assert both points and cell are on the same device
     assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
+    assert((device == neighbors.device.device_id) && "points and cell device differs from input neighbors device_id");
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
     // if allocated_device is different from the input device, we need to reset
     if (extras->allocated_device != device) {
         // first switch to previous device
-        if (extras->allocated_device >= 0)
+        if (extras->allocated_device >= 0) {
             CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(extras->allocated_device));
+        }
         // free any existing allocations
         reset(neighbors);
         // switch back to current device
@@ -184,15 +196,14 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
     if (extras->capacity >= n_points &&
         extras->length_ptr) {
         // allocation fits, so just memset set the length_ptr to 0
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(unsigned long)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
     } else {
         // need a new allocation, so reset and reallocate
         reset(neighbors);
-        unsigned long max_pairs =
-            static_cast<unsigned long>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
+        auto max_pairs = static_cast<size_t>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(unsigned long) * max_pairs * 2));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
 
         if (options.return_shifts) {
             CUDART_SAFE_CALL(
@@ -212,25 +223,25 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
             );
         }
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->length_ptr, sizeof(unsigned long)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
         CUDART_SAFE_CALL(
-            CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(unsigned long))
+            CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t))
         );
 
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
 
-        extras->capacity = static_cast<unsigned long>(1.2 * n_points);
+        extras->capacity = static_cast<size_t>(1.2 * n_points);
     }
 
     const double* d_positions = reinterpret_cast<const double*>(points);
     const double* d_cell = reinterpret_cast<const double*>(cell);
 
-    unsigned long* d_pair_indices = reinterpret_cast<unsigned long*>(neighbors.pairs);
+    size_t* d_pair_indices = reinterpret_cast<size_t*>(neighbors.pairs);
     int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
     double* d_distances = reinterpret_cast<double*>(neighbors.distances);
     double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
-    unsigned long* d_pair_counter = extras->length_ptr;
+    size_t* d_pair_counter = extras->length_ptr;
     int* d_cell_check = extras->cell_check_ptr;
 
     // Get or create kernel factory
@@ -298,7 +309,7 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
             {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
         );
 
-        const long num_all_pairs = n_points * (n_points - 1) / 2;
+        const size_t num_all_pairs = n_points * (n_points - 1) / 2;
         int threads_per_block = WARP_SIZE * NWARPS;
         int num_blocks = (num_all_pairs + threads_per_block - 1) / threads_per_block;
         dim3 gridDim(std::max(num_blocks, 1));
@@ -307,5 +318,5 @@ void vesin::cuda::neighbors(const double (*points)[3], long n_points, const doub
     }
 
     // Copy final pair count back to host
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(unsigned long), cudaMemcpyDeviceToHost));
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(size_t), cudaMemcpyDeviceToHost));
 }

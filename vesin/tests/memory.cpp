@@ -24,7 +24,7 @@ TEST_CASE("Re-use allocations") {
             n_points,
             box,
             periodic,
-            VesinDevice::VesinCPU,
+            {VesinDeviceKind::VesinCPU, 0},
             options,
             &neighbors,
             &error_message
@@ -62,7 +62,7 @@ TEST_CASE("Re-use allocations") {
     options.full = true;
     compute_neighbors(options);
 
-    CHECK(neighbors.length == 67 * 2);
+    CHECK(neighbors.length == 134);
     CHECK(neighbors.pairs != nullptr);
     CHECK(neighbors.shifts == nullptr);
     CHECK(neighbors.distances != nullptr);

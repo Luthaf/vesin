@@ -298,7 +298,7 @@ void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const do
 
         dim3 gridDim(std::max((int)(n_points + NWARPS - 1) / NWARPS, 1));
 
-        full_kernel->launch(gridDim, blockDim, 0, nullptr, args, true);
+        full_kernel->launch(gridDim, blockDim, 0, nullptr, args, false);
 
     } else {
         // Half neighbor list kernel
@@ -314,7 +314,7 @@ void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const do
         int num_blocks = (num_all_pairs + threads_per_block - 1) / threads_per_block;
         dim3 gridDim(std::max(num_blocks, 1));
 
-        half_kernel->launch(gridDim, blockDim, 0, nullptr, args, true);
+        half_kernel->launch(gridDim, blockDim, 0, nullptr, args, false);
     }
 
     // Copy final pair count back to host

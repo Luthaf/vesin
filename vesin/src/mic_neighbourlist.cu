@@ -1,24 +1,30 @@
 #include "mic_neighbourlist.cuh"
 
-#include <assert.h>
+#include "vesin_cuda.hpp"
+
+#include <cassert>
 #include <cstdio>
-#include <cuda_runtime.h>
 #include <stdexcept>
+
+#include <cuda_runtime.h>
 
 #define NWARPS 4
 #define WARP_SIZE 32
 
-__device__ inline unsigned long atomicAdd(unsigned long* address, unsigned long val) {
-    unsigned long long* address_as_ull =
-        reinterpret_cast<unsigned long long*>(address);
+__device__ inline size_t atomicAdd(size_t* address, size_t val) {
+    unsigned long long* address_as_ull = reinterpret_cast<unsigned long long*>(address);
     unsigned long long old = *address_as_ull, assumed;
 
     do {
         assumed = old;
-        old = atomicCAS(address_as_ull, assumed, static_cast<unsigned long long>(val + static_cast<unsigned long>(assumed)));
+        old = atomicCAS(
+            address_as_ull,
+            assumed,
+            static_cast<unsigned long long>(val + static_cast<size_t>(assumed))
+        );
     } while (assumed != old);
 
-    return static_cast<unsigned long>(old);
+    return static_cast<size_t>(old);
 }
 
 // ops for vector types
@@ -49,61 +55,57 @@ __device__ void invert_cell_matrix(const double* cell, double* inv_cell) {
     inv_cell[7] = (b * g - a * h) * invdet;
     inv_cell[8] = (a * e - b * d) * invdet;
 }
-__device__ void
-apply_periodic_boundary(double3& displacement, int3& shift, const double* cell, const double* inv_cell) {
-    using vec_t = double3;
+__device__ void apply_periodic_boundary(
+    double3& vector,
+    int3& shift,
+    const double* cell,
+    const double* inv_cell
+) {
+    double3 fractional;
+    fractional.x = vector.x * inv_cell[0] + vector.y * inv_cell[1] + vector.z * inv_cell[2];
+    fractional.y = vector.x * inv_cell[3] + vector.y * inv_cell[4] + vector.z * inv_cell[5];
+    fractional.z = vector.x * inv_cell[6] + vector.y * inv_cell[7] + vector.z * inv_cell[8];
 
-    vec_t frac;
-    frac.x = displacement.x * inv_cell[0] + displacement.y * inv_cell[1] +
-             displacement.z * inv_cell[2];
-    frac.y = displacement.x * inv_cell[3] + displacement.y * inv_cell[4] +
-             displacement.z * inv_cell[5];
-    frac.z = displacement.x * inv_cell[6] + displacement.y * inv_cell[7] +
-             displacement.z * inv_cell[8];
-
-    int sx = static_cast<int>(round(frac.x));
-    int sy = static_cast<int>(round(frac.y));
-    int sz = static_cast<int>(round(frac.z));
+    int32_t sx = static_cast<int32_t>(round(fractional.x));
+    int32_t sy = static_cast<int32_t>(round(fractional.y));
+    int32_t sz = static_cast<int32_t>(round(fractional.z));
 
     shift.x = sx;
     shift.y = sy;
     shift.z = sz;
 
-    frac.x -= sx;
-    frac.y -= sy;
-    frac.z -= sz;
+    fractional.x -= sx;
+    fractional.y -= sy;
+    fractional.z -= sz;
 
-    vec_t wrapped;
-    wrapped.x = frac.x * cell[0] + frac.y * cell[3] + frac.z * cell[6];
-    wrapped.y = frac.x * cell[1] + frac.y * cell[4] + frac.z * cell[7];
-    wrapped.z = frac.x * cell[2] + frac.y * cell[5] + frac.z * cell[8];
+    double3 wrapped;
+    wrapped.x = fractional.x * cell[0] + fractional.y * cell[3] + fractional.z * cell[6];
+    wrapped.y = fractional.x * cell[1] + fractional.y * cell[4] + fractional.z * cell[7];
+    wrapped.z = fractional.x * cell[2] + fractional.y * cell[5] + fractional.z * cell[8];
 
-    displacement = wrapped;
+    vector = wrapped;
 }
 
 __global__ void compute_mic_neighbours_full_impl(
     const double* positions,
     const double* cell,
-    long nnodes,
+    size_t n_points,
     double cutoff,
-    unsigned long* pair_counter,
-    unsigned long* edge_indices,
-    int* shifts,
+    size_t* length,
+    size_t* pair_indices,
+    int32_t* shifts,
     double* distances,
     double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors
 ) {
-
-    using vec_t = double3;
-
     __shared__ double scell[9];
     __shared__ double sinv_cell[9];
-    const int warp_id = threadIdx.x / WARP_SIZE;
-    const int thread_id = threadIdx.x % WARP_SIZE;
+    const int32_t warp_id = threadIdx.x / WARP_SIZE;
+    const int32_t thread_id = threadIdx.x % WARP_SIZE;
 
-    const int node_index = blockIdx.x * NWARPS + warp_id;
+    const int32_t node_index = blockIdx.x * NWARPS + warp_id;
     const double cutoff2 = cutoff * cutoff;
 
     if (cell != nullptr) {
@@ -114,53 +116,55 @@ __global__ void compute_mic_neighbours_full_impl(
 
     __syncthreads();
 
-    if (cell != nullptr && threadIdx.x == 0)
+    if (cell != nullptr && threadIdx.x == 0) {
         invert_cell_matrix(scell, sinv_cell);
+    }
 
     // Ensure inv_cell is ready
     __syncthreads();
 
-    if (node_index >= nnodes)
+    if (node_index >= n_points) {
         return;
+    }
 
-    vec_t ri = *reinterpret_cast<const vec_t*>(&positions[node_index * 3]);
+    double3 ri = *reinterpret_cast<const double3*>(&positions[node_index * 3]);
 
-    for (long j = thread_id; j < nnodes; j += WARP_SIZE) {
-        vec_t rj = *reinterpret_cast<const vec_t*>(&positions[j * 3]);
+    for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
+        double3 rj = *reinterpret_cast<const double3*>(&positions[j * 3]);
 
-        vec_t disp = ri - rj;
+        double3 vector = ri - rj;
         int3 shift = make_int3(0, 0, 0);
-        if (cell != nullptr)
-            apply_periodic_boundary(disp, shift, scell, sinv_cell);
-
-        double dist2 = dot(disp, disp);
-        bool is_valid = (dist2 < cutoff2 && dist2 > double(0.0));
-
-        unsigned int mask = __activemask();
-        unsigned int ballot = __ballot_sync(mask, is_valid);
-        int local_offset = __popc(ballot & ((1U << thread_id) - 1));
-        int warp_total = __popc(ballot);
-
-        int base_edge_index = -1;
-        if (is_valid && local_offset == 0) {
-            base_edge_index = atomicAdd(&pair_counter[0], warp_total);
+        if (cell != nullptr) {
+            apply_periodic_boundary(vector, shift, scell, sinv_cell);
         }
 
-        base_edge_index = __shfl_sync(mask, base_edge_index, __ffs(ballot) - 1);
+        double distance2 = dot(vector, vector);
+        auto is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
 
+        auto mask = __activemask();
+        auto ballot = __ballot_sync(mask, is_valid);
+        auto local_offset = __popc(ballot & ((1U << thread_id) - 1));
+        auto warp_total = __popc(ballot);
+
+        auto base_pair_index = -1;
+        if (is_valid && local_offset == 0) {
+            base_pair_index = atomicAdd(&length[0], warp_total);
+        }
+
+        base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
         if (is_valid) {
-            long edge_index = base_edge_index + local_offset;
-            edge_indices[edge_index * 2 + 0] = node_index;
-            edge_indices[edge_index * 2 + 1] = j;
+            size_t current_pair = base_pair_index + local_offset;
+            pair_indices[current_pair * 2 + 0] = node_index;
+            pair_indices[current_pair * 2 + 1] = j;
 
             if (return_shifts) {
-                reinterpret_cast<int3&>(shifts[edge_index * 3]) = shift;
+                reinterpret_cast<int3&>(shifts[current_pair * 3]) = shift;
             }
             if (return_vectors) {
-                reinterpret_cast<vec_t&>(vectors[edge_index * 3]) = disp;
+                reinterpret_cast<double3&>(vectors[current_pair * 3]) = vector;
             }
             if (return_distances) {
-                distances[edge_index] = sqrt(dist2);
+                distances[current_pair] = sqrt(distance2);
             }
         }
     }
@@ -169,25 +173,23 @@ __global__ void compute_mic_neighbours_full_impl(
 __global__ void compute_mic_neighbours_half_impl(
     const double* positions,
     const double* cell,
-    long nnodes,
+    size_t n_points,
     double cutoff,
-    unsigned long* pair_counter,
-    unsigned long* edge_indices,
-    int* shifts,
+    size_t* length,
+    size_t* edge_indices,
+    int32_t* shifts,
     double* distances,
     double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors
 ) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
 
-    using vec_t = double3;
-
-    const long index = blockIdx.x * blockDim.x + threadIdx.x;
-    const long num_all_pairs = nnodes * (nnodes - 1) / 2;
-
-    if (index >= num_all_pairs)
+    if (index >= num_all_pairs) {
         return;
+    }
 
     __shared__ double scell[9];
     __shared__ double sinv_cell[9];
@@ -202,60 +204,63 @@ __global__ void compute_mic_neighbours_half_impl(
 
     __syncthreads();
 
-    if (cell != nullptr && threadIdx.x == 0)
+    if (cell != nullptr && threadIdx.x == 0) {
         invert_cell_matrix(scell, sinv_cell);
+    }
 
     // Ensure inv_cell is ready
     __syncthreads();
 
-    long row = floor((sqrtf(8 * index + 1) + 1) / 2);
-    if (row * (row - 1) > 2 * index)
+    size_t row = floor((sqrtf(8 * index + 1) + 1) / 2);
+    if (row * (row - 1) > 2 * index) {
         row--;
-    const long column = index - row * (row - 1) / 2;
+    }
+    const size_t column = index - row * (row - 1) / 2;
 
-    vec_t ri = *reinterpret_cast<const vec_t*>(&positions[column * 3]);
-    vec_t rj = *reinterpret_cast<const vec_t*>(&positions[row * 3]);
+    double3 ri = *reinterpret_cast<const double3*>(&positions[column * 3]);
+    double3 rj = *reinterpret_cast<const double3*>(&positions[row * 3]);
 
-    vec_t disp = ri - rj;
+    double3 vector = ri - rj;
     int3 shift = make_int3(0, 0, 0);
-    if (cell != nullptr)
-        apply_periodic_boundary(disp, shift, scell, sinv_cell);
-
-    double dist2 = dot(disp, disp);
-    bool is_valid = (dist2 < cutoff2 && dist2 > double(0.0));
-
-    int warp_rank = threadIdx.x % WARP_SIZE;
-
-    unsigned int mask = __activemask();
-    unsigned int ballot = __ballot_sync(mask, is_valid);
-    int local_offset = __popc(ballot & ((1U << warp_rank) - 1));
-    int warp_total = __popc(ballot);
-
-    int base_edge_index = -1;
-    if (is_valid && local_offset == 0) {
-        base_edge_index = atomicAdd(&pair_counter[0], warp_total);
+    if (cell != nullptr) {
+        apply_periodic_boundary(vector, shift, scell, sinv_cell);
     }
 
-    base_edge_index = __shfl_sync(mask, base_edge_index, __ffs(ballot) - 1);
+    double distance2 = dot(vector, vector);
+    bool is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
+
+    int32_t warp_rank = threadIdx.x % WARP_SIZE;
+
+    uint32_t mask = __activemask();
+    uint32_t ballot = __ballot_sync(mask, is_valid);
+    int32_t local_offset = __popc(ballot & ((1U << warp_rank) - 1));
+    int32_t warp_total = __popc(ballot);
+
+    int32_t base_pair_index = -1;
+    if (is_valid && local_offset == 0) {
+        base_pair_index = atomicAdd(&length[0], warp_total);
+    }
+
+    base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
 
     if (is_valid) {
-        long edge_index = base_edge_index + local_offset;
-        edge_indices[edge_index * 2 + 0] = column;
-        edge_indices[edge_index * 2 + 1] = row;
+        size_t pair_index = base_pair_index + local_offset;
+        edge_indices[pair_index * 2 + 0] = column;
+        edge_indices[pair_index * 2 + 1] = row;
 
         if (return_shifts) {
-            reinterpret_cast<int3&>(shifts[edge_index * 3]) = shift;
+            reinterpret_cast<int3&>(shifts[pair_index * 3]) = shift;
         }
         if (return_vectors) {
-            reinterpret_cast<vec_t&>(vectors[edge_index * 3]) = disp;
+            reinterpret_cast<double3&>(vectors[pair_index * 3]) = vector;
         }
         if (return_distances) {
-            distances[edge_index] = sqrt(dist2);
+            distances[pair_index] = sqrt(distance2);
         }
     }
 }
 
-__global__ void mic_cell_check(const double* cell, const double cutoff, int* status) {
+__global__ void mic_cell_check(const double* cell, const double cutoff, int32_t* status) {
 
     __shared__ double scell[9];
 
@@ -329,36 +334,39 @@ __global__ void mic_cell_check(const double* cell, const double cutoff, int* sta
 
 void vesin::cuda::compute_mic_neighbourlist(
     const double (*points)[3],
-    long n_points,
+    size_t n_points,
     const double cell[3][3],
-    int* d_cell_check,
+    int32_t* d_cell_check,
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
-
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
     const double* d_positions = reinterpret_cast<const double*>(points);
     const double* d_cell = reinterpret_cast<const double*>(cell);
 
-    unsigned long* d_pair_indices = reinterpret_cast<unsigned long*>(neighbors.pairs);
-    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
+    size_t* d_pair_indices = reinterpret_cast<size_t*>(neighbors.pairs);
+    int32_t* d_shifts = reinterpret_cast<int32_t*>(neighbors.shifts);
     double* d_distances = reinterpret_cast<double*>(neighbors.distances);
     double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
-    unsigned long* d_pair_counter = extras->length_ptr;
+    size_t* d_pair_counter = extras->length_ptr;
 
     dim3 blockDim(WARP_SIZE * NWARPS);
 
     mic_cell_check<<<1, 32>>>(d_cell, options.cutoff, d_cell_check);
-    int h_cell_check = 0;
-    cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost);
+    int32_t h_cell_check = 0;
+    cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int32_t), cudaMemcpyDeviceToHost);
 
     if (h_cell_check != 0) {
-        throw std::runtime_error("Invalid cutoff: too large for cell dimensions");
+        throw std::runtime_error(
+            "Cutoff it too large for the current box, the CUDA implementation "
+            "of vesin uses minimum image convention (MIC). Each box dimension "
+            "must be at least twice the cutoff."
+        );
     }
 
     if (options.full) {
-        dim3 gridDim(max((int)(n_points + NWARPS - 1) / NWARPS, 1));
+        dim3 gridDim(max((int32_t)(n_points + NWARPS - 1) / NWARPS, 1));
 
         compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
             d_positions,
@@ -376,11 +384,12 @@ void vesin::cuda::compute_mic_neighbourlist(
         );
 
     } else {
-        const long num_all_pairs = n_points * (n_points - 1) / 2;
-        int threads_per_block = WARP_SIZE * NWARPS;
-        int num_blocks =
-            (num_all_pairs + threads_per_block - 1) / threads_per_block;
-        dim3 gridDim(max(num_blocks, 1));
+        size_t num_all_pairs = n_points * (n_points - 1) / 2;
+        auto threads_per_block = WARP_SIZE * NWARPS;
+        auto num_blocks = static_cast<unsigned long long>(
+            (num_all_pairs + threads_per_block - 1) / threads_per_block
+        );
+        dim3 gridDim(max(num_blocks, 1ull));
 
         compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
             d_positions,

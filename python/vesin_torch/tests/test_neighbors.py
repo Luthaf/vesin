@@ -63,10 +63,7 @@ def test_large_box_small_cutoff(device, full_list):
 
     calculator = NeighborList(cutoff=2.1, full_list=full_list)
 
-    quantities = "ijdS"  # i,j for indices, d for distances
-    i, j, dists, shifts = calculator.compute(
-        points, box, periodic=True, quantities=quantities
-    )
+    i, j, d = calculator.compute(points, box, periodic=True, quantities="ijd")
 
     pairs = torch.stack((i, j), dim=1)
     sort_idx = torch.argsort(pairs[:, 0] * (i.max() + 1) + pairs[:, 1])
@@ -74,35 +71,19 @@ def test_large_box_small_cutoff(device, full_list):
     # Apply sort
     i = i[sort_idx]
     j = j[sort_idx]
-    dists = dists[sort_idx]
+    d = d[sort_idx]
 
     # Convert to plain Python lists for easy matching
     actual_pairs = sorted(zip(i.tolist(), j.tolist()))
-    actual_dists = [d.item() for d in dists]
+    actual_dists = [d.item() for d in d]
 
     if full_list:
         expected_pairs = sorted(
-            [
-                (0, 1),
-                (0, 2),
-                (1, 0),
-                (2, 0),
-                (3, 4),
-                (3, 5),
-                (4, 3),
-                (5, 3),
-            ]
+            [(0, 1), (0, 2), (1, 0), (2, 0), (3, 4), (3, 5), (4, 3), (5, 3)]
         )
         expected_dists = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     else:
-        expected_pairs = sorted(
-            [
-                (0, 1),
-                (0, 2),
-                (3, 4),
-                (3, 5),
-            ]
-        )
+        expected_pairs = sorted([(0, 1), (0, 2), (3, 4), (3, 5)])
         expected_dists = [2.0, 2.0, 2.0, 2.0]
     # Check pairs
     assert actual_pairs == expected_pairs, (

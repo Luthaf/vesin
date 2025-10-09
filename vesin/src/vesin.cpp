@@ -80,7 +80,13 @@ extern "C" int vesin_neighbors(
                 *neighbors
             );
         } else if (device.type == VesinCUDA) {
-            vesin::cuda::neighbors(points, n_points, periodic ? box : nullptr, options, *neighbors);
+            vesin::cuda::neighbors(
+                points,
+                n_points,
+                periodic ? box : nullptr,
+                options,
+                *neighbors
+            );
         } else {
             throw std::runtime_error("unknown device " + std::to_string(device.type));
         }

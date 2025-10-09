@@ -1,12 +1,9 @@
-#include "mic_neighbourlist.cuh"
-
-#include "vesin_cuda.hpp"
-
-#include <cassert>
-#include <cstdio>
-#include <stdexcept>
-
-#include <cuda_runtime.h>
+// Type definitions for NVRTC compilation (no system headers available)
+// Note: size_t is already defined by NVRTC builtin headers as unsigned long
+#if defined(__CUDACC_RTC__)
+typedef int int32_t;
+typedef unsigned int uint32_t;
+#endif
 
 #define NWARPS 4
 #define WARP_SIZE 32
@@ -330,88 +327,4 @@ __global__ void mic_cell_check(const double* cell, const double cutoff, int32_t*
             status[0] = 0;
         }
     }
-}
-
-void vesin::cuda::compute_mic_neighbourlist(
-    const double (*points)[3],
-    size_t n_points,
-    const double cell[3][3],
-    int32_t* d_cell_check,
-    VesinOptions options,
-    VesinNeighborList& neighbors
-) {
-    auto extras = vesin::cuda::get_cuda_extras(&neighbors);
-
-    const double* d_positions = reinterpret_cast<const double*>(points);
-    const double* d_cell = reinterpret_cast<const double*>(cell);
-
-    size_t* d_pair_indices = reinterpret_cast<size_t*>(neighbors.pairs);
-    int32_t* d_shifts = reinterpret_cast<int32_t*>(neighbors.shifts);
-    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
-    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
-    size_t* d_pair_counter = extras->length_ptr;
-
-    dim3 blockDim(WARP_SIZE * NWARPS);
-
-    mic_cell_check<<<1, 32>>>(d_cell, options.cutoff, d_cell_check);
-    int32_t h_cell_check = 0;
-    cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int32_t), cudaMemcpyDeviceToHost);
-
-    if (h_cell_check != 0) {
-        throw std::runtime_error(
-            "Cutoff it too large for the current box, the CUDA implementation "
-            "of vesin uses minimum image convention (MIC). Each box dimension "
-            "must be at least twice the cutoff."
-        );
-    }
-
-    if (options.full) {
-        dim3 gridDim(max((int32_t)(n_points + NWARPS - 1) / NWARPS, 1));
-
-        compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
-            d_positions,
-            d_cell,
-            n_points,
-            options.cutoff,
-            d_pair_counter,
-            d_pair_indices,
-            d_shifts,
-            d_distances,
-            d_vectors,
-            options.return_shifts,
-            options.return_distances,
-            options.return_vectors
-        );
-
-    } else {
-        size_t num_all_pairs = n_points * (n_points - 1) / 2;
-        auto threads_per_block = WARP_SIZE * NWARPS;
-        auto num_blocks = static_cast<unsigned long long>(
-            (num_all_pairs + threads_per_block - 1) / threads_per_block
-        );
-        dim3 gridDim(max(num_blocks, 1ull));
-
-        compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
-            d_positions,
-            d_cell,
-            n_points,
-            options.cutoff,
-            d_pair_counter,
-            d_pair_indices,
-            d_shifts,
-            d_distances,
-            d_vectors,
-            options.return_shifts,
-            options.return_distances,
-            options.return_vectors
-        );
-    }
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(cudaGetErrorString(err));
-    }
-
-    // set the length from the cuda extra data
-    cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(size_t), cudaMemcpyDeviceToHost);
 }

@@ -1,6 +1,8 @@
 #ifndef VESIN_CUDA_HPP
 #define VESIN_CUDA_HPP
 
+#include <vector>
+
 #include "vesin.h"
 
 namespace vesin {
@@ -13,10 +15,10 @@ namespace cuda {
 #endif
 
 struct CudaNeighborListExtras {
-    size_t* length_ptr = nullptr;  // GPU-side counter
-    size_t capacity = 0;           // Current capacity per device
-    int* cell_check_ptr = nullptr; // GPU-side status code for checking cell
-    int allocated_device = -1;     // which device are we currently allocated on
+    unsigned long* length_ptr = nullptr; // GPU-side counter
+    unsigned long capacity = 0;          // Current capacity per device
+    int* cell_check_ptr = nullptr;       // GPU-side status code for checking cell
+    int allocated_device = -1;           // which device are we currently allocated on
 
     ~CudaNeighborListExtras();
 };
@@ -45,13 +47,7 @@ void free_neighbors(VesinNeighborList& neighbors);
 /// @param options Struct holding parameters such as cutoff, symmetry, etc.
 /// @param neighbors Output neighbor list (device memory will be allocated as
 /// needed).
-void neighbors(
-    const double (*points)[3],
-    size_t n_points,
-    const double cell[3][3],
-    VesinOptions options,
-    VesinNeighborList& neighbors
-);
+void neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors);
 
 /// Get the `CudaNeighborListExtras` stored inside `VesinNeighborList`'s opaque pointer
 CudaNeighborListExtras* get_cuda_extras(VesinNeighborList* neighbors);

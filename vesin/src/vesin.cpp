@@ -107,6 +107,7 @@ extern "C" int vesin_neighbors(
 }
 
 extern "C" void vesin_free(VesinNeighborList* neighbors) {
+
     if (neighbors == nullptr) {
         return;
     }
@@ -120,6 +121,5 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
     } else {
         throw std::runtime_error("unknown device " + std::to_string(neighbors->device.type) + " when freeing memory");
     }
-
     std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

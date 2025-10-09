@@ -1,7 +1,7 @@
 [project]
 name = "vesin"
 dynamic = ["version"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
 ]

@@ -2,7 +2,8 @@ from typing import List, Sequence, Union
 
 import numpy.typing as npt
 import torch
-from vesin.torch.vesin._neighbors import _normalize_periodic_mask
+
+from vesin._neighbors import _normalize_periodic_mask
 
 
 class NeighborList:

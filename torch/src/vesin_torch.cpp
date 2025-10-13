@@ -327,7 +327,7 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
     auto saved_variables = ctx->get_saved_variables();
     auto points = saved_variables[0];
     auto box = saved_variables[1];
-    auto periodic = ctx->saved_data["periodic"].toBool();
+    auto periodic_list = ctx->saved_data["periodic"].toBoolList();
 
     auto pairs = saved_variables[2];
     auto shifts = saved_variables[3];
@@ -382,7 +382,9 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
     }
 
     auto box_grad = torch::Tensor();
-    if (periodic && box.requires_grad()) {
+    // TODO(curtis): I'm not sure if this is correct. is adding all of the shifts correct? if any axis is periodic?
+    bool any_periodic = periodic_list.get(0) || periodic_list.get(1) || periodic_list.get(2);
+    if (any_periodic && box.requires_grad()) {
         auto cell_shifts = shifts.to(box.scalar_type());
         box_grad = cell_shifts.t().matmul(vectors_grad);
     }

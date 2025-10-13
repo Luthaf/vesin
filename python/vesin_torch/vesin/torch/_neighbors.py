@@ -1,6 +1,5 @@
 from typing import List, Sequence, Union
 
-import numpy.typing as npt
 import torch
 
 
@@ -19,7 +18,7 @@ class NeighborList:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
+        periodic: "Union[bool, List[bool]]",
         quantities: str,
         copy: bool = True,
     ) -> List[torch.Tensor]:

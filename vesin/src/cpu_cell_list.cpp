@@ -233,20 +233,19 @@ void CellList::foreach_pair(Function callback) {
 
             // shift vector from one cell to the other and index of
             // the neighboring cell
-            // auto [cell_shift, neighbor_cell_i] = divmod(cell_i, cells_shape_);
-            // We need to determine the neighboring cell based on axis periodicity
-
             auto neighbor_cell_i = cell_i;
             auto cell_shift = CellShift({0, 0, 0});
             bool skip_cell = false;
             for (size_t axis = 0; axis < 3; axis++) {
                 if (box_.periodic(axis)) {
+                    // since we have periodic boundary conditions for this axis, there will always be a neighboring cell
+                    // we use divmod to find the shift and the neighboring cell index
                     auto [quotient, remainder] = divmod(neighbor_cell_i[axis], cells_shape_[axis]);
                     cell_shift[axis] = quotient;
                     neighbor_cell_i[axis] = remainder;
                 } else {
+                    // if periodicity is disabled for this axis, we skip this cell if it is outside the simulation bounds
                     if (neighbor_cell_i[axis] < 0 || neighbor_cell_i[axis] >= static_cast<int32_t>(cells_shape_[axis])) {
-                        // if there are no nearby cells, we skip this cell
                         skip_cell = true;
                         break;
                     }
@@ -261,12 +260,6 @@ void CellList::foreach_pair(Function callback) {
                 for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {
                     auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
                     auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
-
-                    if (!box_.periodic() && !shift_is_zero) {
-                        // do not create pairs crossing the periodic
-                        // boundaries in a non-periodic box
-                        continue;
-                    }
 
                     if (atom_i.index == atom_j.index && shift_is_zero) {
                         // only create pairs with the same atom twice if the

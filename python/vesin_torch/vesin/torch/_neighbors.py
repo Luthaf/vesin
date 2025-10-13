@@ -1,6 +1,8 @@
-from typing import List
+from typing import List, Sequence, Union
 
+import numpy.typing as npt
 import torch
+from vesin.torch.vesin._neighbors import _normalize_periodic_mask
 
 
 class NeighborList:
@@ -18,7 +20,7 @@ class NeighborList:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: bool,
+        periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
         quantities: str,
         copy: bool = True,
     ) -> List[torch.Tensor]:
@@ -50,7 +52,7 @@ class NeighborList:
         return self._c.compute(
             points=points,
             box=box,
-            periodic=periodic,
+            periodic=_normalize_periodic_mask(periodic),
             quantities=quantities,
             copy=copy,
         )

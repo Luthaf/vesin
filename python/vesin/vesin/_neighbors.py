@@ -174,7 +174,7 @@ class NeighborList:
 
 def _normalize_periodic_mask(
     periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
-) -> BoolVector3:
+):
     if isinstance(periodic, bool):
         return BoolVector3(periodic, periodic, periodic)
     elif isinstance(periodic, Sequence):

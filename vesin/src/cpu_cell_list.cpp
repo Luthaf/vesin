@@ -176,8 +176,8 @@ CellList::CellList(BoundingBox box, double cutoff):
         }
 
         // don't look for neighboring cells if we have only one cell and no
-        // periodic boundary condition
-        if (n_cells[spatial] == 1 && !box.periodic()) {
+        // periodic boundary condition (for this spatial direction)
+        if (n_cells[spatial] == 1 && !box.periodic()[spatial]) {
             n_search_[spatial] = 0;
         }
     }

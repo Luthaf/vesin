@@ -70,6 +70,11 @@ extern "C" int vesin_neighbors(
     }
 
     try {
+        auto periodic_mask = std::array<bool, 3>{
+            periodic[0],
+            periodic[1],
+            periodic[2],
+        };
         if (device.type == VesinCPU) {
             auto matrix = vesin::Matrix{{{
                 {{box[0][0], box[0][1], box[0][2]}},
@@ -80,7 +85,7 @@ extern "C" int vesin_neighbors(
             vesin::cpu::neighbors(
                 reinterpret_cast<const vesin::Vector*>(points),
                 n_points,
-                vesin::BoundingBox(matrix, periodic),
+                vesin::BoundingBox(matrix, periodic_mask),
                 options,
                 *neighbors
             );

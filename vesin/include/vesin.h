@@ -161,7 +161,7 @@ int VESIN_API vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    const bool periodic[3],
     VesinDevice device,
     struct VesinOptions options,
     struct VesinNeighborList* neighbors,

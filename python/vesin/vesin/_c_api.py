@@ -38,6 +38,9 @@ class VesinNeighborList(ctypes.Structure):
     ]
 
 
+BoolVector3 = ARRAY(ctypes.c_bool, 3)
+
+
 def setup_functions(lib):
     lib.vesin_free.argtypes = [POINTER(VesinNeighborList)]
     lib.vesin_free.restype = None
@@ -46,7 +49,7 @@ def setup_functions(lib):
         POINTER(ARRAY(ctypes.c_double, 3)),  # points
         ctypes.c_size_t,  # n_points
         ARRAY(ARRAY(ctypes.c_double, 3), 3),  # box
-        ctypes.c_bool,  # periodic
+        BoolVector3,  # periodic
         VesinDevice,  # device
         VesinOptions,  # options
         POINTER(VesinNeighborList),  # neighbors

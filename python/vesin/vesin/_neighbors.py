@@ -1,11 +1,11 @@
 import ctypes
 from ctypes import ARRAY, POINTER
-from typing import List
+from typing import List, Sequence, Union
 
 import numpy as np
 import numpy.typing as npt
 
-from ._c_api import VesinCPU, VesinDevice, VesinNeighborList, VesinOptions
+from ._c_api import BoolVector3, VesinCPU, VesinDevice, VesinNeighborList, VesinOptions
 from ._c_lib import _get_library
 
 
@@ -37,7 +37,7 @@ class NeighborList:
         self,
         points: "npt.ArrayLike",
         box: "npt.ArrayLike",
-        periodic: bool,
+        periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
         quantities: str = "ij",
         copy=True,
     ) -> List[np.ndarray]:
@@ -58,7 +58,7 @@ class NeighborList:
             can be converted to a numpy array)
         :param box: bounding box of the system (this can be anything that can be
             converted to a numpy array)
-        :param periodic: should we use periodic boundary conditions?
+        :param periodic: per-axis periodic boundary condition mask
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
             Setting this to ``False`` might be a bit faster, but the returned arrays are
@@ -96,7 +96,7 @@ class NeighborList:
             points.ctypes.data_as(POINTER(ARRAY(ctypes.c_double, 3))),
             points.shape[0],
             box,
-            periodic,
+            _normalize_periodic_mask(periodic),
             VesinDevice(VesinCPU, 0),
             options,
             self._neighbors,
@@ -170,3 +170,16 @@ class NeighborList:
                     data.append(vectors)
 
         return tuple(data)
+
+
+def _normalize_periodic_mask(
+    periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
+) -> BoolVector3:
+    if isinstance(periodic, bool):
+        return BoolVector3(periodic, periodic, periodic)
+    elif isinstance(periodic, Sequence):
+        return BoolVector3(*periodic)
+    elif isinstance(periodic, npt.ArrayLike):
+        return BoolVector3(*periodic)
+    else:
+        raise ValueError("`periodic` must be a bool, sequence, or numpy array")

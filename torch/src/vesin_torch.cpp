@@ -36,7 +36,7 @@ public:
         torch::autograd::AutogradContext* ctx,
         torch::Tensor points,
         torch::Tensor box,
-        bool periodic,
+        std::array<bool, 3> periodic,
         torch::Tensor pairs,
         torch::optional<torch::Tensor> shifts,
         torch::optional<torch::Tensor> distances,
@@ -65,7 +65,7 @@ NeighborListHolder::~NeighborListHolder() {
 std::vector<torch::Tensor> NeighborListHolder::compute(
     torch::Tensor points,
     torch::Tensor box,
-    bool periodic,
+    std::array<bool, 3> periodic,
     std::string quantities,
     bool copy
 ) {
@@ -105,7 +105,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, oss.str());
     }
 
-    if (!periodic) {
+    auto any_periodic = periodic[0] || periodic[1] || periodic[2];
+    if (!any_periodic) {
         box = torch::zeros({3, 3}, points.options());
     }
 
@@ -150,7 +151,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic, vesin_device, options, data_, &error_message
+        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic.data(), vesin_device, options, data_, &error_message
     );
 
     if (status != EXIT_SUCCESS) {
@@ -287,7 +288,7 @@ std::vector<torch::Tensor> AutogradNeighbors::forward(
     torch::autograd::AutogradContext* ctx,
     torch::Tensor points,
     torch::Tensor box,
-    bool periodic,
+    std::array<bool, 3> periodic,
     torch::Tensor pairs,
     torch::optional<torch::Tensor> shifts,
     torch::optional<torch::Tensor> distances,

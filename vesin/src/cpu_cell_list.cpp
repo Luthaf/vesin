@@ -195,24 +195,24 @@ void CellList::add_point(size_t index, Vector position) {
         static_cast<int32_t>(std::floor(fractional[2] * static_cast<double>(cells_shape_[2]))),
     };
 
-    // deal with pbc by wrapping the atom inside if it was outside of the
-    // cell
-    CellShift shift;
-    // auto (shift, cell_index) =
-    if (box_.periodic()) {
-        auto result = divmod(cell_index, cells_shape_);
-        shift = CellShift{std::get<0>(result)};
-        cell_index = std::get<1>(result);
-    } else {
-        shift = CellShift({0, 0, 0});
-        cell_index = std::array<int32_t, 3>{
-            std::clamp(cell_index[0], 0, static_cast<int32_t>(cells_shape_[0] - 1)),
-            std::clamp(cell_index[1], 0, static_cast<int32_t>(cells_shape_[1] - 1)),
-            std::clamp(cell_index[2], 0, static_cast<int32_t>(cells_shape_[2] - 1)),
-        };
+    // deal with pbc by wrapping the atom inside if it was outside of the cell
+    // std::array {1, 2, 3};
+    std::array<int32_t, 3> shift{{0, 0, 0}};
+    for (size_t axis = 0; axis < 3; axis++) {
+        if (box_.periodic()[axis]) {
+            auto [quotient, remainder] = divmod(cell_index[axis], cells_shape_[axis]);
+            shift[axis] = quotient;
+            cell_index[axis] = remainder;
+        } else {
+            shift[axis] = 0;
+            cell_index[axis] = std::clamp(
+                cell_index[axis],
+                0,
+                static_cast<int32_t>(cells_shape_[axis] - 1)
+            );
+        }
     }
-
-    this->get_cell(cell_index).emplace_back(Point{index, shift});
+    this->get_cell(cell_index).emplace_back(Point{index, CellShift{shift}});
 }
 
 // clang-format off

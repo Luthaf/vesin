@@ -171,7 +171,7 @@ TEST_CASE("Mixed periodic boundaries") {
         expected_pairs,
         {},
         expected_distances,
-        {},
+        {}
     );
 }
 
@@ -327,7 +327,7 @@ TEST_CASE("Slanted box") {
         points,
         /*n_points=*/4,
         box,
-        /*periodic=*/std::array<bool, 3>{true, true, true},
+        /*periodic=*/std::array<bool, 3>{true, true, true}.data(),
         {VesinDeviceKind::VesinCPU, 0},
         options,
         &neighbors,

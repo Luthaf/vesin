@@ -198,10 +198,10 @@ void CellList::add_point(size_t index, Vector position) {
     // deal with pbc by wrapping the atom inside if it was outside of the cell
     CellShift shift{{0, 0, 0}};
     for (size_t axis = 0; axis < 3; axis++) {
-        if (box_.periodic()[axis]) {
-            auto [quotient, remainder] = divmod(cell_index[axis], cells_shape_[axis]);
-            shift[axis] = quotient;
-            cell_index[axis] = remainder;
+        if (box_.periodic(axis)) {
+            auto result = divmod(cell_index[axis], cells_shape_[axis]);
+            shift[axis] = std::get<0>(result);
+            cell_index[axis] = std::get<1>(result);
         } else {
             shift[axis] = 0;
             cell_index[axis] = std::clamp(
@@ -233,7 +233,29 @@ void CellList::foreach_pair(Function callback) {
 
             // shift vector from one cell to the other and index of
             // the neighboring cell
-            auto [cell_shift, neighbor_cell_i] = divmod(cell_i, cells_shape_);
+            // auto [cell_shift, neighbor_cell_i] = divmod(cell_i, cells_shape_);
+            // We need to determine the neighboring cell based on axis periodicity
+
+            auto neighbor_cell_i = cell_i;
+            auto cell_shift = CellShift({0, 0, 0});
+            bool skip_cell = false;
+            for (size_t axis = 0; axis < 3; axis++) {
+                if (box_.periodic(axis)) {
+                    auto [quotient, remainder] = divmod(neighbor_cell_i[axis], cells_shape_[axis]);
+                    cell_shift[axis] = quotient;
+                    neighbor_cell_i[axis] = remainder;
+                } else {
+                    if (neighbor_cell_i[axis] < 0 || neighbor_cell_i[axis] >= static_cast<int32_t>(cells_shape_[axis])) {
+                        // if there are no nearby cells, we skip this cell
+                        skip_cell = true;
+                        break;
+                    }
+                }
+            }
+
+            if (skip_cell) {
+                continue;
+            }
 
             for (const auto& atom_i: current_cell) {
                 for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {

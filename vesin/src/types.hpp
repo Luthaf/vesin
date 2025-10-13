@@ -37,6 +37,10 @@ public:
         return this->periodic_;
     }
 
+    bool periodic(size_t axis) const {
+        return periodic_[axis];
+    }
+
     /// Convert a vector from cartesian coordinates to fractional coordinates
     Vector cartesian_to_fractional(Vector cartesian) const {
         return cartesian * inverse_;

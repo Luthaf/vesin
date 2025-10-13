@@ -31,6 +31,11 @@ homepage = "https://github.com/Luthaf/vesin/"
 documentation = "https://luthaf.fr/vesin/"
 repository = "https://github.com/Luthaf/vesin/"
 
+[project.optional-dependencies]
+tests = [
+    "ase",
+]
+
 ### ======================================================================== ###
 
 [build-system]

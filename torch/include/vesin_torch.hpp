@@ -3,6 +3,8 @@
 
 #include <torch/data.h>
 
+#include <array>
+
 // clang-format off
 #if defined(VESIN_TORCH_EXPORTS)
     #if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
@@ -58,7 +60,7 @@ public:
     ///
     /// @param points positions of all points in the system
     /// @param box bounding box of the system
-    /// @param periodic should we use periodic boundary conditions?
+    /// @param periodic per-axis periodic boundary condition mask
     /// @param quantities quantities to return, defaults to "ij"
     /// @param copy should we copy the returned quantities, defaults to `true`.
     ///        Setting this to `False` might be a bit faster, but the returned
@@ -70,7 +72,7 @@ public:
     std::vector<torch::Tensor> compute(
         torch::Tensor points,
         torch::Tensor box,
-        bool periodic,
+        torch::Tensor periodic,
         std::string quantities,
         bool copy = true
     );

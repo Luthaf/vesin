@@ -14,7 +14,7 @@ static void check_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    bool periodic[3],
     double cutoff,
     bool full_list,
     std::vector<std::array<size_t, 2>> expected_pairs,
@@ -117,12 +117,57 @@ TEST_CASE("Non-periodic") {
         2.6482573515427084,
     };
 
+    bool periodic[3] = {false, false, false};
     check_neighbors(
         points,
         /*n_points=*/5,
         box,
-        /*periodic=*/false,
+        periodic,
         /*cutoff=*/3.42,
+        /*full_list=*/false,
+        expected_pairs,
+        {},
+        expected_distances,
+        {}
+    );
+}
+
+TEST_CASE("Mixed periodic boundaries") {
+    bool periodic[3] = {true, false, false};
+    double cutoff = 0.5;
+
+    // To understand this test, only focus on the first and second axis (x and y coords)
+    // 1) Since only the first periodic boundary is enabled,
+    //    the first and second point are only 0.2 away.
+    // 2) Notice that the first and third point are 0.8 away.
+    //    However, if periodicity is enabled on the second axis, then
+    //    they would only be 0.1 away and would be considered neighbors.
+
+    double points[][3] = {
+        {0.1, 0.0, 0.0},
+        {0.9, 0.0, 0.0},
+        {0.1, 0.9, 0.0},
+    };
+
+    double box[3][3] = {
+        {1.0, 0.0, 0.0},
+        {0.0, 1.0, 0.0},
+        {0.0, 0.0, 1.0},
+    };
+
+    // reference computed with ASE
+    auto expected_pairs = std::vector<std::array<size_t, 2>>{
+        {0, 1},
+    };
+
+    auto expected_distances = std::vector<double>{0.2};
+
+    check_neighbors(
+        points,
+        /*n_points=*/3,
+        box,
+        /*periodic=*/periodic,
+        /*cutoff=*/cutoff,
         /*full_list=*/false,
         expected_pairs,
         {},
@@ -163,11 +208,12 @@ TEST_CASE("FCC unit cell") {
     auto expected_pairs = std::vector<std::array<size_t, 2>>(6, {0, 0});
     auto expected_distances = std::vector<double>(6, 2.1213203435596424);
 
+    bool periodic[3] = {true, true, true};
     check_neighbors(
         points,
         /*n_points=*/1,
         box,
-        /*periodic=*/true,
+        periodic,
         /*cutoff=*/3.0,
         /*full_list=*/false,
         expected_pairs,
@@ -203,11 +249,12 @@ TEST_CASE("Large box, small cutoff") {
     auto expected_shifts = std::vector<std::array<int32_t, 3>>(4, {0, 0, 0});
     auto expected_distances = std::vector<double>(4, 2.0);
 
+    bool periodic[3] = {true, true, true};
     check_neighbors(
         points,
         /*n_points=*/6,
         box,
-        /*periodic=*/true,
+        periodic,
         /*cutoff=*/2.1,
         /*full_list=*/false,
         expected_pairs,
@@ -241,11 +288,12 @@ TEST_CASE("Cutoff larger than the box size") {
         {0.5, 0.0, 0.0},
     };
 
+    bool periodic[3] = {true, true, true};
     check_neighbors(
         points,
         /*n_points=*/1,
         box,
-        /*periodic=*/true,
+        periodic,
         /*cutoff=*/0.6,
         /*full_list=*/false,
         expected_pairs,
@@ -279,11 +327,12 @@ TEST_CASE("Slanted box") {
     VesinNeighborList neighbors;
 
     const char* error_message = nullptr;
+    bool periodic[3] = {true, true, true};
     auto status = vesin_neighbors(
         points,
         /*n_points=*/4,
         box,
-        /*periodic=*/true,
+        periodic,
         {VesinDeviceKind::VesinCPU, 0},
         options,
         &neighbors,

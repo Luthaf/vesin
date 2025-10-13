@@ -12,6 +12,7 @@ void vesin::cuda::neighbors(
     const double (*points)[3],
     size_t n_points,
     const double cell[3][3],
+    const bool periodic[3],
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {

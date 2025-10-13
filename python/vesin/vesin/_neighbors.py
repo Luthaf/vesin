@@ -1,6 +1,6 @@
 import ctypes
 from ctypes import ARRAY, POINTER
-from typing import List
+from typing import List, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -37,7 +37,7 @@ class NeighborList:
         self,
         points: "npt.ArrayLike",
         box: "npt.ArrayLike",
-        periodic: bool,
+        periodic: "Union[bool, npt.ArrayLike]",
         quantities: str = "ij",
         copy=True,
     ) -> List[np.ndarray]:
@@ -58,7 +58,7 @@ class NeighborList:
             can be converted to a numpy array)
         :param box: bounding box of the system (this can be anything that can be
             converted to a numpy array)
-        :param periodic: should we use periodic boundary conditions?
+        :param periodic: per-axis periodic boundary condition mask
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
             Setting this to ``False`` might be a bit faster, but the returned arrays are
@@ -69,6 +69,9 @@ class NeighborList:
         """
         points = np.asarray(points, dtype=np.float64)
         box = np.asarray(box, dtype=np.float64)
+        periodic = np.asarray(periodic, dtype=bool)
+        if periodic.ndim == 0:
+            periodic = [periodic.item(), periodic.item(), periodic.item()]
 
         if box.shape != (3, 3):
             raise ValueError("`box` must be a 3x3 matrix")
@@ -79,6 +82,7 @@ class NeighborList:
             Vector(box[1][0], box[1][1], box[1][2]),
             Vector(box[2][0], box[2][1], box[2][2]),
         )
+        periodic = ARRAY(ctypes.c_bool, 3)(periodic[0], periodic[1], periodic[2])
 
         if len(points.shape) != 2 or points.shape[1] != 3:
             raise ValueError("`points` must be a nx3 array")

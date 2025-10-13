@@ -11,7 +11,7 @@ extern "C" int vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    const bool periodic[3],
     VesinDevice device,
     VesinOptions options,
     VesinNeighborList* neighbors,
@@ -28,6 +28,11 @@ extern "C" int vesin_neighbors(
 
     if (box == nullptr) {
         *error_message = "`cell` can not be a NULL pointer";
+        return EXIT_FAILURE;
+    }
+
+    if (periodic == nullptr) {
+        *error_message = "`periodic` can not be a NULL pointer";
         return EXIT_FAILURE;
     }
 
@@ -65,6 +70,12 @@ extern "C" int vesin_neighbors(
     }
 
     try {
+        bool periodic_mask[3] = {
+            periodic[0],
+            periodic[1],
+            periodic[2],
+        };
+        bool any_periodic = periodic_mask[0] || periodic_mask[1] || periodic_mask[2];
         if (device.type == VesinCPU) {
             auto matrix = vesin::Matrix{{{
                 {{box[0][0], box[0][1], box[0][2]}},
@@ -75,7 +86,7 @@ extern "C" int vesin_neighbors(
             vesin::cpu::neighbors(
                 reinterpret_cast<const vesin::Vector*>(points),
                 n_points,
-                vesin::BoundingBox(matrix, periodic),
+                vesin::BoundingBox(matrix, periodic_mask),
                 options,
                 *neighbors
             );
@@ -83,7 +94,8 @@ extern "C" int vesin_neighbors(
             vesin::cuda::neighbors(
                 points,
                 n_points,
-                periodic ? box : nullptr,
+                any_periodic ? box : nullptr,
+                periodic_mask,
                 options,
                 *neighbors
             );

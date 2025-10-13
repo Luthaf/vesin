@@ -14,7 +14,7 @@ static void check_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    const bool periodic[3],
     double cutoff,
     bool full_list,
     std::vector<std::array<size_t, 2>> expected_pairs,
@@ -123,6 +123,35 @@ TEST_CASE("Non-periodic") {
         box,
         /*periodic=*/false,
         /*cutoff=*/3.42,
+        /*full_list=*/false,
+        expected_pairs,
+        {},
+        expected_distances,
+        {}
+    );
+}
+
+TEST_CASE("Per-axis periodicity") {
+
+    double points[][3] = {
+        {0.1, 0.0, 0.0},
+        {0.9, 0.0, 0.0},
+    };
+
+    // reference computed with ASE
+    auto expected_pairs = std::vector<std::array<size_t, 2>>{
+            {0, 1},
+    };
+
+    auto expected_distances = std::vector<double>{
+        0.2,
+    };
+    check_neighbors(
+        points,
+        /*n_points=*/2,
+        box,
+        /*periodic=*/[1,0,0],
+        /*cutoff=*/3.0,
         /*full_list=*/false,
         expected_pairs,
         {},

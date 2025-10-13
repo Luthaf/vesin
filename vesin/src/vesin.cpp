@@ -11,7 +11,7 @@ extern "C" int vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    const bool periodic[3],
     VesinDevice device,
     VesinOptions options,
     VesinNeighborList* neighbors,
@@ -28,6 +28,11 @@ extern "C" int vesin_neighbors(
 
     if (box == nullptr) {
         *error_message = "`cell` can not be a NULL pointer";
+        return EXIT_FAILURE;
+    }
+
+    if (periodic == nullptr) {
+        *error_message = "`periodic` can not be a NULL pointer";
         return EXIT_FAILURE;
     }
 

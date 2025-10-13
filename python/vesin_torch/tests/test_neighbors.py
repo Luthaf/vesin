@@ -1,9 +1,11 @@
-from typing import List
+from typing import List, Sequence, Union
 
+import numpy.typing as npt
 import pytest
 import torch
 
 from vesin.torch import NeighborList
+from vesin.torch._neighbors import _normalize_periodic_mask
 
 
 def run_check_neighbors(
@@ -200,14 +202,14 @@ class NeighborListWrap:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: bool,
+        periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
         quantities: str,
         copy: bool,
     ) -> List[torch.Tensor]:
         return self._c.compute(
             points=points,
             box=box,
-            periodic=periodic,
+            periodic=_normalize_periodic_mask(periodic),
             quantities=quantities,
             copy=copy,
         )

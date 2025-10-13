@@ -3,8 +3,6 @@ from typing import List, Sequence, Union
 import numpy.typing as npt
 import torch
 
-from vesin._neighbors import _normalize_periodic_mask
-
 
 class NeighborList:
     """A neighbor list calculator that can be used with TorchScript."""
@@ -57,3 +55,19 @@ class NeighborList:
             quantities=quantities,
             copy=copy,
         )
+
+
+def _normalize_periodic_mask(
+    periodic: Union[bool, Sequence[bool]],
+) -> List[bool]:
+    """
+    Normalize the periodic boundary conditions mask to a list of 3 booleans.
+
+    This is the torch-script compatible version.
+    """
+    if isinstance(periodic, bool):
+        return [periodic, periodic, periodic]
+    else:
+        # this will work for any sequence-like object, including lists, tuples,
+        # and numpy arrays
+        return [bool(p) for p in periodic]

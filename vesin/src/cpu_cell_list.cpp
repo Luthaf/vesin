@@ -196,8 +196,7 @@ void CellList::add_point(size_t index, Vector position) {
     };
 
     // deal with pbc by wrapping the atom inside if it was outside of the cell
-    // std::array {1, 2, 3};
-    std::array<int32_t, 3> shift{{0, 0, 0}};
+    CellShift shift{{0, 0, 0}};
     for (size_t axis = 0; axis < 3; axis++) {
         if (box_.periodic()[axis]) {
             auto [quotient, remainder] = divmod(cell_index[axis], cells_shape_[axis]);
@@ -212,7 +211,7 @@ void CellList::add_point(size_t index, Vector position) {
             );
         }
     }
-    this->get_cell(cell_index).emplace_back(Point{index, CellShift{shift}});
+    this->get_cell(cell_index).emplace_back(Point{index, shift});
 }
 
 // clang-format off

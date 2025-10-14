@@ -36,7 +36,7 @@ public:
         torch::autograd::AutogradContext* ctx,
         torch::Tensor points,
         torch::Tensor box,
-        std::array<bool, 3> periodic,
+        torch::Tensor periodic,
         torch::Tensor pairs,
         torch::optional<torch::Tensor> shifts,
         torch::optional<torch::Tensor> distances,
@@ -65,7 +65,7 @@ NeighborListHolder::~NeighborListHolder() {
 std::vector<torch::Tensor> NeighborListHolder::compute(
     torch::Tensor points,
     torch::Tensor box,
-    std::array<bool, 3> periodic,
+    torch::Tensor periodic,
     std::string quantities,
     bool copy
 ) {
@@ -93,6 +93,18 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, "only float64 dtype is supported in vesin");
     }
 
+    if (periodic.scalar_type() != torch::kBool) {
+        C10_THROW_ERROR(ValueError, "expected `periodic` to have dtype bool");
+    }
+    if (periodic.sizes().size() != 1 || periodic.size(0) != 3) {
+        std::ostringstream oss;
+        oss << "`periodic` must be a 1D tensor of size 3, but the shape is " << periodic.sizes();
+        C10_THROW_ERROR(ValueError, oss.str());
+    }
+    if (periodic.device() != points.device()) {
+        C10_THROW_ERROR(ValueError, "expected `periodic` and `points` to have the same device");
+    }
+
     if (points.sizes().size() != 2 || points.size(1) != 3) {
         std::ostringstream oss;
         oss << "`points` must be n x 3 tensor, but the shape is " << points.sizes();
@@ -105,7 +117,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, oss.str());
     }
 
-    auto any_periodic = periodic[0] || periodic[1] || periodic[2];
+    bool any_periodic = periodic.any().item<bool>();
     if (!any_periodic) {
         box = torch::zeros({3, 3}, points.options());
     }
@@ -149,9 +161,13 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         box = box.contiguous();
     }
 
+    if (!periodic.is_contiguous()) {
+        periodic = periodic.contiguous();
+    }
+
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic.data(), vesin_device, options, data_, &error_message
+        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic.data_ptr<bool>(), vesin_device, options, data_, &error_message
     );
 
     if (status != EXIT_SUCCESS) {
@@ -288,7 +304,7 @@ std::vector<torch::Tensor> AutogradNeighbors::forward(
     torch::autograd::AutogradContext* ctx,
     torch::Tensor points,
     torch::Tensor box,
-    std::array<bool, 3> periodic,
+    torch::Tensor periodic,
     torch::Tensor pairs,
     torch::optional<torch::Tensor> shifts,
     torch::optional<torch::Tensor> distances,
@@ -327,7 +343,7 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
     auto saved_variables = ctx->get_saved_variables();
     auto points = saved_variables[0];
     auto box = saved_variables[1];
-    auto periodic_list = ctx->saved_data["periodic"].toBoolList();
+    auto periodic = ctx->saved_data["periodic"].toTensor();
 
     auto pairs = saved_variables[2];
     auto shifts = saved_variables[3];
@@ -383,7 +399,7 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
 
     auto box_grad = torch::Tensor();
     // TODO(curtis): I'm not sure if this is correct. is adding all of the shifts correct? if any axis is periodic?
-    bool any_periodic = periodic_list.get(0) || periodic_list.get(1) || periodic_list.get(2);
+    bool any_periodic = periodic.any().item<bool>();
     if (any_periodic && box.requires_grad()) {
         auto cell_shifts = shifts.to(box.scalar_type());
         box_grad = cell_shifts.t().matmul(vectors_grad);

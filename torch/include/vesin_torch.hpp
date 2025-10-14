@@ -72,7 +72,7 @@ public:
     std::vector<torch::Tensor> compute(
         torch::Tensor points,
         torch::Tensor box,
-        std::array<bool, 3> periodic,
+        torch::Tensor periodic,
         std::string quantities,
         bool copy = true
     );

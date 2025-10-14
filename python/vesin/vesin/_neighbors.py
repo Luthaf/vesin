@@ -1,6 +1,6 @@
 import ctypes
 from ctypes import ARRAY, POINTER
-from typing import List
+from typing import List, Sequence, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -37,7 +37,7 @@ class NeighborList:
         self,
         points: "npt.ArrayLike",
         box: "npt.ArrayLike",
-        periodic: bool,
+        periodic: Union[bool, Sequence[bool], "npt.ArrayLike"],
         quantities: str = "ij",
         copy=True,
     ) -> List[np.ndarray]:
@@ -58,7 +58,9 @@ class NeighborList:
             can be converted to a numpy array)
         :param box: bounding box of the system (this can be anything that can be
             converted to a numpy array)
-        :param periodic: should we use periodic boundary conditions?
+        :param periodic: should we use periodic boundary conditions? This can be a
+            single boolean to enable/disable periodic boundary conditions in all
+            directions, or a sequence of three booleans (one for each direction).
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
             Setting this to ``False`` might be a bit faster, but the returned arrays are
@@ -90,6 +92,18 @@ class NeighborList:
         options.return_shifts = "S" in quantities
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities
+
+        periodic_array_type = ARRAY(ctypes.c_bool, 3)
+        if isinstance(periodic, bool):
+            periodic = periodic_array_type(periodic, periodic, periodic)
+        else:
+            periodic = np.asarray(periodic, dtype=np.bool_)
+            if periodic.shape != (3,):
+                raise ValueError(
+                    "`periodic` must be a single boolean or a sequence of three "
+                    f"booleans, got {periodic} of type {type(periodic)}"
+                )
+            periodic = periodic_array_type(*periodic)
 
         error_message = ctypes.c_char_p()
         status = self._lib.vesin_neighbors(

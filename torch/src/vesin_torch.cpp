@@ -22,7 +22,7 @@ static torch::Device vesin_to_torch_device(VesinDevice device) {
     if (device.type == VesinCPU) {
         return torch::Device(torch::kCPU);
     } else if (device.type == VesinCUDA) {
-        return torch::Device(torch::kCUDA, device.device_id);
+        return torch::Device(torch::kCUDA, static_cast<int8_t>(device.device_id));
     } else {
         throw std::runtime_error("vesin device is not supported in torch");
     }
@@ -36,7 +36,7 @@ public:
         torch::autograd::AutogradContext* ctx,
         torch::Tensor points,
         torch::Tensor box,
-        bool periodic,
+        torch::Tensor periodic,
         torch::Tensor pairs,
         torch::optional<torch::Tensor> shifts,
         torch::optional<torch::Tensor> distances,
@@ -65,7 +65,7 @@ NeighborListHolder::~NeighborListHolder() {
 std::vector<torch::Tensor> NeighborListHolder::compute(
     torch::Tensor points,
     torch::Tensor box,
-    bool periodic,
+    torch::Tensor periodic,
     std::string quantities,
     bool copy
 ) {
@@ -90,7 +90,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         // clang-format on
     }
     if (points.scalar_type() != torch::kFloat64) {
-        C10_THROW_ERROR(ValueError, "only float64 dtype is supported in vesin");
+        C10_THROW_ERROR(ValueError, "only float64 is supported for `points` and `box`");
     }
 
     if (points.sizes().size() != 2 || points.size(1) != 3) {
@@ -105,8 +105,20 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, oss.str());
     }
 
-    if (!periodic) {
-        box = torch::zeros({3, 3}, points.options());
+    if (points.device() != periodic.device()) {
+        periodic = periodic.to(points.device());
+    }
+
+    if (periodic.scalar_type() != torch::kBool) {
+        C10_THROW_ERROR(ValueError, "`periodic` must be a tensor of bool");
+    }
+
+    if (periodic.sizes().size() == 0) {
+        periodic = periodic.repeat({3});
+    }
+
+    if (periodic.sizes().size() != 1 || periodic.size(0) != 3) {
+        C10_THROW_ERROR(ValueError, "`periodic` must be either a single bool or a tensor of 3 bool");
     }
 
     // create calculation options
@@ -150,7 +162,14 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
 
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()), n_points, reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()), periodic, vesin_device, options, data_, &error_message
+        reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()),
+        n_points,
+        reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()),
+        periodic.data_ptr<bool>(),
+        vesin_device,
+        options,
+        data_,
+        &error_message
     );
 
     if (status != EXIT_SUCCESS) {
@@ -287,7 +306,7 @@ std::vector<torch::Tensor> AutogradNeighbors::forward(
     torch::autograd::AutogradContext* ctx,
     torch::Tensor points,
     torch::Tensor box,
-    bool periodic,
+    torch::Tensor periodic,
     torch::Tensor pairs,
     torch::optional<torch::Tensor> shifts,
     torch::optional<torch::Tensor> distances,
@@ -298,9 +317,8 @@ std::vector<torch::Tensor> AutogradNeighbors::forward(
     auto vectors_tensor = vectors.value_or(torch::Tensor());
 
     ctx->save_for_backward(
-        {points, box, pairs, shifts_tensor, distances_tensor, vectors_tensor}
+        {points, box, periodic, pairs, shifts_tensor, distances_tensor, vectors_tensor}
     );
-    ctx->saved_data["periodic"] = periodic;
 
     auto return_distances = distances.has_value();
     auto return_vectors = vectors.has_value();
@@ -324,14 +342,14 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
     std::vector<torch::Tensor> outputs_grad
 ) {
     auto saved_variables = ctx->get_saved_variables();
-    auto points = saved_variables[0];
-    auto box = saved_variables[1];
-    auto periodic = ctx->saved_data["periodic"].toBool();
+    const auto& points = saved_variables[0];
+    const auto& box = saved_variables[1];
+    const auto& periodic = saved_variables[2];
 
-    auto pairs = saved_variables[2];
-    auto shifts = saved_variables[3];
-    auto distances = saved_variables[4];
-    auto vectors = saved_variables[5];
+    const auto& pairs = saved_variables[3];
+    const auto& shifts = saved_variables[4];
+    const auto& distances = saved_variables[5];
+    const auto& vectors = saved_variables[6];
 
     auto return_distances = ctx->saved_data["return_distances"].toBool();
     auto return_vectors = ctx->saved_data["return_vectors"].toBool();
@@ -381,7 +399,7 @@ std::vector<torch::Tensor> AutogradNeighbors::backward(
     }
 
     auto box_grad = torch::Tensor();
-    if (periodic && box.requires_grad()) {
+    if (torch::any(periodic).item<bool>() && box.requires_grad()) {
         auto cell_shifts = shifts.to(box.scalar_type());
         box_grad = cell_shifts.t().matmul(vectors_grad);
     }

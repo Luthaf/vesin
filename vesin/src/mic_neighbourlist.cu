@@ -78,24 +78,23 @@ __device__ void apply_periodic_boundary(
     double3& vector,
     int3& shift,
     const double3 box[3],
-    const double3 inv_box[3]
+    const double3 inv_box[3],
+    const bool periodic[3]
 ) {
     double3 fractional;
     fractional.x = dot(vector, inv_box[0]);
     fractional.y = dot(vector, inv_box[1]);
     fractional.z = dot(vector, inv_box[2]);
 
-    int32_t sx = static_cast<int32_t>(round(fractional.x));
-    int32_t sy = static_cast<int32_t>(round(fractional.y));
-    int32_t sz = static_cast<int32_t>(round(fractional.z));
+    // the multiplication by `periodic` allows to set the shift to zero
+    // for non-periodic directions
+    shift.x = static_cast<int32_t>(periodic[0]) * static_cast<int32_t>(round(fractional.x));
+    shift.y = static_cast<int32_t>(periodic[1]) * static_cast<int32_t>(round(fractional.y));
+    shift.z = static_cast<int32_t>(periodic[2]) * static_cast<int32_t>(round(fractional.z));
 
-    shift.x = sx;
-    shift.y = sy;
-    shift.z = sz;
-
-    fractional.x -= sx;
-    fractional.y -= sy;
-    fractional.z -= sz;
+    fractional.x -= shift.x;
+    fractional.y -= shift.y;
+    fractional.z -= shift.z;
 
     double3 wrapped;
     wrapped.x = fractional.x * box[0].x + fractional.y * box[1].x + fractional.z * box[2].x;
@@ -108,6 +107,7 @@ __device__ void apply_periodic_boundary(
 __global__ void compute_mic_neighbours_full_impl(
     const double3* positions,
     const double3 box[3],
+    const bool periodic[3],
     size_t n_points,
     double cutoff,
     size_t* length,
@@ -127,15 +127,21 @@ __global__ void compute_mic_neighbours_full_impl(
     const size_t point_i = blockIdx.x * NWARPS + warp_id;
     const double cutoff2 = cutoff * cutoff;
 
-    if (box != nullptr) {
-        if (threadIdx.x < 3) {
-            shared_box[threadIdx.x] = box[threadIdx.x];
+    if (threadIdx.x < 3) {
+        shared_box[threadIdx.x] = box[threadIdx.x];
+
+        if (threadIdx.x == 0 && !periodic[0]) {
+            shared_box[0] = make_double3(1, 0, 0);
+        } else if (threadIdx.x == 1 && !periodic[1]) {
+            shared_box[1] = make_double3(0, 1, 0);
+        } else if (threadIdx.x == 2 && !periodic[2]) {
+            shared_box[2] = make_double3(0, 0, 1);
         }
     }
 
     __syncthreads();
 
-    if (box != nullptr && threadIdx.x == 0) {
+    if (threadIdx.x == 0) {
         invert_matrix(shared_box, shared_inv_box);
     }
 
@@ -153,9 +159,7 @@ __global__ void compute_mic_neighbours_full_impl(
 
         double3 vector = rj - ri;
         int3 shift = make_int3(0, 0, 0);
-        if (box != nullptr) {
-            apply_periodic_boundary(vector, shift, shared_box, shared_inv_box);
-        }
+        apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic);
 
         double distance2 = dot(vector, vector);
         auto is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
@@ -191,6 +195,7 @@ __global__ void compute_mic_neighbours_full_impl(
 __global__ void compute_mic_neighbours_half_impl(
     const double3* positions,
     const double3 box[3],
+    const bool periodic[3],
     size_t n_points,
     double cutoff,
     size_t* length,
@@ -214,35 +219,39 @@ __global__ void compute_mic_neighbours_half_impl(
 
     const double cutoff2 = cutoff * cutoff;
 
-    if (box != nullptr) {
-        if (threadIdx.x < 3) {
-            shared_box[threadIdx.x] = box[threadIdx.x];
+    if (threadIdx.x < 3) {
+        shared_box[threadIdx.x] = box[threadIdx.x];
+
+        if (threadIdx.x == 0 && !periodic[0]) {
+            shared_box[0] = make_double3(1, 0, 0);
+        } else if (threadIdx.x == 1 && !periodic[1]) {
+            shared_box[1] = make_double3(0, 1, 0);
+        } else if (threadIdx.x == 2 && !periodic[2]) {
+            shared_box[2] = make_double3(0, 0, 1);
         }
     }
 
     __syncthreads();
 
-    if (box != nullptr && threadIdx.x == 0) {
+    if (threadIdx.x == 0) {
         invert_matrix(shared_box, shared_inv_box);
     }
 
     // Ensure inv_cell is ready
     __syncthreads();
 
-    size_t row = floor((sqrtf(8 * index + 1) + 1) / 2);
-    if (row * (row - 1) > 2 * index) {
-        row--;
+    size_t point_j = floor((sqrtf(8 * index + 1) + 1) / 2);
+    if (point_j * (point_j - 1) > 2 * index) {
+        point_j--;
     }
-    const size_t column = index - row * (row - 1) / 2;
+    const size_t point_i = index - point_j * (point_j - 1) / 2;
 
-    double3 ri = positions[column];
-    double3 rj = positions[row];
+    double3 ri = positions[point_i];
+    double3 rj = positions[point_j];
 
     double3 vector = rj - ri;
     int3 shift = make_int3(0, 0, 0);
-    if (box != nullptr) {
-        apply_periodic_boundary(vector, shift, shared_box, shared_inv_box);
-    }
+    apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic);
 
     double distance2 = dot(vector, vector);
     bool is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
@@ -263,7 +272,7 @@ __global__ void compute_mic_neighbours_half_impl(
 
     if (is_valid) {
         size_t pair_index = base_pair_index + local_offset;
-        pair_indices[pair_index] = {column, row};
+        pair_indices[pair_index] = {point_i, point_j};
 
         if (return_shifts) {
             shifts[pair_index] = shift;
@@ -277,13 +286,21 @@ __global__ void compute_mic_neighbours_half_impl(
     }
 }
 
-__global__ void mic_box_check(const double3 box[3], const double cutoff, int32_t* status) {
+#define CUTOFF_TOO_LARGE 1
+#define NOT_ALIGNED_X 2
+#define NOT_ALIGNED_Y 3
+#define NOT_ALIGNED_Z 4
+
+__global__ void mic_box_check(
+    const double3 box[3],
+    const bool periodic[3],
+    const double cutoff,
+    int32_t* status
+) {
     __shared__ double3 shared_box[3];
 
-    if (box != nullptr) {
-        if (threadIdx.x < 3) {
-            shared_box[threadIdx.x] = box[threadIdx.x];
-        }
+    if (threadIdx.x < 3) {
+        shared_box[threadIdx.x] = box[threadIdx.x];
     }
 
     __syncthreads();
@@ -309,10 +326,19 @@ __global__ void mic_box_check(const double3 box[3], const double cutoff, int32_t
                              (fabs(ac_dot) < tol * a_norm * c_norm) &&
                              (fabs(bc_dot) < tol * b_norm * c_norm);
 
-        double min_dim;
-
+        double min_dim = INFINITY;
         if (is_orthogonal) {
-            min_dim = fminf(a_norm, fminf(b_norm, c_norm));
+            if (periodic[0]) {
+                min_dim = a_norm;
+            }
+
+            if (periodic[1]) {
+                min_dim = fminf(min_dim, b_norm);
+            }
+
+            if (periodic[2]) {
+                min_dim = fminf(min_dim, c_norm);
+            }
         } else {
             // General case
             auto bc = cross(b, c);
@@ -329,14 +355,41 @@ __global__ void mic_box_check(const double3 box[3], const double cutoff, int32_t
             double d_b = V / ac_norm;
             double d_c = V / ab_norm;
 
-            min_dim = fminf(d_a, fminf(d_b, d_c));
+            if (periodic[0]) {
+                min_dim = d_a;
+            }
+
+            if (periodic[1]) {
+                min_dim = fminf(min_dim, d_b);
+            }
+
+            if (periodic[2]) {
+                min_dim = fminf(min_dim, d_c);
+            }
         }
 
         if (cutoff * 2.0 > min_dim) {
-            status[0] = 1; // ERROR
-        } else {
-            status[0] = 0;
+            status[0] = CUTOFF_TOO_LARGE;
+            return;
         }
+
+        if (!periodic[0] && (fabs(box[1].x) > 1e-10 || fabs(box[2].x) > 1e-10)) {
+            status[0] = NOT_ALIGNED_X;
+            return;
+        }
+
+        if (!periodic[1] && (fabs(box[0].y) > 1e-10 || fabs(box[2].y) > 1e-10)) {
+            status[0] = NOT_ALIGNED_Y;
+            return;
+        }
+
+        if (!periodic[2] && (fabs(box[0].z) > 1e-10 || fabs(box[1].z) > 1e-10)) {
+            status[0] = NOT_ALIGNED_Z;
+            return;
+        }
+
+        // everything is fine!
+        status[0] = 0;
     }
 }
 
@@ -344,14 +397,20 @@ void vesin::cuda::compute_mic_neighbourlist(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
+    const bool periodic[3],
     int32_t* d_box_check,
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
+    assert(n_points == 0 || points != nullptr);
+    assert(box != nullptr);
+    assert(periodic != nullptr);
+
     auto* d_positions = reinterpret_cast<const double3*>(points);
     auto* d_box = reinterpret_cast<const double3*>(box);
+    auto* d_periodic = periodic;
 
     auto* d_pair_indices = reinterpret_cast<ulong2*>(neighbors.pairs);
     auto* d_shifts = reinterpret_cast<int3*>(neighbors.shifts);
@@ -361,16 +420,33 @@ void vesin::cuda::compute_mic_neighbourlist(
 
     dim3 blockDim(WARP_SIZE * NWARPS);
 
-    mic_box_check<<<1, 32>>>(d_box, options.cutoff, d_box_check);
+    mic_box_check<<<1, 32>>>(d_box, periodic, options.cutoff, d_box_check);
     int32_t h_box_check = 0;
     cudaMemcpy(&h_box_check, d_box_check, sizeof(int32_t), cudaMemcpyDeviceToHost);
 
-    if (h_box_check != 0) {
+    if (h_box_check == CUTOFF_TOO_LARGE) {
         throw std::runtime_error(
             "Cutoff it too large for the current box, the CUDA implementation "
             "of vesin uses minimum image convention (MIC). Each box dimension "
             "must be at least twice the cutoff."
         );
+    } else if (h_box_check == NOT_ALIGNED_X) {
+        throw std::runtime_error(
+            "the box is not aligned with the x axis but periodicity is "
+            "disabled along this axis"
+        );
+    } else if (h_box_check == NOT_ALIGNED_Y) {
+        throw std::runtime_error(
+            "the box is not aligned with the y axis but periodicity is "
+            "disabled along this axis"
+        );
+    } else if (h_box_check == NOT_ALIGNED_Z) {
+        throw std::runtime_error(
+            "the box is not aligned with the z axis but periodicity is "
+            "disabled along this axis"
+        );
+    } else if (h_box_check != 0) {
+        throw std::runtime_error("unknown error in box check");
     }
 
     if (options.full) {
@@ -379,6 +455,7 @@ void vesin::cuda::compute_mic_neighbourlist(
         compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
             d_positions,
             d_box,
+            d_periodic,
             n_points,
             options.cutoff,
             d_pair_counter,
@@ -402,6 +479,7 @@ void vesin::cuda::compute_mic_neighbourlist(
         compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
             d_positions,
             d_box,
+            d_periodic,
             n_points,
             options.cutoff,
             d_pair_counter,

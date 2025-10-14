@@ -106,8 +106,9 @@ module vesin_c
             !! bounding box, one vector per column of the matrix.
             real(c_double), intent(in) :: box(3,3)
 
-            !> Is the system using periodic boundary conditions?
-            logical(c_bool), value     :: periodic
+            !> Is the system using periodic boundary conditions? This
+            !! should be an array of three booleans, one for each dimension.
+            logical(c_bool)            :: periodic(3)
 
             !> Device where the `points` and `box` data is allocated.
             integer(c_int), value      :: device

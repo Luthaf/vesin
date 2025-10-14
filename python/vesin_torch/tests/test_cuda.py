@@ -1,3 +1,4 @@
+import itertools
 import os
 
 import ase.io
@@ -135,7 +136,7 @@ def test_neighbors(system, device):
     vesin_i, vesin_j, vesin_S, vesin_D = calculator.compute(
         points=torch.tensor(atoms.positions).to(device),
         box=torch.tensor(atoms.cell[:]).to(device),
-        periodic=np.all(atoms.pbc),
+        periodic=torch.tensor(atoms.pbc),
         quantities="ijSD",
     )
 
@@ -161,3 +162,54 @@ def test_neighbors(system, device):
 
     assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
+
+
+@pytest.mark.skip(reason="cuda implementataion is currently broken")
+@pytest.mark.parametrize(
+    "periodic",
+    list(itertools.product([False, True], repeat=3)),
+)
+@pytest.mark.parametrize("device", DEVICES)
+def test_mixed_periodic(periodic, device):
+    cutoff = 0.35
+    box = np.eye(3, dtype=np.float64)
+    points = np.random.default_rng(0).random((100, 3))
+
+    atoms = ase.Atoms(positions=points, cell=box, pbc=periodic)
+    ase_i, ase_j, ase_S, ase_D, ase_d = ase.neighborlist.neighbor_list(
+        "ijSDd", atoms, cutoff
+    )
+
+    calculator = NeighborList(cutoff=cutoff, full_list=True)
+    vesin_i, vesin_j, vesin_S, vesin_D, vesin_d = calculator.compute(
+        points=torch.tensor(points, dtype=torch.float64, device=device),
+        box=torch.tensor(box, dtype=torch.float64, device=device),
+        periodic=torch.tensor(periodic, device=device),
+        quantities="ijSDd",
+    )
+
+    vesin_i = vesin_i.cpu().numpy()
+    vesin_j = vesin_j.cpu().numpy()
+    vesin_S = vesin_S.cpu().numpy()
+    vesin_D = vesin_D.cpu().numpy()
+    vesin_d = vesin_d.cpu().numpy()
+
+    assert len(ase_i) == len(vesin_i)
+    assert len(ase_j) == len(vesin_j)
+    assert len(ase_S) == len(vesin_S)
+    assert len(ase_D) == len(vesin_D)
+    assert len(ase_d) == len(vesin_d)
+
+    ase_ijS = np.concatenate(
+        (ase_i.reshape(-1, 1), ase_j.reshape(-1, 1), ase_S), axis=1
+    )
+    vesin_ijS = np.concatenate(
+        (vesin_i.reshape(-1, 1), vesin_j.reshape(-1, 1), vesin_S), axis=1
+    )
+
+    ase_sort_indices = np.lexsort(np.flip(ase_ijS, axis=1).T)
+    vesin_sort_indices = np.lexsort(np.flip(vesin_ijS, axis=1).T)
+
+    assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
+    assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
+    assert np.allclose(ase_d[ase_sort_indices], vesin_d[vesin_sort_indices])

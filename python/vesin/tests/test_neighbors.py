@@ -17,7 +17,7 @@ def non_sorted_nl(quantities, atoms, cutoff):
     outputs = calculator.compute(
         points=atoms.positions,
         box=atoms.cell[:],
-        periodic=np.all(atoms.pbc),
+        periodic=atoms.pbc,
         quantities=quantities,
         copy=False,
     )

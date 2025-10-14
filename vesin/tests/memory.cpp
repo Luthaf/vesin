@@ -13,7 +13,7 @@ TEST_CASE("Re-use allocations") {
         {1.5, 0.0, 1.5},
         {1.5, 1.5, 0.0},
     };
-    bool periodic = true;
+    bool periodic[3] = {true, true, true};
 
     VesinNeighborList neighbors;
 

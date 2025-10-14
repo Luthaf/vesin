@@ -39,21 +39,12 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False, max_nbins=0
     if not isinstance(a, ase.Atoms):
         raise TypeError(f"`a` should be ase.Atoms, got {type(a)} instead")
 
-    if a.pbc[0] and a.pbc[1] and a.pbc[2]:
-        periodic = True
-    elif not a.pbc[0] and not a.pbc[1] and not a.pbc[2]:
-        periodic = False
-    else:
-        raise ValueError(
-            "different periodic boundary conditions on different axis are not supported"
-        )
-
     # sorted=True and full_list=True since that's what ASE does
     calculator = NeighborList(cutoff=cutoff, full_list=True, sorted=True)
     return calculator.compute(
         points=a.positions,
         box=a.cell[:],
-        periodic=periodic,
+        periodic=a.pbc,
         quantities=quantities,
         copy=True,
     )

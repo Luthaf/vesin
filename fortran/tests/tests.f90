@@ -23,7 +23,7 @@ program vesin_test
     box(:, 3) = [0.0, 0.0, 3.2]
 
 
-    call neighbor_list%compute(points, box, periodic=.true., status=ierr)
+    call neighbor_list%compute(points, box, periodic=[.true., .true., .true.], status=ierr)
     if (ierr == 0) call print_and_exit("expected error")
     if (neighbor_list%errmsg /= "NeighborList has to be initialized before calling compute") then
         call print_and_exit("got wrong error")
@@ -43,7 +43,7 @@ program vesin_test
         sorted=.true.                   &
     )
 
-    call neighbor_list%compute(points, box, periodic=.true., status=ierr)
+    call neighbor_list%compute(points, box, periodic=[.true., .true., .true.], status=ierr)
     if (ierr /= 0) call print_and_exit(neighbor_list%errmsg)
 
     if (neighbor_list%length /= 10) call print_and_exit("wrong number of pairs")
@@ -95,7 +95,7 @@ program vesin_test
         sorted=.true.                       &
     )
 
-    call neighbor_list%compute(points, box, periodic=.true., status=ierr)
+    call neighbor_list%compute(points, box, periodic=[.true., .true., .true.], status=ierr)
     if (ierr /= 0) call print_and_exit(neighbor_list%errmsg)
 
     if (neighbor_list%length /= 10) call print_and_exit("wrong number of pairs")

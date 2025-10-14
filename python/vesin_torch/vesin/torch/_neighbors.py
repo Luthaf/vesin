@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 import torch
 
@@ -18,7 +18,7 @@ class NeighborList:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: bool,
+        periodic: Union[bool, torch.Tensor],
         quantities: str,
         copy: bool = True,
     ) -> List[torch.Tensor]:
@@ -37,7 +37,9 @@ class NeighborList:
 
         :param points: positions of all points in the system
         :param box: bounding box of the system
-        :param periodic: should we use periodic boundary conditions?
+        :param periodic: should we use periodic boundary conditions? This can be a
+            single boolean to enable/disable periodic boundary conditions in all
+            directions, or a tensor of three booleans (one for each direction).
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
             Setting this to ``False`` might be a bit faster, but the returned tensors
@@ -46,6 +48,8 @@ class NeighborList:
 
         :return: list of :py:class:`torch.Tensor` as indicated by ``quantities``.
         """
+        if isinstance(periodic, bool):
+            periodic = torch.as_tensor(periodic)
 
         return self._c.compute(
             points=points,

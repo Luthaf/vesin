@@ -177,7 +177,7 @@ CellList::CellList(BoundingBox box, double cutoff):
 
         // don't look for neighboring cells if we have only one cell and no
         // periodic boundary condition
-        if (n_cells[spatial] == 1 && !box.periodic()) {
+        if (n_cells[spatial] == 1 && !box.periodic(spatial)) {
             n_search_[spatial] = 0;
         }
     }
@@ -195,21 +195,17 @@ void CellList::add_point(size_t index, Vector position) {
         static_cast<int32_t>(std::floor(fractional[2] * static_cast<double>(cells_shape_[2]))),
     };
 
-    // deal with pbc by wrapping the atom inside if it was outside of the
-    // cell
+    // deal with pbc by wrapping the atom inside if it was outside of the cell
     CellShift shift;
-    // auto (shift, cell_index) =
-    if (box_.periodic()) {
-        auto result = divmod(cell_index, cells_shape_);
-        shift = CellShift{std::get<0>(result)};
-        cell_index = std::get<1>(result);
-    } else {
-        shift = CellShift({0, 0, 0});
-        cell_index = std::array<int32_t, 3>{
-            std::clamp(cell_index[0], 0, static_cast<int32_t>(cells_shape_[0] - 1)),
-            std::clamp(cell_index[1], 0, static_cast<int32_t>(cells_shape_[1] - 1)),
-            std::clamp(cell_index[2], 0, static_cast<int32_t>(cells_shape_[2] - 1)),
-        };
+    for (size_t spatial = 0; spatial < 3; spatial++) {
+        if (box_.periodic(spatial)) {
+            auto result = divmod(cell_index[spatial], cells_shape_[spatial]);
+            shift[spatial] = std::get<0>(result);
+            cell_index[spatial] = std::get<1>(result);
+        } else {
+            shift[spatial] = 0;
+            cell_index[spatial] = std::clamp(cell_index[spatial], 0, static_cast<int32_t>(cells_shape_[spatial] - 1));
+        }
     }
 
     this->get_cell(cell_index).emplace_back(Point{index, shift});
@@ -241,7 +237,10 @@ void CellList::foreach_pair(Function callback) {
                     auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
                     auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
 
-                    if (!box_.periodic() && !shift_is_zero) {
+                    if ((shift[0] != 0 && !box_.periodic(0)) ||
+                        (shift[1] != 0 && !box_.periodic(1)) ||
+                        (shift[2] != 0 && !box_.periodic(2)))
+                    {
                         // do not create pairs crossing the periodic
                         // boundaries in a non-periodic box
                         continue;

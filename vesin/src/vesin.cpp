@@ -11,7 +11,7 @@ extern "C" int vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    bool periodic[3],
     VesinDevice device,
     VesinOptions options,
     VesinNeighborList* neighbors,

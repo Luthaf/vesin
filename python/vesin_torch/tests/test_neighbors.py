@@ -202,7 +202,7 @@ class NeighborListWrap:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: "Union[bool, Sequence[bool], npt.ArrayLike]",
+        periodic: "Union[bool, list[bool]]",
         quantities: str,
         copy: bool,
     ) -> List[torch.Tensor]:

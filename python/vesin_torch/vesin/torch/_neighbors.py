@@ -1,4 +1,4 @@
-from typing import List, Sequence, Union
+from typing import List, Sequence, Union, overload
 
 import torch
 
@@ -14,11 +14,32 @@ class NeighborList:
         """
         self._c = torch.classes.vesin._NeighborList(cutoff=cutoff, full_list=full_list)
 
+    # offer overloads to satisfy torch-script
+    @overload
     def compute(
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: "Union[bool, List[bool]]",
+        periodic: bool,
+        quantities: str,
+        copy: bool = True,
+    ) -> List[torch.Tensor]: ...
+
+    @overload
+    def compute(
+        self,
+        points: torch.Tensor,
+        box: torch.Tensor,
+        periodic: List[bool],
+        quantities: str,
+        copy: bool = True,
+    ) -> List[torch.Tensor]: ...
+
+    def compute(
+        self,
+        points: torch.Tensor,
+        box: torch.Tensor,
+        periodic: Union[bool, List[bool]],
         quantities: str,
         copy: bool = True,
     ) -> List[torch.Tensor]:
@@ -56,8 +77,21 @@ class NeighborList:
         )
 
 
+# offer overloads to satisfy torch-script
+@overload
 def _normalize_periodic_mask(
-    periodic: Union[bool, Sequence[bool]],
+    periodic: bool,
+) -> List[bool]: ...
+
+
+@overload
+def _normalize_periodic_mask(
+    periodic: List[bool],
+) -> List[bool]: ...
+
+
+def _normalize_periodic_mask(
+    periodic: Union[bool, List[bool]],
 ) -> List[bool]:
     """
     Normalize the periodic boundary conditions mask to a list of 3 booleans.

@@ -39,7 +39,7 @@ class NeighborList:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: Union[bool, List[bool]],
+        periodic: torch.Tensor,
         quantities: str,
         copy: bool = True,
     ) -> List[torch.Tensor]:
@@ -58,7 +58,7 @@ class NeighborList:
 
         :param points: positions of all points in the system
         :param box: bounding box of the system
-        :param periodic: should we use periodic boundary conditions?
+        :param periodic: periodic per-axis periodic boundary condition mask
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
             Setting this to ``False`` might be a bit faster, but the returned tensors
@@ -81,26 +81,34 @@ class NeighborList:
 @overload
 def _normalize_periodic_mask(
     periodic: bool,
-) -> List[bool]: ...
+) -> torch.Tensor: ...
 
 
 @overload
 def _normalize_periodic_mask(
     periodic: List[bool],
-) -> List[bool]: ...
+) -> torch.Tensor: ...
+
+
+@overload
+def _normalize_periodic_mask(
+    periodic: torch.Tensor,
+) -> torch.Tensor: ...
 
 
 def _normalize_periodic_mask(
-    periodic: Union[bool, List[bool]],
-) -> List[bool]:
+    periodic: Union[bool, List[bool], torch.Tensor],
+) -> torch.Tensor:
     """
     Normalize the periodic boundary conditions mask to a list of 3 booleans.
 
     This is the torch-script compatible version.
     """
     if isinstance(periodic, bool):
-        return [periodic, periodic, periodic]
+        return torch.tensor([periodic, periodic, periodic])
+    elif isinstance(periodic, torch.Tensor):
+        return periodic
     else:
         # this will work for any sequence-like object, including lists, tuples,
         # and numpy arrays
-        return [bool(p) for p in periodic]
+        return torch.tensor([bool(p) for p in periodic])

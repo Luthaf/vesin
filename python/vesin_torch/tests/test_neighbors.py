@@ -194,6 +194,59 @@ def test_all_alone_no_neighbors(quantities):
         assert outputs[quantities.index("d")].requires_grad
 
 
+# def test_mixed_periodic_inputs(periodic):
+#     periodic = torch.tensor([True, False, False], dtype=torch.bool)
+#     cutoff = 0.5
+#     # To understand this test, only focus on the first and second axis (x and y coords)
+#     # 1) Since only the first periodic boundary is enabled,
+#     #    the first and second point are only 0.2 away.
+#     # 2) Notice that the first and third point are 0.8 away.
+#     #    However, if periodicity is enabled on the second axis, then
+#     #    they would only be 0.1 away and would be considered neighbors.
+#     points = torch.tensor(
+#         [
+#             [0.1, 0.0, 0.0],
+#             [0.9, 0.0, 0.0],
+#             [0.1, 0.9, 0.0],
+#         ],
+#         dtype=torch.float64,
+#     )
+#     box = torch.eye(3, dtype=torch.float64)
+
+#     calculator = NeighborList(cutoff=cutoff, full_list=False)
+#     i, j, shifts, distances, vectors = calculator.compute(
+#         points, box, periodic, "ijSdD"
+#     )
+
+#     torch.testing.assert_close(i.cpu(), torch.tensor([0], dtype=torch.int64))
+#     torch.testing.assert_close(j.cpu(), torch.tensor([1], dtype=torch.int64))
+#     torch.testing.assert_close(
+#         shifts.cpu(), torch.tensor([[-1, 0, 0]], dtype=torch.int32)
+#     )
+#     torch.testing.assert_close(
+#         distances.cpu(), torch.tensor([0.2], dtype=torch.float64)
+#     )
+#     torch.testing.assert_close(
+#         vectors.cpu(), torch.tensor([[-0.2, 0.0, 0.0]], dtype=torch.float64)
+#     )
+
+
+def test_mixed_periodic_disabled_axes():
+    points = torch.tensor(
+        [
+            [0.1, 0.0, 0.0],
+            [0.9, 0.0, 0.0],
+        ],
+        dtype=torch.float64,
+    )
+    box = torch.eye(3, dtype=torch.float64)
+
+    calculator = NeighborList(cutoff=0.3, full_list=False)
+    i, *_ = calculator.compute(points, box, [False, False, False], "i")
+
+    assert i.numel() == 0
+
+
 class NeighborListWrap:
     def __init__(self, cutoff: float, full_list: bool):
         self._c = NeighborList(cutoff=cutoff, full_list=full_list)

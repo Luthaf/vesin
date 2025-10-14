@@ -16,15 +16,18 @@ namespace cuda {
 /// @param points Pointer to an array of 3D points (shape: [n_points][3]).
 /// @param n_points Number of points (atoms, particles, etc.).
 /// @param box 3×3 simulation matrix defining the bounding box of the system.
+/// @param periodic Array of three booleans indicating periodicity in each
+//      dimension.
 /// @param options Struct holding parameters such as cutoff, symmetry, etc.
 /// @param neighbors Output neighbor list (device memory will be allocated as
-///      needed)
+///     needed)
 /// @param d_box_check device-allocated status checking valid box size with
 ///     respect to cutoff .
 void compute_mic_neighbourlist(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
+    const bool periodic[3],
     int* d_box_check,
     VesinOptions options,
     VesinNeighborList& neighbors

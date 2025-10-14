@@ -133,6 +133,7 @@ void vesin::cuda::neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
+    const bool periodic[3],
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
@@ -140,13 +141,15 @@ void vesin::cuda::neighbors(
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
 
     // assert both points and box are device pointers
-    assert(is_device_ptr(get_ptr_attributes(points)) && "points pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(get_ptr_attributes(box)) && "box pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(get_ptr_attributes(points)) && "`points` is not allocated on a CUDA device");
+    assert(is_device_ptr(get_ptr_attributes(box)) && "`box` is not allocated on a CUDA device");
+    assert(is_device_ptr(get_ptr_attributes(periodic)) && "`periodic` is not allocated on a CUDA device");
 
     int device = get_device_id(points);
     // assert both points and box are on the same device
-    assert((device == get_device_id(box)) && "points and box pointers do not exist on the same device");
-    assert((device == neighbors.device.device_id) && "points and box device differs from input neighbors device_id");
+    assert((device == get_device_id(box)) && "`points` and `box` do not exist on the same device");
+    assert((device == get_device_id(periodic)) && "`points` and `periodic` do not exist on the same device");
+    assert((device == neighbors.device.device_id) && "`points`, `box` and `periodic` device differs from input neighbors device_id");
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
@@ -210,6 +213,7 @@ void vesin::cuda::neighbors(
         points,
         n_points,
         box,
+        periodic,
         extras->box_check_ptr,
         options,
         neighbors

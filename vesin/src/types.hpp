@@ -1,40 +1,52 @@
 #ifndef VESIN_TYPES_HPP
 #define VESIN_TYPES_HPP
 
+#include <array>
+
 #include "math.hpp"
 
 namespace vesin {
 
 class BoundingBox {
 public:
-    BoundingBox(Matrix matrix, bool periodic):
+    BoundingBox(Matrix matrix, bool periodic[3]):
         matrix_(matrix),
-        periodic_(periodic) {
-        if (periodic) {
-            auto det = matrix_.determinant();
-            if (std::abs(det) < 1e-30) {
-                throw std::runtime_error("the box matrix is not invertible");
+        periodic_({periodic[0], periodic[1], periodic[2]}) {
+        if (!periodic_[0]) {
+            matrix_[0] = Vector{1, 0, 0};
+            if (std::abs(matrix_[1][0]) > 1e-10 || std::abs(matrix_[2][0]) > 1e-10) {
+                throw std::runtime_error("the box is not aligned with the x axis but periodicity is disabled along this axis");
             }
-
-            this->inverse_ = matrix_.inverse();
-        } else {
-            // clang-format off
-            this->matrix_ = Matrix{{{
-                {{1, 0, 0}},
-                {{0, 1, 0}},
-                {{0, 0, 1}}
-            }}};
-            // clang-format on
-            this->inverse_ = matrix_;
         }
+
+        if (!periodic_[1]) {
+            matrix_[1] = Vector{0, 1, 0};
+            if (std::abs(matrix_[0][1]) > 1e-10 || std::abs(matrix_[2][1]) > 1e-10) {
+                throw std::runtime_error("the box is not aligned with the y axis but periodicity is disabled along this axis");
+            }
+        }
+
+        if (!periodic_[2]) {
+            matrix_[2] = Vector{0, 0, 1};
+            if (std::abs(matrix_[0][2]) > 1e-10 || std::abs(matrix_[1][2]) > 1e-10) {
+                throw std::runtime_error("the box is not aligned with the z axis but periodicity is disabled along this axis");
+            }
+        }
+
+        auto det = matrix_.determinant();
+        if (std::abs(det) < 1e-30) {
+            throw std::runtime_error("the box matrix is not invertible");
+        }
+
+        this->inverse_ = matrix_.inverse();
     }
 
     const Matrix& matrix() const {
         return this->matrix_;
     }
 
-    bool periodic() const {
-        return this->periodic_;
+    bool periodic(size_t spatial) const {
+        return this->periodic_[spatial];
     }
 
     /// Convert a vector from cartesian coordinates to fractional coordinates
@@ -68,7 +80,7 @@ public:
 private:
     Matrix matrix_;
     Matrix inverse_;
-    bool periodic_;
+    std::array<bool, 3> periodic_;
 };
 
 /// A cell shift represents the displacement along cell axis between the actual

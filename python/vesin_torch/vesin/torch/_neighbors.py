@@ -1,4 +1,4 @@
-from typing import List, Sequence, Union, overload
+from typing import List, Union, overload
 
 import torch
 

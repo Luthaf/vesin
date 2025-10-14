@@ -202,14 +202,14 @@ class NeighborListWrap:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: "Union[bool, list[bool]]",
+        periodic: List[bool],
         quantities: str,
         copy: bool,
     ) -> List[torch.Tensor]:
         return self._c.compute(
             points=points,
             box=box,
-            periodic=_normalize_periodic_mask(periodic),
+            periodic=periodic,
             quantities=quantities,
             copy=copy,
         )

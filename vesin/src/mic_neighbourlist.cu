@@ -105,7 +105,7 @@ __global__ void compute_mic_neighbours_full_impl(
     const int32_t warp_id = threadIdx.x / WARP_SIZE;
     const int32_t thread_id = threadIdx.x % WARP_SIZE;
 
-    const int32_t node_index = blockIdx.x * NWARPS + warp_id;
+    const int32_t point_i = blockIdx.x * NWARPS + warp_id;
     const double cutoff2 = cutoff * cutoff;
 
     if (cell != nullptr) {
@@ -123,11 +123,11 @@ __global__ void compute_mic_neighbours_full_impl(
     // Ensure inv_cell is ready
     __syncthreads();
 
-    if (node_index >= n_points) {
+    if (point_i >= n_points) {
         return;
     }
 
-    double3 ri = *reinterpret_cast<const double3*>(&positions[node_index * 3]);
+    double3 ri = *reinterpret_cast<const double3*>(&positions[point_i * 3]);
 
     for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
         double3 rj = *reinterpret_cast<const double3*>(&positions[j * 3]);
@@ -154,7 +154,7 @@ __global__ void compute_mic_neighbours_full_impl(
         base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
         if (is_valid) {
             size_t current_pair = base_pair_index + local_offset;
-            pair_indices[current_pair * 2 + 0] = node_index;
+            pair_indices[current_pair * 2 + 0] = point_i;
             pair_indices[current_pair * 2 + 1] = j;
 
             if (return_shifts) {
@@ -176,7 +176,7 @@ __global__ void compute_mic_neighbours_half_impl(
     size_t n_points,
     double cutoff,
     size_t* length,
-    size_t* edge_indices,
+    size_t* pair_indices,
     int32_t* shifts,
     double* distances,
     double* vectors,
@@ -245,8 +245,8 @@ __global__ void compute_mic_neighbours_half_impl(
 
     if (is_valid) {
         size_t pair_index = base_pair_index + local_offset;
-        edge_indices[pair_index * 2 + 0] = column;
-        edge_indices[pair_index * 2 + 1] = row;
+        pair_indices[pair_index * 2 + 0] = column;
+        pair_indices[pair_index * 2 + 1] = row;
 
         if (return_shifts) {
             reinterpret_cast<int3&>(shifts[pair_index * 3]) = shift;

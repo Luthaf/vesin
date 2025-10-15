@@ -64,8 +64,8 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
     if (this->length_ptr) {
         cudaFree(this->length_ptr);
     }
-    if (this->cell_check_ptr) {
-        cudaFree(this->cell_check_ptr);
+    if (this->box_check_ptr) {
+        cudaFree(this->box_check_ptr);
     }
 }
 
@@ -132,21 +132,21 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 void vesin::cuda::neighbors(
     const double (*points)[3],
     size_t n_points,
-    const double cell[3][3],
+    const double box[3][3],
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
     assert(neighbors.device.type == VesinCUDA);
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
 
-    // assert both points and cell are device pointers
+    // assert both points and box are device pointers
     assert(is_device_ptr(get_ptr_attributes(points)) && "points pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(get_ptr_attributes(cell)) && "cell pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(get_ptr_attributes(box)) && "box pointer is not allocated on a CUDA device");
 
     int device = get_device_id(points);
-    // assert both points and cell are on the same device
-    assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
-    assert((device == neighbors.device.device_id) && "points and cell device differs from input neighbors device_id");
+    // assert both points and box are on the same device
+    assert((device == get_device_id(box)) && "points and box pointers do not exist on the same device");
+    assert((device == neighbors.device.device_id) && "points and box device differs from input neighbors device_id");
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
@@ -167,7 +167,7 @@ void vesin::cuda::neighbors(
     if (extras->capacity >= n_points && extras->length_ptr) {
         // allocation fits, so just memset set the length_ptr to 0
         CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(extras->length_ptr)));
-        CUDA_CHECK(cudaMemset(extras->cell_check_ptr, 0, sizeof(extras->cell_check_ptr)));
+        CUDA_CHECK(cudaMemset(extras->box_check_ptr, 0, sizeof(extras->box_check_ptr)));
     } else {
         // need a new allocation, so reset and reallocate
         reset(neighbors);
@@ -200,8 +200,8 @@ void vesin::cuda::neighbors(
         CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
         CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
 
-        CUDA_CHECK(cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int)));
-        CUDA_CHECK(cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
+        CUDA_CHECK(cudaMalloc((void**)&extras->box_check_ptr, sizeof(int)));
+        CUDA_CHECK(cudaMemset(extras->box_check_ptr, 0, sizeof(int)));
 
         extras->capacity = static_cast<size_t>(1.2 * n_points);
     }
@@ -209,8 +209,8 @@ void vesin::cuda::neighbors(
     vesin::cuda::compute_mic_neighbourlist(
         points,
         n_points,
-        cell,
-        extras->cell_check_ptr,
+        box,
+        extras->box_check_ptr,
         options,
         neighbors
     );

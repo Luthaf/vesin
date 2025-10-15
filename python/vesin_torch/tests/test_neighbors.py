@@ -64,6 +64,9 @@ def test_large_box_small_cutoff(device, full_list):
     calculator = NeighborList(cutoff=2.1, full_list=full_list)
 
     i, j, d = calculator.compute(points, box, periodic=True, quantities="ijd")
+    assert len(i) == len(j)
+    assert len(i) == len(d)
+    assert len(i) == (8 if full_list else 4)
 
     pairs = torch.stack((i, j), dim=1)
     sort_idx = torch.argsort(pairs[:, 0] * (i.max() + 1) + pairs[:, 1])

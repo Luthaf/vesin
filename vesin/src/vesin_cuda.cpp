@@ -133,6 +133,7 @@ void vesin::cuda::neighbors(
     const double (*points)[3],
     size_t n_points,
     const double cell[3][3],
+    const bool periodic[3],
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
@@ -141,11 +142,15 @@ void vesin::cuda::neighbors(
 
     // assert both points and cell are device pointers
     assert(is_device_ptr(get_ptr_attributes(points)) && "points pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(get_ptr_attributes(cell)) && "cell pointer is not allocated on a CUDA device");
 
     int device = get_device_id(points);
-    // assert both points and cell are on the same device
-    assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
+    auto any_periodic = periodic[0] || periodic[1] || periodic[2];
+    if (any_periodic) {
+        assert(cell != nullptr && "periodic calculations require a non-null cell pointer");
+        assert(is_device_ptr(get_ptr_attributes(cell)) && "cell pointer is not allocated on a CUDA device");
+        // assert both points and cell are on the same device
+        assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
+    }
     assert((device == neighbors.device.device_id) && "points and cell device differs from input neighbors device_id");
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
@@ -209,7 +214,8 @@ void vesin::cuda::neighbors(
     vesin::cuda::compute_mic_neighbourlist(
         points,
         n_points,
-        cell,
+        any_periodic ? cell : nullptr,
+        periodic,
         extras->cell_check_ptr,
         options,
         neighbors

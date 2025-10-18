@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 import torch
 
@@ -18,7 +18,7 @@ class NeighborList:
         self,
         points: torch.Tensor,
         box: torch.Tensor,
-        periodic: bool,
+        periodic: Union[bool, torch.Tensor],
         quantities: str,
         copy: bool = True,
     ) -> List[torch.Tensor]:
@@ -46,6 +46,9 @@ class NeighborList:
 
         :return: list of :py:class:`torch.Tensor` as indicated by ``quantities``.
         """
+
+        if isinstance(periodic, bool):
+            periodic = torch.tensor([periodic, periodic, periodic], dtype=torch.bool)
 
         return self._c.compute(
             points=points,

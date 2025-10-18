@@ -26,6 +26,7 @@ void compute_mic_neighbourlist(
     const double (*points)[3],
     size_t n_points,
     const double cell[3][3],
+    const bool periodic[3],
     int* d_cell_check,
     VesinOptions options,
     VesinNeighborList& neighbors

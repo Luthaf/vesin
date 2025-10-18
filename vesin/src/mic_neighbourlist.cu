@@ -59,7 +59,8 @@ __device__ void apply_periodic_boundary(
     double3& vector,
     int3& shift,
     const double* cell,
-    const double* inv_cell
+    const double* inv_cell,
+    char3 periodic_mask
 ) {
     double3 fractional;
     fractional.x = vector.x * inv_cell[0] + vector.y * inv_cell[1] + vector.z * inv_cell[2];
@@ -70,13 +71,18 @@ __device__ void apply_periodic_boundary(
     int32_t sy = static_cast<int32_t>(round(fractional.y));
     int32_t sz = static_cast<int32_t>(round(fractional.z));
 
-    shift.x = sx;
-    shift.y = sy;
-    shift.z = sz;
-
-    fractional.x -= sx;
-    fractional.y -= sy;
-    fractional.z -= sz;
+    if (periodic_mask.x != 0) {
+        shift.x = sx;
+        fractional.x -= sx;
+    }
+    if (periodic_mask.y != 0) {
+        shift.y = sy;
+        fractional.y -= sy;
+    }
+    if (periodic_mask.z != 0) {
+        shift.z = sz;
+        fractional.z -= sz;
+    }
 
     double3 wrapped;
     wrapped.x = fractional.x * cell[0] + fractional.y * cell[3] + fractional.z * cell[6];
@@ -89,6 +95,7 @@ __device__ void apply_periodic_boundary(
 __global__ void compute_mic_neighbours_full_impl(
     const double* positions,
     const double* cell,
+    char3 periodic_mask,
     size_t n_points,
     double cutoff,
     size_t* length,
@@ -135,7 +142,7 @@ __global__ void compute_mic_neighbours_full_impl(
         double3 vector = ri - rj;
         int3 shift = make_int3(0, 0, 0);
         if (cell != nullptr) {
-            apply_periodic_boundary(vector, shift, scell, sinv_cell);
+            apply_periodic_boundary(vector, shift, scell, sinv_cell, periodic_mask);
         }
 
         double distance2 = dot(vector, vector);
@@ -173,6 +180,7 @@ __global__ void compute_mic_neighbours_full_impl(
 __global__ void compute_mic_neighbours_half_impl(
     const double* positions,
     const double* cell,
+    char3 periodic_mask,
     size_t n_points,
     double cutoff,
     size_t* length,
@@ -223,7 +231,7 @@ __global__ void compute_mic_neighbours_half_impl(
     double3 vector = ri - rj;
     int3 shift = make_int3(0, 0, 0);
     if (cell != nullptr) {
-        apply_periodic_boundary(vector, shift, scell, sinv_cell);
+        apply_periodic_boundary(vector, shift, scell, sinv_cell, periodic_mask);
     }
 
     double distance2 = dot(vector, vector);
@@ -336,6 +344,7 @@ void vesin::cuda::compute_mic_neighbourlist(
     const double (*points)[3],
     size_t n_points,
     const double cell[3][3],
+    const bool periodic[3],
     int32_t* d_cell_check,
     VesinOptions options,
     VesinNeighborList& neighbors
@@ -365,12 +374,15 @@ void vesin::cuda::compute_mic_neighbourlist(
         );
     }
 
+    char3 periodic_mask = make_char3(periodic[0], periodic[1], periodic[2]);
+
     if (options.full) {
         dim3 gridDim(max((int32_t)(n_points + NWARPS - 1) / NWARPS, 1));
 
         compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
             d_positions,
             d_cell,
+            periodic_mask,
             n_points,
             options.cutoff,
             d_pair_counter,
@@ -394,6 +406,7 @@ void vesin::cuda::compute_mic_neighbourlist(
         compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
             d_positions,
             d_cell,
+            periodic_mask,
             n_points,
             options.cutoff,
             d_pair_counter,

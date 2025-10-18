@@ -7,3 +7,7 @@ __pycache__/
 *.egg-info
 
 vesin-single-build.cpp
+
+.idea/
+python/vesin/vesin/lib/
+python/vesin_torch/core.1715650

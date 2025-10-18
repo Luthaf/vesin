@@ -59,6 +59,11 @@ private:
 
     BoundingBox box_;
 
+    bool calc_neighbor_cell_shifts_and_check_outside_bounds(
+        std::array<int32_t, 3>& neighbor_cell_i,
+        CellShift& cell_shift
+    ) const;
+
     Cell& get_cell(std::array<int32_t, 3> index);
 };
 

@@ -43,10 +43,10 @@ def setup_functions(lib):
     lib.vesin_free.restype = None
 
     lib.vesin_neighbors.argtypes = [
-        POINTER(ARRAY(ctypes.c_double, 3)),  # points
+        POINTER(ctypes.c_double),  # points
         ctypes.c_size_t,  # n_points
-        ARRAY(ARRAY(ctypes.c_double, 3), 3),  # box
-        ARRAY(ctypes.c_bool, 3),  # periodic
+        POINTER(ctypes.c_double),  # box
+        POINTER(ctypes.c_bool),  # periodic
         VesinDevice,  # device
         VesinOptions,  # options
         POINTER(VesinNeighborList),  # neighbors

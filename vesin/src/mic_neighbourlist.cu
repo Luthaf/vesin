@@ -151,7 +151,7 @@ __global__ void compute_mic_neighbours_full_impl(
     for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
         double3 rj = positions[j];
 
-        double3 vector = ri - rj;
+        double3 vector = rj - ri;
         int3 shift = make_int3(0, 0, 0);
         if (box != nullptr) {
             apply_periodic_boundary(vector, shift, shared_box, shared_inv_box);
@@ -238,7 +238,7 @@ __global__ void compute_mic_neighbours_half_impl(
     double3 ri = positions[column];
     double3 rj = positions[row];
 
-    double3 vector = ri - rj;
+    double3 vector = rj - ri;
     int3 shift = make_int3(0, 0, 0);
     if (box != nullptr) {
         apply_periodic_boundary(vector, shift, shared_box, shared_inv_box);

@@ -53,8 +53,17 @@ def merge_files(path, output):
                 output.write(line)
 
 
+def add_version(output):
+    with open(os.path.join(HERE, "vesin", "VERSION")) as fd:
+        version = fd.read().strip()
+
+    output.write("// automatically generated \n")
+    output.write(f"// vesin version: {version}\n\n")
+
+
 if __name__ == "__main__":
     with open("vesin-single-build.cpp", "w") as output:
+        add_version(output)
         merge_files("cpu_cell_list.cpp", output)
         merge_files("cuda_stub.cpp", output)
         merge_files("vesin.cpp", output)

@@ -23,6 +23,8 @@ copyright = f"{datetime.now().date().year}, vesin developers"
 def setup(app):
     subprocess.run(["doxygen", "Doxyfile"], cwd=os.path.join(ROOT, "docs"))
 
+    app.add_css_file("vesin.css")
+
 
 # -- General configuration ---------------------------------------------------
 
@@ -76,4 +78,4 @@ intersphinx_mapping = {
 
 html_theme = "furo"
 html_title = "Vesin"
-# html_static_path = ["_static"]
+html_static_path = ["static"]

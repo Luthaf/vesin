@@ -137,10 +137,11 @@ Installation
         ``vesin-single-build.cpp`` in your project and configure your build
         system accordingly.
 
-        **TorchScript:**
+        .. important::
 
-        The TorchScript API does not support single file build, please use one
-        of the CMake options instead.
+            Neither the **TorchScript** API or the **CUDA** implementation are
+            supported by the single file file build. If you need these features,
+            please use one of the CMake options instead.
 
 
     .. tab-item:: C/C++ (global installation)

@@ -56,6 +56,7 @@ def merge_files(path, output):
 if __name__ == "__main__":
     with open("vesin-single-build.cpp", "w") as output:
         merge_files("cpu_cell_list.cpp", output)
+        merge_files("cuda_stub.cpp", output)
         merge_files("vesin.cpp", output)
 
     print("created single build file 'vesin-single-build.cpp'")

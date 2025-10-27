@@ -30,6 +30,7 @@ classifiers = [
 homepage = "https://github.com/Luthaf/vesin/"
 documentation = "https://luthaf.fr/vesin/"
 repository = "https://github.com/Luthaf/vesin/"
+changelog = "https://github.com/Luthaf/vesin/blob/main/CHANEGELOG.md"
 
 ### ======================================================================== ###
 

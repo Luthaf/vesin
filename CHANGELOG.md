@@ -22,6 +22,11 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 - vesin can now compute neighbor lists on GPUs using CUDA. This is automatically
   integrated in vesin-torch, and can be used with CuPy in the `vesin` python
   package.
+
+## [Version 0.4.0](https://github.com/Luthaf/vesin/releases/tag/v0.4.0) - 2025-10-27
+
+### Added
+
 - vesin now offers a Fortran API, you can enable it by giving the `-DVESIN_FORTRAN=ON` option to cmake (#50)
 - the single file build now contains a comment mentionning which version of
   vesin the file corresponds to.

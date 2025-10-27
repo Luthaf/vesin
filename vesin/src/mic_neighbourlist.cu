@@ -286,10 +286,11 @@ __global__ void compute_mic_neighbours_half_impl(
     }
 }
 
+// possible error for mic_box_check
 #define CUTOFF_TOO_LARGE 1
-#define NOT_ALIGNED_X 2
-#define NOT_ALIGNED_Y 3
-#define NOT_ALIGNED_Z 4
+#define NOT_ALIGNED_LATTICE_A 2
+#define NOT_ALIGNED_LATTICE_B 3
+#define NOT_ALIGNED_LATTICE_C 4
 
 __global__ void mic_box_check(
     const double3 box[3],
@@ -373,18 +374,18 @@ __global__ void mic_box_check(
             return;
         }
 
-        if (!periodic[0] && (fabs(box[1].x) > 1e-10 || fabs(box[2].x) > 1e-10)) {
-            status[0] = NOT_ALIGNED_X;
+        if (!periodic[0] && (fabs(box[1].x) > 1e-6 || fabs(box[2].x) > 1e-6)) {
+            status[0] = NOT_ALIGNED_LATTICE_A;
             return;
         }
 
-        if (!periodic[1] && (fabs(box[0].y) > 1e-10 || fabs(box[2].y) > 1e-10)) {
-            status[0] = NOT_ALIGNED_Y;
+        if (!periodic[1] && (fabs(box[0].y) > 1e-6 || fabs(box[2].y) > 1e-6)) {
+            status[0] = NOT_ALIGNED_LATTICE_B;
             return;
         }
 
-        if (!periodic[2] && (fabs(box[0].z) > 1e-10 || fabs(box[1].z) > 1e-10)) {
-            status[0] = NOT_ALIGNED_Z;
+        if (!periodic[2] && (fabs(box[0].z) > 1e-6 || fabs(box[1].z) > 1e-6)) {
+            status[0] = NOT_ALIGNED_LATTICE_C;
             return;
         }
 
@@ -426,24 +427,24 @@ void vesin::cuda::compute_mic_neighbourlist(
 
     if (h_box_check == CUTOFF_TOO_LARGE) {
         throw std::runtime_error(
-            "Cutoff it too large for the current box, the CUDA implementation "
-            "of vesin uses minimum image convention (MIC). Each box dimension "
+            "cutoff it too large for the current box, the CUDA implementation "
+            "of vesin uses minimum image convention. Each box dimension "
             "must be at least twice the cutoff."
         );
-    } else if (h_box_check == NOT_ALIGNED_X) {
+    } else if (h_box_check == NOT_ALIGNED_LATTICE_A) {
         throw std::runtime_error(
-            "the box is not aligned with the x axis but periodicity is "
-            "disabled along this axis"
+            "periodicity is disabled along the A lattice vector, but the "
+            "box is not defined in the yz plane"
         );
-    } else if (h_box_check == NOT_ALIGNED_Y) {
+    } else if (h_box_check == NOT_ALIGNED_LATTICE_B) {
         throw std::runtime_error(
-            "the box is not aligned with the y axis but periodicity is "
-            "disabled along this axis"
+            "periodicity is disabled along the B lattice vector, but the "
+            "box is not defined in the xz plane"
         );
-    } else if (h_box_check == NOT_ALIGNED_Z) {
+    } else if (h_box_check == NOT_ALIGNED_LATTICE_C) {
         throw std::runtime_error(
-            "the box is not aligned with the z axis but periodicity is "
-            "disabled along this axis"
+            "periodicity is disabled along the CX lattice vector, but the "
+            "box is not defined in the xy plane"
         );
     } else if (h_box_check != 0) {
         throw std::runtime_error("unknown error in box check");

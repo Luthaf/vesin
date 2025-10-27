@@ -2,6 +2,7 @@
 #define VESIN_TYPES_HPP
 
 #include <array>
+#include <string>
 
 #include "math.hpp"
 
@@ -14,22 +15,37 @@ public:
         periodic_({periodic[0], periodic[1], periodic[2]}) {
         if (!periodic_[0]) {
             matrix_[0] = Vector{1, 0, 0};
-            if (std::abs(matrix_[1][0]) > 1e-10 || std::abs(matrix_[2][0]) > 1e-10) {
-                throw std::runtime_error("the box is not aligned with the x axis but periodicity is disabled along this axis");
+            if (std::abs(matrix_[1][0]) > 1e-6 || std::abs(matrix_[2][0]) > 1e-6) {
+                throw std::runtime_error(
+                    "periodicity is disabled along the A lattice vector, but the "
+                    "box is not defined in the yz plane: B.x = " +
+                    std::to_string(matrix_[1][0]) +
+                    ", C.x = " + std::to_string(matrix_[2][0])
+                );
             }
         }
 
         if (!periodic_[1]) {
             matrix_[1] = Vector{0, 1, 0};
-            if (std::abs(matrix_[0][1]) > 1e-10 || std::abs(matrix_[2][1]) > 1e-10) {
-                throw std::runtime_error("the box is not aligned with the y axis but periodicity is disabled along this axis");
+            if (std::abs(matrix_[0][1]) > 1e-6 || std::abs(matrix_[2][1]) > 1e-6) {
+                throw std::runtime_error(
+                    "periodicity is disabled along the B lattice vector, but the "
+                    "box is not defined in the xz plane: A.y = " +
+                    std::to_string(matrix_[0][1]) +
+                    ", C.y = " + std::to_string(matrix_[2][1])
+                );
             }
         }
 
         if (!periodic_[2]) {
             matrix_[2] = Vector{0, 0, 1};
-            if (std::abs(matrix_[0][2]) > 1e-10 || std::abs(matrix_[1][2]) > 1e-10) {
-                throw std::runtime_error("the box is not aligned with the z axis but periodicity is disabled along this axis");
+            if (std::abs(matrix_[0][2]) > 1e-6 || std::abs(matrix_[1][2]) > 1e-6) {
+                throw std::runtime_error(
+                    "periodicity is disabled along the C lattice vector, but the "
+                    "box is not defined in the xy plane: A.z = " +
+                    std::to_string(matrix_[0][2]) +
+                    ", B.z = " + std::to_string(matrix_[1][2])
+                );
             }
         }
 

@@ -28,7 +28,7 @@ option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJEC
 
 add_subdirectory(vesin)
 
-find_package(Torch 1.12 REQUIRED)
+find_package(Torch 2.3 REQUIRED)
 
 # PyTorch requires passing std::string & co. across DLL boundaries, which fails
 # when using a different runtime library from the one used by torch.dll & co.

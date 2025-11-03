@@ -102,8 +102,8 @@ def test_all_alone_no_neighbors(quantities):
 
 
 class NeighborListWrap:
-    def __init__(self, cutoff: float, full_list: bool):
-        self._c = NeighborList(cutoff=cutoff, full_list=full_list)
+    def __init__(self, cutoff: float, full_list: bool, sorted: bool):
+        self._c = NeighborList(cutoff=cutoff, full_list=full_list, sorted=sorted)
 
     def compute(
         self,

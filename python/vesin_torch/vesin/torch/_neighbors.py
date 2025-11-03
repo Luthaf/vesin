@@ -6,13 +6,19 @@ import torch
 class NeighborList:
     """A neighbor list calculator that can be used with TorchScript."""
 
-    def __init__(self, cutoff: float, full_list: bool):
+    def __init__(self, cutoff: float, full_list: bool, sorted: bool = False):
         """
         :param cutoff: spherical cutoff for this neighbor list
         :param full_list: should we return each pair twice (as ``i-j`` and ``j-i``) or
             only once
+        :param sorted: Should vesin sort the returned pairs in lexicographic order
+            (sorting both ``i`` and then ``j`` at constant ``i``)?
         """
-        self._c = torch.classes.vesin._NeighborList(cutoff=cutoff, full_list=full_list)
+        self._c = torch.classes.vesin._NeighborList(
+            cutoff=cutoff,
+            full_list=full_list,
+            sorted=sorted,
+        )
 
     def compute(
         self,

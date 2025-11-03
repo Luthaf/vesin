@@ -23,6 +23,12 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   integrated in vesin-torch, and can be used with CuPy in the `vesin` python
   package.
 
+## [Version 0.4.1](https://github.com/Luthaf/vesin/releases/tag/v0.4.1) - 2025-11-03
+
+### Added
+
+- `vesin-torch` wheels on PyPI now support PyTorch v2.9
+
 ## [Version 0.4.0](https://github.com/Luthaf/vesin/releases/tag/v0.4.0) - 2025-10-27
 
 ### Added

@@ -288,3 +288,33 @@ jobs:
           prerelease: ${{ contains(github.ref, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  single-cxx-build:
+    name: Create the single file build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: create single file build
+        run: |
+          python create-single-cpp.py
+
+      - name: upload to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vesin-single-build.tar.gz
+          prerelease: ${{ contains(github.ref, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import tarfile
 
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -68,4 +69,8 @@ if __name__ == "__main__":
         merge_files("cuda_stub.cpp", output)
         merge_files("vesin.cpp", output)
 
-    print("created single build file 'vesin-single-build.cpp'")
+    with tarfile.open("vesin-single-build.tar.gz", "w:gz") as tar:
+        tar.add("vesin-single-build.cpp")
+        tar.add(os.path.join(HERE, "vesin", "include", "vesin.h"), arcname="vesin.h")
+
+    print("created 'vesin-single-build.cpp' and 'vesin-single-build.tar.gz'")

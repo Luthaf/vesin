@@ -314,7 +314,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            vesin-single-build.tar.gz
+            vesin-single-build-v*.tar.gz
           prerelease: ${{ contains(github.ref, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

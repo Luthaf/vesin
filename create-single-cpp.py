@@ -63,14 +63,19 @@ def add_version(output):
 
 
 if __name__ == "__main__":
+    with open(os.path.join(HERE, "vesin", "VERSION")) as fd:
+        version = fd.read().strip()
+
     with open("vesin-single-build.cpp", "w") as output:
         add_version(output)
         merge_files("cpu_cell_list.cpp", output)
         merge_files("cuda_stub.cpp", output)
         merge_files("vesin.cpp", output)
 
-    with tarfile.open("vesin-single-build.tar.gz", "w:gz") as tar:
+    with tarfile.open(f"vesin-single-build-v{version}.tar.gz", "w:gz") as tar:
         tar.add("vesin-single-build.cpp")
         tar.add(os.path.join(HERE, "vesin", "include", "vesin.h"), arcname="vesin.h")
 
-    print("created 'vesin-single-build.cpp' and 'vesin-single-build.tar.gz'")
+    print(
+        f"created 'vesin-single-build.cpp' and 'vesin-single-build-v{version}.tar.gz'"
+    )

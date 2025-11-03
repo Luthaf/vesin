@@ -76,7 +76,7 @@ jobs:
       - name: setup dependencies
         run: ${{ matrix.setup-dependencies }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

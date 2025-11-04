@@ -2,7 +2,7 @@
 #define VESIN_TYPES_HPP
 
 #include <array>
-#include <string>
+#include <cassert>
 
 #include "math.hpp"
 
@@ -13,42 +13,56 @@ public:
     BoundingBox(Matrix matrix, bool periodic[3]):
         matrix_(matrix),
         periodic_({periodic[0], periodic[1], periodic[2]}) {
-        if (!periodic_[0]) {
-            matrix_[0] = Vector{1, 0, 0};
-            if (std::abs(matrix_[1][0]) > 1e-6 || std::abs(matrix_[2][0]) > 1e-6) {
-                throw std::runtime_error(
-                    "periodicity is disabled along the A lattice vector, but the "
-                    "box is not defined in the yz plane: B.x = " +
-                    std::to_string(matrix_[1][0]) +
-                    ", C.x = " + std::to_string(matrix_[2][0])
-                );
+
+        // find number of periodic directions and their indices
+        int n_periodic = 0;
+        int periodic_idx_1 = -1;
+        int periodic_idx_2 = -1;
+        for (int i = 0; i < 3; ++i) {
+            if (periodic_[i]) {
+                n_periodic += 1;
+                if (periodic_idx_1 == -1) {
+                    periodic_idx_1 = i;
+                } else if (periodic_idx_2 == -1) {
+                    periodic_idx_2 = i;
+                }
             }
         }
 
-        if (!periodic_[1]) {
-            matrix_[1] = Vector{0, 1, 0};
-            if (std::abs(matrix_[0][1]) > 1e-6 || std::abs(matrix_[2][1]) > 1e-6) {
-                throw std::runtime_error(
-                    "periodicity is disabled along the B lattice vector, but the "
-                    "box is not defined in the xz plane: A.y = " +
-                    std::to_string(matrix_[0][1]) +
-                    ", C.y = " + std::to_string(matrix_[2][1])
-                );
+        // adjust the box matrix to have a simple orthogonal dimension along
+        // non-periodic directions
+        if (n_periodic == 0) {
+            matrix_ = Matrix{
+                std::array<double, 3>{1, 0, 0},
+                std::array<double, 3>{0, 1, 0},
+                std::array<double, 3>{0, 0, 1},
+            };
+        } else if (n_periodic == 1) {
+            assert(periodic_idx_1 != -1);
+            // Make the two non-periodic directions orthogonal to the periodic one
+            auto a = Vector{matrix_[periodic_idx_1]};
+            auto b = Vector{0, 1, 0};
+            if (std::abs(a.normalize().dot(b)) > 0.9) {
+                b = Vector{0, 0, 1};
             }
+            auto c = a.cross(b).normalize();
+            b = c.cross(a).normalize();
+
+            // Assign back to the matrix picking the "non-periodic" indices without ifs
+            matrix_[(periodic_idx_1 + 1) % 3] = b;
+            matrix_[(periodic_idx_1 + 2) % 3] = c;
+        } else if (n_periodic == 2) {
+            assert(periodic_idx_1 != -1 && periodic_idx_2 != -1);
+            // Make the one non-periodic direction orthogonal to the two periodic ones
+            auto a = Vector{matrix_[periodic_idx_1]};
+            auto b = Vector{matrix_[periodic_idx_2]};
+            auto c = a.cross(b).normalize();
+
+            // Assign back to the matrix picking the "non-periodic" index without ifs
+            matrix_[(3 - periodic_idx_1 - periodic_idx_2)] = c;
         }
 
-        if (!periodic_[2]) {
-            matrix_[2] = Vector{0, 0, 1};
-            if (std::abs(matrix_[0][2]) > 1e-6 || std::abs(matrix_[1][2]) > 1e-6) {
-                throw std::runtime_error(
-                    "periodicity is disabled along the C lattice vector, but the "
-                    "box is not defined in the xy plane: A.z = " +
-                    std::to_string(matrix_[0][2]) +
-                    ", B.z = " + std::to_string(matrix_[1][2])
-                );
-            }
-        }
-
+        // precompute the inverse matrix
         auto det = matrix_.determinant();
         if (std::abs(det) < 1e-30) {
             throw std::runtime_error("the box matrix is not invertible");

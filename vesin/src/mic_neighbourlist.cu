@@ -50,6 +50,11 @@ __device__ inline double norm(double3 a) {
     return sqrt(dot(a, a));
 }
 
+__device__ inline double3 normalize(double3 a) {
+    auto norm_a = norm(a);
+    return make_double3(a.x / norm_a, a.y / norm_a, a.z / norm_a);
+}
+
 __device__ void invert_matrix(const double3 matrix[3], double3 inverse[3]) {
     double a = matrix[0].x, b = matrix[0].y, c = matrix[0].z;
     double d = matrix[1].x, e = matrix[1].y, f = matrix[1].z;
@@ -209,6 +214,7 @@ __global__ void compute_mic_neighbours_half_impl(
 ) {
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+    const double cutoff2 = cutoff * cutoff;
 
     if (index >= num_all_pairs) {
         return;
@@ -217,27 +223,63 @@ __global__ void compute_mic_neighbours_half_impl(
     __shared__ double3 shared_box[3];
     __shared__ double3 shared_inv_box[3];
 
-    const double cutoff2 = cutoff * cutoff;
-
+    // Load current box to shared memory
     if (threadIdx.x < 3) {
         shared_box[threadIdx.x] = box[threadIdx.x];
-
-        if (threadIdx.x == 0 && !periodic[0]) {
-            shared_box[0] = make_double3(1, 0, 0);
-        } else if (threadIdx.x == 1 && !periodic[1]) {
-            shared_box[1] = make_double3(0, 1, 0);
-        } else if (threadIdx.x == 2 && !periodic[2]) {
-            shared_box[2] = make_double3(0, 0, 1);
-        }
     }
-
     __syncthreads();
 
+    // Overwrite non-periodic directions with unit vectors orthogonal to the
+    // periodic subspace
     if (threadIdx.x == 0) {
+        // Collect periodic / non-periodic indices
+        int n_periodic = 0;
+        int periodic_idx_1 = -1;
+        int periodic_idx_2 = -1;
+        for (int i = 0; i < 3; ++i) {
+            if (periodic[i]) {
+                n_periodic += 1;
+                if (periodic_idx_1 == -1) {
+                    periodic_idx_1 = i;
+                } else if (periodic_idx_2 == -1) {
+                    periodic_idx_2 = i;
+                }
+            }
+        }
+
+        if (n_periodic == 0) {
+            // Fully non-periodic: any orthonormal basis is fine; keep it simple & deterministic
+            shared_box[0] = make_double3(1.0, 0.0, 0.0);
+            shared_box[1] = make_double3(0.0, 1.0, 0.0);
+            shared_box[2] = make_double3(0.0, 0.0, 1.0);
+        } else if (n_periodic == 1) {
+            // 1D periodic: build an orthonormal pair spanning the plane
+            // orthogonal to the single periodic vector
+            double3 a = shared_box[periodic_idx_1];
+
+            double3 b = make_double3(0, 1, 0);
+            if (fabs(dot(normalize(a), b)) > 0.9) {
+                b = make_double3(0, 0, 1);
+            }
+            auto c = normalize(cross(a, b));
+            b = normalize(cross(c, a));
+
+            shared_box[(periodic_idx_1 + 1) % 3] = b;
+            shared_box[(periodic_idx_1 + 2) % 3] = c;
+        } else if (n_periodic == 2) {
+            // 2D periodic: set the sole non-periodic direction to the plane normal
+            auto a = shared_box[periodic_idx_1];
+            auto b = shared_box[periodic_idx_2];
+
+            shared_box[(3 - periodic_idx_1 - periodic_idx_2)] = normalize(cross(a, b));
+        } else {
+            // n_periodic == 3: fully periodic, keep shared_box as-is
+        }
+
         invert_matrix(shared_box, shared_inv_box);
     }
 
-    // Ensure inv_cell is ready
+    // Ensure shared_inv_box is ready
     __syncthreads();
 
     size_t point_j = floor((sqrtf(8 * index + 1) + 1) / 2);
@@ -288,9 +330,6 @@ __global__ void compute_mic_neighbours_half_impl(
 
 // possible error for mic_box_check
 #define CUTOFF_TOO_LARGE 1
-#define NOT_ALIGNED_LATTICE_A 2
-#define NOT_ALIGNED_LATTICE_B 3
-#define NOT_ALIGNED_LATTICE_C 4
 
 __global__ void mic_box_check(
     const double3 box[3],
@@ -374,21 +413,6 @@ __global__ void mic_box_check(
             return;
         }
 
-        if (!periodic[0] && (fabs(box[1].x) > 1e-6 || fabs(box[2].x) > 1e-6)) {
-            status[0] = NOT_ALIGNED_LATTICE_A;
-            return;
-        }
-
-        if (!periodic[1] && (fabs(box[0].y) > 1e-6 || fabs(box[2].y) > 1e-6)) {
-            status[0] = NOT_ALIGNED_LATTICE_B;
-            return;
-        }
-
-        if (!periodic[2] && (fabs(box[0].z) > 1e-6 || fabs(box[1].z) > 1e-6)) {
-            status[0] = NOT_ALIGNED_LATTICE_C;
-            return;
-        }
-
         // everything is fine!
         status[0] = 0;
     }
@@ -430,21 +454,6 @@ void vesin::cuda::compute_mic_neighbourlist(
             "cutoff it too large for the current box, the CUDA implementation "
             "of vesin uses minimum image convention. Each box dimension "
             "must be at least twice the cutoff."
-        );
-    } else if (h_box_check == NOT_ALIGNED_LATTICE_A) {
-        throw std::runtime_error(
-            "periodicity is disabled along the A lattice vector, but the "
-            "box is not defined in the yz plane"
-        );
-    } else if (h_box_check == NOT_ALIGNED_LATTICE_B) {
-        throw std::runtime_error(
-            "periodicity is disabled along the B lattice vector, but the "
-            "box is not defined in the xz plane"
-        );
-    } else if (h_box_check == NOT_ALIGNED_LATTICE_C) {
-        throw std::runtime_error(
-            "periodicity is disabled along the CX lattice vector, but the "
-            "box is not defined in the xy plane"
         );
     } else if (h_box_check != 0) {
         throw std::runtime_error("unknown error in box check");

@@ -179,7 +179,7 @@ def test_neighbors(system):
 )
 def test_mixed_periodic(periodic):
     cutoff = 0.35
-    box = np.eye(3, dtype=np.float64)
+    box = np.eye(3, dtype=np.float64)[[2, 0, 1]] + 0.1 * np.random.normal(size=(3, 3))
     points = np.random.default_rng(0).random((100, 3))
 
     atoms = ase.Atoms(positions=points, cell=box, pbc=periodic)

@@ -23,6 +23,13 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   integrated in vesin-torch, and can be used with CuPy in the `vesin` python
   package.
 
+## [Version 0.4.2](https://github.com/Luthaf/vesin/releases/tag/v0.4.2) - 2025-11-06
+
+### Changed
+
+- arbitrary box orientations are now supported with mixed PBC (#88)
+
+
 ## [Version 0.4.1](https://github.com/Luthaf/vesin/releases/tag/v0.4.1) - 2025-11-03
 
 ### Added

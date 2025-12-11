@@ -1,17 +1,20 @@
 #include <cstring>
+#include <iostream>
 #include <string>
 
 #include "cpu_cell_list.hpp"
 #include "vesin.h"
 #include "vesin_cuda.hpp"
 
+// used to store dynamically allocated error messages before giving a pointer
+// to them back to the user
 thread_local std::string LAST_ERROR;
 
 extern "C" int vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    const bool periodic[3],
     VesinDevice device,
     VesinOptions options,
     VesinNeighborList* neighbors,
@@ -52,7 +55,7 @@ extern "C" int vesin_neighbors(
     }
 
     if (device.type == VesinUnknownDevice) {
-        *error_message = "got an unknown device to use when running simulation";
+        *error_message = "got an unknown device type";
         return EXIT_FAILURE;
     }
 
@@ -83,7 +86,8 @@ extern "C" int vesin_neighbors(
             vesin::cuda::neighbors(
                 points,
                 n_points,
-                periodic ? box : nullptr,
+                box,
+                periodic,
                 options,
                 *neighbors
             );
@@ -112,14 +116,22 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
         return;
     }
 
-    if (neighbors->device.type == VesinUnknownDevice) {
-        // nothing to do
-    } else if (neighbors->device.type == VesinCPU) {
-        vesin::cpu::free_neighbors(*neighbors);
-    } else if (neighbors->device.type == VesinCUDA) {
-        vesin::cuda::free_neighbors(*neighbors);
-    } else {
-        throw std::runtime_error("unknown device " + std::to_string(neighbors->device.type) + " when freeing memory");
+    try {
+        if (neighbors->device.type == VesinUnknownDevice) {
+            // nothing to do
+        } else if (neighbors->device.type == VesinCPU) {
+            vesin::cpu::free_neighbors(*neighbors);
+        } else if (neighbors->device.type == VesinCUDA) {
+            vesin::cuda::free_neighbors(*neighbors);
+        } else {
+            throw std::runtime_error("unknown device " + std::to_string(neighbors->device.type) + " when freeing memory");
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "error in vesin_free: " << e.what() << std::endl;
+        return;
+    } catch (...) {
+        std::cerr << "fatal error in vesin_free, unknown type thrown as exception" << std::endl;
+        return;
     }
     std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

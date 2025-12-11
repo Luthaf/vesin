@@ -13,6 +13,25 @@ Vesin: we are all neighbors
 .. |cat| image:: /static/images/Catalan.png
     :width: 18px
 
+
+.. |logo-c| image:: /static/images/logo-c.png
+    :height: 1.4em
+
+.. |logo-cxx| image:: /static/images/logo-cxx.png
+    :height: 1.4em
+
+.. |logo-fortran| image:: /static/images/logo-fortran.png
+    :height: 1.3em
+
+.. |logo-python| image:: /static/images/logo-python.png
+    :height: 1.4em
+
+.. |logo-cuda| image:: /static/images/logo-cuda.png
+    :height: 1.4em
+
+.. |logo-torch| image:: /static/images/logo-torch.png
+    :height: 1.4em
+
 .. list-table::
     :align: center
     :widths: auto
@@ -46,7 +65,7 @@ Installation
 
 .. tab-set::
 
-    .. tab-item:: Python
+    .. tab-item:: |logo-python| Python
         :sync: python
 
         You can install the code with ``pip``:
@@ -63,7 +82,7 @@ Installation
 
             pip install vesin[torch]
 
-    .. tab-item:: C/C++ (CMake)
+    .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| CMake
         :sync: cxx
 
         If you use CMake as your build system, the simplest thing to do is to
@@ -93,7 +112,7 @@ Installation
 
             target_link_libraries(your-target vesin)
 
-        **TorchScript:**
+        |logo-torch| **TorchScript:**
 
         To make the TorchScript version of the library available to CMake as
         well, you should set the ``VESIN_TORCH`` option to ``ON``. If you are
@@ -119,7 +138,35 @@ Installation
 
             target_link_libraries(your-target vesin_torch)
 
-    .. tab-item:: C/C++ (single file build)
+        |logo-fortran| **Fortran:**
+
+        To make the fortran bindings of the library available to CMake, you
+        should set the ``VESIN_FORTRAN`` option to ``ON``.
+
+        .. code-block:: cmake
+
+            set(VESIN_FORTRAN ON CACHE BOOL "Build the vesin_fortran library")
+
+            add_subdirectory(vesin)
+            # or use fetch_content
+            FetchContent_xxx(...)
+
+        |logo-cuda| **CUDA:**
+
+        To enable the CUDA implementation, set the ``VESIN_ENABLE_CUDA`` option
+        to ``ON``.
+
+        .. code-block:: cmake
+
+            set(VESIN_ENABLE_CUDA ON CACHE BOOL "Build the CUDA backend of vesin")
+
+            add_subdirectory(vesin)
+            # or use fetch_content
+            FetchContent_xxx(...)
+
+
+
+    .. tab-item:: |logo-c| |logo-cxx| Single file
 
         We support merging all files in the vesin library to a single one that
         can then be included in your own project and built with the same build
@@ -137,13 +184,14 @@ Installation
         ``vesin-single-build.cpp`` in your project and configure your build
         system accordingly.
 
-        **TorchScript:**
+        .. important::
 
-        The TorchScript API does not support single file build, please use one
-        of the CMake options instead.
+            Neither the **TorchScript** API or the **CUDA** implementation are
+            supported by the single file file build. If you need these features,
+            please use one of the CMake options instead.
 
 
-    .. tab-item:: C/C++ (global installation)
+    .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| Global installation
 
         You can build and install vesin in some global location (referred to as
         ``$PREFIX`` below), and then use the right compiler flags to give this
@@ -176,24 +224,45 @@ Installation
         | ``BUILD_SHARED_LIBS``        | Default to building and installing a shared      | OFF                                            |
         |                              | library instead of a static one                  |                                                |
         +------------------------------+--------------------------------------------------+------------------------------------------------+
-        | ``VESIN_INSTALL``            | Should CMake install vesin library and headers   | | ON when building vesin directly              |
-        |                              |                                                  | | OFF when including vesin in another project  |
+        | ``VESIN_INSTALL``            | Should CMake install vesin library and headers   | ON when building vesin directly                |
+        |                              |                                                  | OFF when including vesin in another project    |
         +------------------------------+--------------------------------------------------+------------------------------------------------+
         | ``VESIN_TORCH``              | Build (and install if ``VESIN_INSTALL=ON``) the  | OFF                                            |
         |                              | vesin_torch library                              |                                                |
         +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | ``VESIN_FORTRAN``            | Build (and install if ``VESIN_INSTALL=ON``) the  | OFF                                            |
+        |                              | vesin_fortran library                            |                                                |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
+        | ``VESIN_ENABLE_CUDA``        | Build the CUDA implementation of vesin           | OFF                                            |
+        +------------------------------+--------------------------------------------------+------------------------------------------------+
 
-        **TorchScript:**
+
+        |logo-torch| **TorchScript:**
 
         Set ``VESIN_TORCH`` to ``ON`` to build and install the TorchScript
         bindings.
 
         You can then compile your code, adding ``$PREFIX/include`` to the
         compiler include path, ``$PREFIX/lib`` to the linker library path; and
-        linking to vesin_torch (typically with ``-lvesin_torch``).
+        linking to ``vesin_torch`` (typically with ``-lvesin_torch``).
 
         You'll need to also add to the include and linker path the path to the
-        same torch installation that was used to build the library.
+        same ``libtorch`` installation that was used to build the library.
+
+        |logo-fortran| **Fortran:**
+
+        Set ``VESIN_FORTRAN`` to ``ON`` to build and install the Fortran
+        bindings.
+
+        You can then compile your code, adding ``$PREFIX/include`` to the
+        compiler include path, ``$PREFIX/lib`` to the linker library path; and
+        linking to ``vesin_fortran`` (typically with ``-lvesin_fortran``).
+
+        |logo-cuda| **CUDA:**
+
+        Set ``VESIN_ENABLE_CUDA`` to ``ON`` to build the CUDA implementation. It
+        will then be available from all language bindings (C, C++, Fortran,
+        TorchScript).
 
 
 Usage example
@@ -201,7 +270,7 @@ Usage example
 
 .. tab-set::
 
-    .. tab-item:: Python
+    .. tab-item:: |logo-python| Python
         :sync: python
 
         .. py:currentmodule:: vesin
@@ -242,7 +311,7 @@ Usage example
             i, j, S, d = ase_neighbor_list("ijSd", atoms, cutoff=4.2)
 
 
-    .. tab-item:: C and C++
+    .. tab-item:: |logo-c| |logo-cxx| C and C++
         :sync: cxx
 
         .. code-block:: c++
@@ -303,18 +372,72 @@ Usage example
                 return 0;
             }
 
-    .. tab-item:: TorchScript Python
+    .. tab-item:: |logo-fortran| Fortran
+
+        The fortran bindings provide a module named ``vesin`` which contains the
+        ``NeighborList`` type.
+
+        .. code-block:: fortran
+
+            program main
+                use vesin, only: NeighborList
+
+                implicit none
+
+                real :: points(:,:)
+                real :: box(3,3)
+                integer :: i, ierr
+                type(NeighborList) :: neighbor_list
+
+                ! define some points positions and box
+                points = reshape([                      &
+                    0.0_real64, 0.0_real64, 0.0_real64, &
+                    0.0_real64, 1.3_real64, 1.3_real64  &
+                ], [2, 3])
+
+                box = reshape([                         &
+                    3.2_real64, 0.0_real64, 0.0_real64, &
+                    0.0_real64, 3.2_real64, 0.0_real64, &
+                    0.0_real64, 0.0_real64, 3.2_real64  &
+                ], [3, 3])
+
+                ! initialize `neighbor_list` with some options
+                neighbor_list = NeighborList(cutoff=4.2, full=.true., sorted=.true.)
+
+                ! run the calculation
+                call neighbor_list%compute(points, box, periodic=.true., status=ierr)
+                if (ierr /= 0) then
+                    write(*, *) neighbor_list%errmsg
+                    stop
+                end if
+
+                write(*,*) "we got ", neighbor_list%length, "pairs"
+                do i=1,neighbor_list%length
+                    write(*, *) " - ", i, ":", neighbor_list%pairs(:, i)
+                end do
+
+                ! release allocated memory
+                call neighbor_list%free()
+                deallocate(positions)
+            end program main
+
+
+    .. tab-item:: |logo-torch| TorchScript
 
         The entry point for the TorchScript API is the
         :py:class:`vesin.torch.NeighborList` class in Python, and the
         corresponding :cpp:class:`vesin_torch::NeighborListHolder` class in C++;
-        both modeled after the standard Python API. For Python, the class is
-        available in the ``vesin.torch`` module.
+        both modeled after vesin's Python API.
 
         In both cases, the code is integrated with PyTorch autograd framework,
         meaning if the ``points`` or ``box`` argument have
         ``requires_grad=True``, then the ``d`` (distances) and ``D`` (distance
         vectors) outputs will be integrated to the computational graph.
+
+        |logo-python| **Python:**
+
+        For Python, the ``NeighborList`` class is available in the
+        ``vesin.torch`` module.
 
         .. code-block:: Python
 
@@ -337,18 +460,9 @@ Usage example
                 quantities="ijSd"
             )
 
-    .. tab-item:: TorchScript C++
+        |logo-cxx| **C++:**
 
-        The entry point for the TorchScript API is the
-        :py:class:`vesin.torch.NeighborList` class in Python, and the
-        corresponding :cpp:class:`vesin_torch::NeighborListHolder` class in C++;
-        both modeled after the standard Python API. For C++, the class is
-        available in the ``vesin_torch.hpp`` header.
-
-        In both cases, the code is integrated with PyTorch autograd framework,
-        meaning if the ``points`` or ``box`` argument have
-        ``requires_grad=True``, then the ``d`` (distances) and ``D`` (distance
-        vectors) outputs will be integrated to the computational graph.
+        For C++, the class is available in the ``vesin_torch.hpp`` header.
 
         .. code-block:: C++
 

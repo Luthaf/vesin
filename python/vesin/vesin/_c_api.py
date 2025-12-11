@@ -71,10 +71,10 @@ def setup_functions(lib):
     # for the signature but can pass either an array value or a pointer that looks
     # like an array.
     lib.vesin_neighbors.argtypes = [
-        POINTER(ARRAY(ctypes.c_double, 3)),  # points
+        POINTER(ctypes.c_double),  # points
         ctypes.c_size_t,  # n_points
-        ARRAY(ARRAY(ctypes.c_double, 3), 3),  # box
-        ctypes.c_bool,  # periodic
+        POINTER(ctypes.c_double),  # box
+        POINTER(ctypes.c_bool),  # periodic
         VesinDevice,  # device
         VesinOptions,  # options
         POINTER(VesinNeighborList),  # neighbors

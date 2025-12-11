@@ -45,14 +45,14 @@ jobs:
             os: windows-2022
             cibw_arch: AMD64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: install dependencies
         run: python -m pip install cibuildwheel twine
@@ -70,7 +70,7 @@ jobs:
       - name: check wheels with twine
         run: twine check wheelhouse/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.cibw_arch }}
           path: ./wheelhouse/*.whl
@@ -80,7 +80,7 @@ jobs:
     name: ${{ matrix.name }} (torch v${{ matrix.torch-version }})
     strategy:
       matrix:
-        torch-version: ['2.3', '2.4', '2.5', '2.6', '2.7', '2.8']
+        torch-version: ['2.3', '2.4', '2.5', '2.6', '2.7', '2.8', '2.9']
         arch: ['arm64', 'x86_64']
         os: ['ubuntu-22.04', 'ubuntu-22.04-arm', 'macos-14', 'windows-2022']
         exclude:
@@ -110,17 +110,18 @@ jobs:
           # add the right python version for each torch version
           - {torch-version: '2.3',  python-version: '3.12', cibw-python: 'cp312-*'}
           - {torch-version: '2.4',  python-version: '3.12', cibw-python: 'cp312-*'}
-          - {torch-version: '2.5',  python-version: '3.12', cibw-python: 'cp312-*'}
-          - {torch-version: '2.6',  python-version: '3.12', cibw-python: 'cp312-*'}
-          - {torch-version: '2.7',  python-version: '3.12', cibw-python: 'cp312-*'}
-          - {torch-version: '2.8',  python-version: '3.12', cibw-python: 'cp312-*'}
+          - {torch-version: '2.5',  python-version: '3.11', cibw-python: 'cp312-*'}
+          - {torch-version: '2.6',  python-version: '3.13', cibw-python: 'cp313-*'}
+          - {torch-version: '2.7',  python-version: '3.13', cibw-python: 'cp313-*'}
+          - {torch-version: '2.8',  python-version: '3.13', cibw-python: 'cp313-*'}
+          - {torch-version: '2.9',  python-version: '3.13', cibw-python: 'cp313-*'}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -146,7 +147,7 @@ jobs:
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: |
             auditwheel repair --exclude libtorch.so --exclude libtorch_cpu.so --exclude libc10.so -w {dest_dir} {wheel}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: torch-single-version-wheel-${{ matrix.torch-version }}-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
@@ -171,19 +172,19 @@ jobs:
             os: windows-2022
             arch: x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: torch-single-version-wheel-*-${{ matrix.os }}-${{ matrix.arch }}
           merge-multiple: false
           path: dist
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: install dependencies
         run: python -m pip install twine wheel
@@ -216,7 +217,7 @@ jobs:
       - name: check wheels with twine
         run: twine check wheelhouse/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: torch-wheel-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
@@ -225,14 +226,14 @@ jobs:
     runs-on: ubuntu-22.04
     name: sdist
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: build sdist
         run: |
@@ -240,7 +241,7 @@ jobs:
           python -m build --sdist python/vesin --outdir dist
           python -m build --sdist python/vesin_torch --outdir dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -253,27 +254,27 @@ jobs:
       contents: write
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist
           pattern: wheel-*
           merge-multiple: true
 
       - name: Download metatensor-torch wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist
           pattern: torch-wheel-*
           merge-multiple: true
 
       - name: Download sdist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist
           name: sdist
 
       - name: Re-upload a single wheels artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels
           path: |
@@ -285,6 +286,36 @@ jobs:
         with:
           files: |
             dist/*
+          prerelease: ${{ contains(github.ref, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  single-cxx-build:
+    name: Create the single file build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: create single file build
+        run: |
+          python create-single-cpp.py
+
+      - name: upload to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vesin-single-build-v*.tar.gz
           prerelease: ${{ contains(github.ref, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

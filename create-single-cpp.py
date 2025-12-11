@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import tarfile
 
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -53,9 +54,28 @@ def merge_files(path, output):
                 output.write(line)
 
 
+def add_version(output):
+    with open(os.path.join(HERE, "vesin", "VERSION")) as fd:
+        version = fd.read().strip()
+
+    output.write("// automatically generated \n")
+    output.write(f"// vesin version: {version}\n\n")
+
+
 if __name__ == "__main__":
+    with open(os.path.join(HERE, "vesin", "VERSION")) as fd:
+        version = fd.read().strip()
+
     with open("vesin-single-build.cpp", "w") as output:
+        add_version(output)
         merge_files("cpu_cell_list.cpp", output)
+        merge_files("cuda_stub.cpp", output)
         merge_files("vesin.cpp", output)
 
-    print("created single build file 'vesin-single-build.cpp'")
+    with tarfile.open(f"vesin-single-build-v{version}.tar.gz", "w:gz") as tar:
+        tar.add("vesin-single-build.cpp")
+        tar.add(os.path.join(HERE, "vesin", "include", "vesin.h"), arcname="vesin.h")
+
+    print(
+        f"created 'vesin-single-build.cpp' and 'vesin-single-build-v{version}.tar.gz'"
+    )

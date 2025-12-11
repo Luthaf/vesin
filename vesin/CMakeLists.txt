@@ -82,7 +82,7 @@ if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # because it's embedded as a string for NVRTC runtime compilation
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp)
 else()
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda_stub.cpp)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_stub.cpp)
 endif()
 
 # create two targets: `vesin` is the main one, while `vesin_objects` will

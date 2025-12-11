@@ -149,7 +149,8 @@ void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 /// @param box bounding box for the system. If the system is non-periodic,
 ///     this is ignored. This should contain the three vectors of the bounding
 ///     box, one vector per row of the matrix.
-/// @param periodic is the system using periodic boundary conditions?
+/// @param periodic is the system using periodic boundary conditions? This
+//      should be an array of three booleans, one for each dimension.
 /// @param device device where the `points` and `box` data is allocated.
 /// @param options options for the calculation
 /// @param neighbors non-NULL pointer to `VesinNeighborList` that will be used
@@ -161,7 +162,7 @@ int VESIN_API vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    const bool periodic[3],
     VesinDevice device,
     struct VesinOptions options,
     struct VesinNeighborList* neighbors,

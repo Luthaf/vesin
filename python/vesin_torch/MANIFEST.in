@@ -1,6 +1,7 @@
 include pyproject.toml
 include LICENSE
 include VERSION
+include CHANGELOG.md
 
 recursive-include lib *
 recursive-include build-backend *.py

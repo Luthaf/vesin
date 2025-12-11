@@ -1,3 +1,4 @@
+#include <cassert>
 #include <stdexcept>
 
 #include "vesin_cuda.hpp"
@@ -5,13 +6,15 @@
 using namespace vesin::cuda;
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
-    throw std::runtime_error("vesin was not compiled with CUDA support");
+    assert(neighbors.device.type == VesinCUDA);
+    // nothing to do, no data was allocated
 }
 
 void vesin::cuda::neighbors(
     const double (*points)[3],
     size_t n_points,
-    const double cell[3][3],
+    const double box[3][3],
+    const bool periodic[3],
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {

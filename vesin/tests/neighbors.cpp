@@ -14,7 +14,7 @@ static void check_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic,
+    bool periodic[3],
     double cutoff,
     bool full_list,
     std::vector<std::array<size_t, 2>> expected_pairs,
@@ -91,6 +91,7 @@ TEST_CASE("Non-periodic") {
     };
 
     double box[3][3] = {{0}};
+    bool periodic[3] = {false, false, false};
 
     // reference computed with ASE
     auto expected_pairs = std::vector<std::array<size_t, 2>>{
@@ -121,7 +122,7 @@ TEST_CASE("Non-periodic") {
         points,
         /*n_points=*/5,
         box,
-        /*periodic=*/false,
+        periodic,
         /*cutoff=*/3.42,
         /*full_list=*/false,
         expected_pairs,
@@ -141,6 +142,7 @@ TEST_CASE("FCC unit cell") {
         {1.5, 0.0, 1.5},
         {1.5, 1.5, 0.0},
     };
+    bool periodic[3] = {true, true, true};
 
     auto expected_vectors = std::vector<std::array<double, 3>>{
         {1.5, 0.0, -1.5},
@@ -167,7 +169,7 @@ TEST_CASE("FCC unit cell") {
         points,
         /*n_points=*/1,
         box,
-        /*periodic=*/true,
+        periodic,
         /*cutoff=*/3.0,
         /*full_list=*/false,
         expected_pairs,
@@ -193,6 +195,7 @@ TEST_CASE("Large box, small cutoff") {
         {0.0, 54.0, 0.0},
         {0.0, 0.0, 54.0},
     };
+    bool periodic[3] = {true, true, true};
 
     auto expected_pairs = std::vector<std::array<size_t, 2>>{
         {0, 1},
@@ -207,7 +210,7 @@ TEST_CASE("Large box, small cutoff") {
         points,
         /*n_points=*/6,
         box,
-        /*periodic=*/true,
+        periodic,
         /*cutoff=*/2.1,
         /*full_list=*/false,
         expected_pairs,
@@ -227,6 +230,7 @@ TEST_CASE("Cutoff larger than the box size") {
         {0.0, 0.5, 0.0},
         {0.0, 0.0, 0.5},
     };
+    bool periodic[3] = {true, true, true};
 
     auto expected_pairs = std::vector<std::array<size_t, 2>>(3, {0, 0});
     auto expected_distances = std::vector<double>(3, 0.5);
@@ -245,7 +249,7 @@ TEST_CASE("Cutoff larger than the box size") {
         points,
         /*n_points=*/1,
         box,
-        /*periodic=*/true,
+        periodic,
         /*cutoff=*/0.6,
         /*full_list=*/false,
         expected_pairs,
@@ -268,6 +272,7 @@ TEST_CASE("Slanted box") {
         {2.13, 1.22975607, 0.0},
         {0.0, 0.0, 50.0},
     };
+    bool periodic[3] = {true, true, true};
 
     auto options = VesinOptions();
     options.cutoff = 6.4;
@@ -283,7 +288,7 @@ TEST_CASE("Slanted box") {
         points,
         /*n_points=*/4,
         box,
-        /*periodic=*/true,
+        periodic,
         {VesinDeviceKind::VesinCPU, 0},
         options,
         &neighbors,

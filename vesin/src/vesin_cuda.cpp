@@ -149,8 +149,14 @@ void checkCuda() {
     }
 }
 
-void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors) {
-
+void vesin::cuda::neighbors(
+    const double (*points)[3],
+    size_t n_points,
+    const double box[3][3],
+    const bool periodic[3],
+    VesinOptions options,
+    VesinNeighborList& neighbors
+) {
     static const char* CUDA_CODE =
 #include "generated/mic_neighbourlist.cu"
         ;
@@ -161,14 +167,16 @@ void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const do
     // Check if CUDA is available
     checkCuda();
 
-    // assert both points and cell are device pointers
+    // assert both points and box are device pointers
     assert(is_device_ptr(getPtrAttributes(points)) && "points pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(getPtrAttributes(cell)) && "cell pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(box)) && "box pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(periodic)) && "periodic pointer is not allocated on a CUDA device");
 
     int device = get_device_id(points);
-    // assert both points and cell are on the same device
-    assert((device == get_device_id(cell)) && "points and cell pointers do not exist on the same device");
-    assert((device == neighbors.device.device_id) && "points and cell device differs from input neighbors device_id");
+    // assert both points and box are on the same device
+    assert((device == get_device_id(box)) && "`points` and `box` do not exist on the same device");
+    assert((device == get_device_id(periodic)) && "`points` and `periodic` do not exist on the same device");
+    assert((device == neighbors.device.device_id) && "`points`, `box` and `periodic` device differs from input neighbors device_id");
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
@@ -228,7 +236,8 @@ void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const do
     }
 
     const double* d_positions = reinterpret_cast<const double*>(points);
-    const double* d_cell = reinterpret_cast<const double*>(cell);
+    const double* d_box = reinterpret_cast<const double*>(box);
+    const bool* d_periodic = periodic;
 
     size_t* d_pair_indices = reinterpret_cast<size_t*>(neighbors.pairs);
     int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
@@ -240,40 +249,39 @@ void vesin::cuda::neighbors(const double (*points)[3], size_t n_points, const do
     // Get or create kernel factory
     auto& factory = KernelFactory::instance();
 
-    // First check cell dimensions with mic_cell_check kernel
-    auto* cell_check_kernel = factory.create(
-        "mic_cell_check",
+    // First check box dimensions with mic_box_check kernel
+    auto* box_check_kernel = factory.create(
+        "mic_box_check",
         CUDA_CODE,
         "mic_neighbourlist.cu",
         {"-std=c++17"}
     );
 
-    // Prepare arguments for neighbor computation kernel
-    std::vector<void*>
-        args = {
-            &d_positions, &d_cell, &n_points, &options.cutoff, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
-        };
+    // Prepare arguments for box check kernel
+    std::vector<void*> box_check_args = {&d_box, &d_periodic, &options.cutoff, &d_cell_check};
 
-    // Prepare arguments for cell check kernel
-    std::vector<void*> cell_check_args = {&d_cell, &options.cutoff, &d_cell_check};
-
-    // Launch cell check kernel
-    cell_check_kernel->launch(
+    // Launch box check kernel
+    box_check_kernel->launch(
         dim3(1),         // grid size
         dim3(32),        // block size
         0,               // shared memory
         nullptr,         // stream
-        cell_check_args, // arguments
+        box_check_args,  // arguments
         true             // synchronize
     );
 
-    // Check cell validity, assume fail
+    // Check box validity, assume fail
     int h_cell_check = 1;
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost));
 
     if (h_cell_check != 0) {
-        throw std::runtime_error("Invalid cutoff: too large for cell dimensions");
+        throw std::runtime_error("Invalid cutoff: too large for box dimensions");
     }
+
+    // Prepare arguments for neighbor computation kernel
+    std::vector<void*> args = {
+        &d_positions, &d_box, &d_periodic, &n_points, &options.cutoff, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+    };
 
     // Launch appropriate neighbor computation kernel
     const int WARP_SIZE = 32;

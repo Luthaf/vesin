@@ -1,21 +1,59 @@
 import ctypes
-from ctypes import ARRAY, POINTER
-from typing import List
+from ctypes import POINTER
+from typing import List, Sequence, Union
 
 import numpy as np
 import numpy.typing as npt
 
-from ._c_api import (
-    HAS_CUPY,
-    VesinNeighborList,
-    VesinOptions,
-    get_device_from_array,
-)
+from ._c_api import VesinCPU, VesinCUDA, VesinDevice, VesinNeighborList, VesinOptions
 from ._c_lib import _get_library
 
 
-if HAS_CUPY:
+try:
     import cupy as cp
+
+    HAS_CUPY = True
+
+    CUPY_DTYPES = {
+        ctypes.c_size_t: cp.uint64,
+        ctypes.c_int32: cp.int32,
+        ctypes.c_double: cp.float64,
+    }
+except ImportError:
+    HAS_CUPY = False
+    cp = None
+
+
+def _ptr_to_numpy(ptr, shape, dtype, owner, device_id):
+    """
+    Helper to convert a ctypes pointer to a NumPy array.
+    """
+    return np.ctypeslib.as_array(ctypes.cast(ptr, POINTER(dtype)), shape=shape)
+
+
+def _ptr_to_cupy(ptr, shape, dtype, owner, device_id):
+    """
+    Helper to convert a ctypes pointer to a CuPy array.
+    """
+    ptr_val = ctypes.cast(ptr, ctypes.c_void_p).value
+    size = np.prod(shape) * ctypes.sizeof(dtype)
+    mem = cp.cuda.memory.UnownedMemory(ptr_val, size, owner, device_id)
+    return cp.ndarray(
+        shape, dtype=CUPY_DTYPES[dtype], memptr=cp.cuda.MemoryPointer(mem, 0)
+    )
+
+
+def _device_from_array(array):
+    """
+    Determine the VesinDevice from a numpy or cupy array.
+
+    :param array: numpy array or cupy array
+    :return: VesinDevice structure
+    """
+    if HAS_CUPY and isinstance(array, cp.ndarray):
+        return VesinDevice(VesinCUDA, array.device.id)
+    else:
+        return VesinDevice(VesinCPU, 0)
 
 
 class NeighborList:
@@ -46,7 +84,7 @@ class NeighborList:
         self,
         points: "npt.ArrayLike",
         box: "npt.ArrayLike",
-        periodic: bool,
+        periodic: Union[bool, Sequence[bool], "npt.ArrayLike"],
         quantities: str = "ij",
         copy=True,
     ) -> List[np.ndarray]:
@@ -67,7 +105,9 @@ class NeighborList:
             can be converted to a numpy or cupy array)
         :param box: bounding box of the system (this can be anything that can be
             converted to a numpy or cupy array)
-        :param periodic: should we use periodic boundary conditions?
+        :param periodic: should we use periodic boundary conditions? This can be a
+            single boolean to enable/disable periodic boundary conditions in all
+            directions, or a sequence of three booleans (one for each direction).
         :param quantities: quantities to return, defaults to "ij"
         :param copy: should we copy the returned quantities, defaults to ``True``.
             Setting this to ``False`` might be a bit faster, but the returned arrays are
@@ -80,41 +120,8 @@ class NeighborList:
         # The C library will handle GPU computation internally when device is CUDA
         is_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
 
-        if is_cupy:
-            points_gpu = cp.asarray(points, dtype=cp.float64)
-            box_gpu = cp.asarray(box, dtype=cp.float64)
-            # Ensure C-contiguous
-            if not points_gpu.flags.c_contiguous:
-                points_gpu = cp.ascontiguousarray(points_gpu)
-            if not box_gpu.flags.c_contiguous:
-                box_gpu = cp.ascontiguousarray(box_gpu)
-            points = points_gpu
-            box = box_gpu
-        else:
-            points = np.asarray(points, dtype=np.float64)
-            box = np.asarray(box, dtype=np.float64)
-            # Ensure C-contiguous
-            if not points.flags.c_contiguous:
-                points = np.ascontiguousarray(points)
-            if not box.flags.c_contiguous:
-                box = np.ascontiguousarray(box)
-
         if box.shape != (3, 3):
             raise ValueError("`box` must be a 3x3 matrix")
-
-        # Prepare box pointer
-        Vector = ARRAY(ctypes.c_double, 3)
-        BoxArray = ARRAY(Vector, 3)
-        if is_cupy:
-            # For CUDA: pass raw GPU pointer
-            box_ptr = ctypes.c_void_p(box.data.ptr)
-        else:
-            # For CPU: convert to ctypes structure
-            box_ptr = BoxArray(
-                Vector(box[0][0], box[0][1], box[0][2]),
-                Vector(box[1][0], box[1][1], box[1][2]),
-                Vector(box[2][0], box[2][1], box[2][2]),
-            )
 
         if len(points.shape) != 2 or points.shape[1] != 3:
             raise ValueError("`points` must be a nx3 array")
@@ -127,114 +134,137 @@ class NeighborList:
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities
 
+        # Handle single bool, numpy bool, or 0-dim array
+        if is_cupy:
+            # For CuPy arrays, handle conversion differently
+            if isinstance(periodic, cp.ndarray):
+                if periodic.ndim == 0:
+                    val = bool(periodic.get())
+                    periodic = cp.array([val, val, val], dtype=cp.bool_)
+                else:
+                    periodic = cp.asarray(periodic, dtype=cp.bool_)
+            else:
+                # periodic is a Python bool or similar
+                periodic_arr = np.asarray(periodic)
+                if periodic_arr.ndim == 0:
+                    val = bool(periodic_arr)
+                    periodic = cp.array([val, val, val], dtype=cp.bool_)
+                else:
+                    periodic = cp.asarray(periodic_arr, dtype=cp.bool_)
+        else:
+            periodic_arr = np.asarray(periodic)
+            if periodic_arr.ndim == 0:
+                val = bool(periodic_arr)
+                periodic = np.array([val, val, val], dtype=np.bool_)
+            else:
+                periodic = np.asarray(periodic_arr, dtype=np.bool_)
+
+        if periodic.shape != (3,):
+            raise ValueError(
+                "`periodic` must be a single boolean or a sequence of three "
+                f"booleans, got {periodic} of type {type(periodic)}"
+            )
+
         # Get device and data pointer
-        device = get_device_from_array(points)
+        device = _device_from_array(points)
 
         if is_cupy:
-            # For CUDA: pass raw GPU pointer
-            points_ptr = ctypes.c_void_p(points.data.ptr)
+            points = cp.asarray(points, dtype=cp.float64)
+            box = cp.asarray(box, dtype=cp.float64)
+            # Ensure C-contiguous
+            if not points.flags.c_contiguous:
+                points = cp.ascontiguousarray(points)
+            if not box.flags.c_contiguous:
+                box = cp.ascontiguousarray(box)
+            if not periodic.flags.c_contiguous:
+                periodic = cp.ascontiguousarray(periodic)
+
+            points_ptr = ctypes.cast(
+                ctypes.c_void_p(points.data.ptr), POINTER(ctypes.c_double)
+            )
+            box_ptr = ctypes.cast(
+                ctypes.c_void_p(box.data.ptr), POINTER(ctypes.c_double)
+            )
+            periodic_ptr = ctypes.cast(
+                ctypes.c_void_p(periodic.data.ptr), POINTER(ctypes.c_bool)
+            )
         else:
-            # For CPU: use numpy's ctypes interface
-            points_ptr = points.ctypes.data_as(POINTER(ARRAY(ctypes.c_double, 3)))
+            points = np.asarray(points, dtype=np.float64)
+            box = np.asarray(box, dtype=np.float64)
+            # Ensure C-contiguous
+            if not points.flags.c_contiguous:
+                points = np.ascontiguousarray(points)
+            if not box.flags.c_contiguous:
+                box = np.ascontiguousarray(box)
+            if not periodic.flags.c_contiguous:
+                periodic = np.ascontiguousarray(periodic)
+
+            points_ptr = points.ctypes.data_as(POINTER(ctypes.c_double))
+            box_ptr = box.ctypes.data_as(POINTER(ctypes.c_double))
+            periodic_ptr = periodic.ctypes.data_as(POINTER(ctypes.c_bool))
 
         error_message = ctypes.c_char_p()
-
-        # For CUDA, we need to bypass ctypes type checking since the pointers are on GPU
-        if is_cupy:
-            # Temporarily set argtypes to None to bypass type checking
-            original_argtypes = self._lib.vesin_neighbors.argtypes
-            self._lib.vesin_neighbors.argtypes = None
-            status = self._lib.vesin_neighbors(
-                points_ptr,
-                points.shape[0],
-                box_ptr,
-                periodic,
-                device,
-                options,
-                ctypes.byref(self._neighbors),
-                ctypes.byref(error_message),
-            )
-            self._lib.vesin_neighbors.argtypes = original_argtypes
-        else:
-            status = self._lib.vesin_neighbors(
-                points_ptr,
-                points.shape[0],
-                box_ptr,
-                periodic,
-                device,
-                options,
-                self._neighbors,
-                error_message,
-            )
+        status = self._lib.vesin_neighbors(
+            points_ptr,
+            points.shape[0],
+            box_ptr,
+            periodic_ptr,
+            device,
+            options,
+            self._neighbors,
+            error_message,
+        )
 
         if status != 0:
-            if error_message.value:
-                raise RuntimeError(error_message.value.decode("utf8"))
-            else:
-                raise RuntimeError(
-                    f"vesin_neighbors failed with status {status} but no error message"
-                )
+            raise RuntimeError(error_message.value.decode("utf8"))
 
         # Create arrays for the output data
         n_pairs = self._neighbors.length
 
+        if is_cupy:
+            _empty_array = cp.empty
+            _ptr_to_array = _ptr_to_cupy
+        else:
+            _empty_array = np.empty
+            _ptr_to_array = _ptr_to_numpy
+
         if n_pairs == 0:
             # Empty results
-            array_mod = cp if is_cupy else np
-            pairs = array_mod.empty((0, 2), dtype=ctypes.c_size_t)
-            shifts = array_mod.empty((0, 3), dtype=ctypes.c_int32)
-            distances = array_mod.empty((0,), dtype=ctypes.c_double)
-            vectors = array_mod.empty((0, 3), dtype=ctypes.c_double)
-        elif is_cupy:
-            # CUDA results - wrap GPU memory as CuPy arrays
-            device_id = self._neighbors.device.device_id
-
-            # Helper to create CuPy array from GPU pointer
-            def wrap_gpu_array(ptr, shape, dtype_cp, dtype_c):
-                ptr_val = ctypes.cast(ptr, ctypes.c_void_p).value
-                size = np.prod(shape) * ctypes.sizeof(dtype_c)
-                mem = cp.cuda.memory.UnownedMemory(
-                    ptr_val, size, self._neighbors, device_id
-                )
-                return cp.ndarray(
-                    shape, dtype=dtype_cp, memptr=cp.cuda.MemoryPointer(mem, 0)
-                )
-
-            pairs = wrap_gpu_array(
-                self._neighbors.pairs, (n_pairs, 2), cp.uint64, ctypes.c_size_t
-            )
-            if "S" in quantities:
-                shifts = wrap_gpu_array(
-                    self._neighbors.shifts, (n_pairs, 3), cp.int32, ctypes.c_int32
-                )
-            if "d" in quantities:
-                distances = wrap_gpu_array(
-                    self._neighbors.distances, (n_pairs,), cp.float64, ctypes.c_double
-                )
-            if "D" in quantities:
-                vectors = wrap_gpu_array(
-                    self._neighbors.vectors, (n_pairs, 3), cp.float64, ctypes.c_double
-                )
+            pairs = _empty_array((0, 2), dtype=ctypes.c_size_t)
+            shifts = _empty_array((0, 3), dtype=ctypes.c_int32)
+            distances = _empty_array((0,), dtype=ctypes.c_double)
+            vectors = _empty_array((0, 3), dtype=ctypes.c_double)
         else:
-            # CPU results - wrap as NumPy arrays
-            pairs = np.ctypeslib.as_array(
-                ctypes.cast(self._neighbors.pairs, POINTER(ctypes.c_size_t)),
+            pairs = _ptr_to_array(
+                self._neighbors.pairs,
                 shape=(n_pairs, 2),
+                dtype=ctypes.c_size_t,
+                owner=self._neighbors,
+                device_id=self._neighbors.device.device_id,
             )
             if "S" in quantities:
-                shifts = np.ctypeslib.as_array(
-                    ctypes.cast(self._neighbors.shifts, POINTER(ctypes.c_int32)),
+                shifts = _ptr_to_array(
+                    self._neighbors.shifts,
                     shape=(n_pairs, 3),
+                    dtype=ctypes.c_int32,
+                    owner=self._neighbors,
+                    device_id=self._neighbors.device.device_id,
                 )
             if "d" in quantities:
-                distances = np.ctypeslib.as_array(
-                    ctypes.cast(self._neighbors.distances, POINTER(ctypes.c_double)),
+                distances = _ptr_to_array(
+                    self._neighbors.distances,
                     shape=(n_pairs,),
+                    dtype=ctypes.c_double,
+                    owner=self._neighbors,
+                    device_id=self._neighbors.device.device_id,
                 )
             if "D" in quantities:
-                vectors = np.ctypeslib.as_array(
-                    ctypes.cast(self._neighbors.vectors, POINTER(ctypes.c_double)),
+                vectors = _ptr_to_array(
+                    self._neighbors.vectors,
                     shape=(n_pairs, 3),
+                    dtype=ctypes.c_double,
+                    owner=self._neighbors,
+                    device_id=self._neighbors.device.device_id,
                 )
 
         # assemble output

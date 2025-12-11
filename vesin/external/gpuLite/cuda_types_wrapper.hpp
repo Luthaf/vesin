@@ -72,6 +72,14 @@ enum {
     cudaSuccess = 0
 };
 
+// CUDA Host Alloc flags
+enum {
+    cudaHostAllocDefault = 0x00,
+    cudaHostAllocPortable = 0x01,
+    cudaHostAllocMapped = 0x02,
+    cudaHostAllocWriteCombined = 0x04
+};
+
 // NVRTC constants
 enum {
     NVRTC_SUCCESS = 0

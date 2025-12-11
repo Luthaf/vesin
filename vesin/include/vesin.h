@@ -32,6 +32,16 @@
 extern "C" {
 #endif
 
+/// Algorithm to use for neighbor list construction (CUDA only)
+enum VesinAlgorithm {
+    /// Automatically select algorithm based on system size
+    VesinAutoAlgorithm = 0,
+    /// Brute-force O(n^2) algorithm with minimum image convention
+    VesinBruteForce = 1,
+    /// Cell list algorithm with O(n) scaling
+    VesinCellList = 2,
+};
+
 /// Options for a neighbor list calculation
 struct VesinOptions {
     /// Spherical cutoff, only pairs below this cutoff will be included
@@ -49,6 +59,9 @@ struct VesinOptions {
     bool return_distances;
     /// Should the returned `VesinNeighborList` contain `vector`?
     bool return_vectors;
+
+    /// Algorithm selection (CUDA only, ignored for CPU)
+    VesinAlgorithm algorithm;
 };
 
 /// Device on which the data can be

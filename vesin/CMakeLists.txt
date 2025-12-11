@@ -53,6 +53,7 @@ option(VESIN_BUILD_TESTS "Build and run Vesin's unit tests" OFF)
 option(VESIN_INSTALL "Install Vesin's headers and libraries" ${VESIN_MAIN_PROJECT})
 option(VESIN_TORCH "Build the vesin_torch library" OFF)
 option(VESIN_ENABLE_CUDA "Build the CUDA backend of Vesin" OFF)
+option(VESIN_ENABLE_NVTX "Enable NVTX profiling markers" OFF)
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
@@ -114,8 +115,22 @@ if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # Create generated directory
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
-    # Generate the CUDA source file for NVRTC compilation
+    # Generate the CUDA source files for NVRTC compilation
     make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/mic_neighbourlist.cu)
+    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cell_list.cu)
+
+    # NVTX profiling support
+    if (VESIN_ENABLE_NVTX)
+        find_package(CUDAToolkit QUIET)
+        if (CUDAToolkit_FOUND AND TARGET CUDA::nvToolsExt)
+            message(STATUS "Found NVTX via CUDAToolkit")
+            target_compile_definitions(vesin PRIVATE VESIN_ENABLE_NVTX)
+            target_compile_definitions(vesin_objects PRIVATE VESIN_ENABLE_NVTX)
+            target_link_libraries(vesin PRIVATE CUDA::nvToolsExt)
+        else()
+            message(WARNING "VESIN_ENABLE_NVTX=ON but CUDA::nvToolsExt target not found")
+        endif()
+    endif()
 endif()
 
 target_include_directories(vesin PUBLIC

@@ -96,6 +96,10 @@ public:
     using cudaStreamCreate_t = cudaError_t (*)(cudaStream_t*);
     using cudaStreamDestroy_t = cudaError_t (*)(cudaStream_t);
     using cudaStreamSynchronize_t = cudaError_t (*)(cudaStream_t);
+    using cudaHostAlloc_t = cudaError_t (*)(void**, size_t, unsigned int);
+    using cudaFreeHost_t = cudaError_t (*)(void*);
+    using cudaHostGetDevicePointer_t = cudaError_t (*)(void**, void*, unsigned int);
+    using cudaMemcpyAsync_t = cudaError_t (*)(void*, const void*, size_t, cudaMemcpyKind, cudaStream_t);
 
     cudaGetDeviceCount_t cudaGetDeviceCount;
     cudaGetDevice_t cudaGetDevice;
@@ -112,6 +116,10 @@ public:
     cudaStreamCreate_t cudaStreamCreate;
     cudaStreamDestroy_t cudaStreamDestroy;
     cudaStreamSynchronize_t cudaStreamSynchronize;
+    cudaHostAlloc_t cudaHostAlloc;
+    cudaFreeHost_t cudaFreeHost;
+    cudaHostGetDevicePointer_t cudaHostGetDevicePointer;
+    cudaMemcpyAsync_t cudaMemcpyAsync;
 
     CUDART() {
 #ifdef __linux__
@@ -139,6 +147,10 @@ public:
             cudaStreamCreate = load<cudaStreamCreate_t>(cudartHandle, "cudaStreamCreate");
             cudaStreamDestroy = load<cudaStreamDestroy_t>(cudartHandle, "cudaStreamDestroy");
             cudaStreamSynchronize = load<cudaStreamSynchronize_t>(cudartHandle, "cudaStreamSynchronize");
+            cudaHostAlloc = load<cudaHostAlloc_t>(cudartHandle, "cudaHostAlloc");
+            cudaFreeHost = load<cudaFreeHost_t>(cudartHandle, "cudaFreeHost");
+            cudaHostGetDevicePointer = load<cudaHostGetDevicePointer_t>(cudartHandle, "cudaHostGetDevicePointer");
+            cudaMemcpyAsync = load<cudaMemcpyAsync_t>(cudartHandle, "cudaMemcpyAsync");
         }
     }
 

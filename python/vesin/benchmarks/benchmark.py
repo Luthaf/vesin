@@ -72,9 +72,8 @@ def run_single(n_atoms=50000, density=0.05, cutoff=5.0):
 
     # CPU
     cpu_time, cpu_std, n_pairs = benchmark_cpu(positions, box, cutoff)
-    print(
-        f"CPU:        {cpu_time:>8.2f} +/- {cpu_std:.2f} ms  ({n_pairs / cpu_time / 1000:.1f} M pairs/ms)"
-    )
+    rate = n_pairs / cpu_time / 1000
+    print(f"CPU:        {cpu_time:>8.2f} +/- {cpu_std:.2f} ms  ({rate:.1f} M pairs/ms)")
 
     if not HAS_CUPY:
         print("CuPy not available, skipping GPU benchmarks")
@@ -85,15 +84,13 @@ def run_single(n_atoms=50000, density=0.05, cutoff=5.0):
 
     # GPU brute force
     bf_time, bf_std, _ = benchmark_gpu(positions_gpu, box_gpu, cutoff, "brute_force")
-    print(
-        f"GPU (BF):   {bf_time:>8.2f} +/- {bf_std:.2f} ms  ({n_pairs / bf_time / 1000:.1f} M pairs/ms)"
-    )
+    rate = n_pairs / bf_time / 1000
+    print(f"GPU (BF):   {bf_time:>8.2f} +/- {bf_std:.2f} ms  ({rate:.1f} M pairs/ms)")
 
     # GPU cell list
     cl_time, cl_std, _ = benchmark_gpu(positions_gpu, box_gpu, cutoff, "cell_list")
-    print(
-        f"GPU (CL):   {cl_time:>8.2f} +/- {cl_std:.2f} ms  ({n_pairs / cl_time / 1000:.1f} M pairs/ms)"
-    )
+    rate = n_pairs / cl_time / 1000
+    print(f"GPU (CL):   {cl_time:>8.2f} +/- {cl_std:.2f} ms  ({rate:.1f} M pairs/ms)")
 
     print()
     print(f"Speedup (CPU/CL): {cpu_time / cl_time:.1f}x")
@@ -111,9 +108,9 @@ def run_scaling(density=0.05, cutoff=5.0):
     print(f"Scaling Benchmark (density={density}, cutoff={cutoff})")
     print("=" * 80)
     print()
-    print(
-        f"{'N atoms':>10} {'N pairs':>12} {'CPU (ms)':>12} {'GPU BF (ms)':>12} {'GPU CL (ms)':>12} {'Speedup':>10}"
-    )
+    header = f"{'N atoms':>10} {'N pairs':>12} {'CPU (ms)':>12} "
+    header += f"{'GPU BF (ms)':>12} {'GPU CL (ms)':>12} {'Speedup':>10}"
+    print(header)
     print("-" * 72)
 
     for n_atoms in [1000, 2000, 5000, 10000, 20000, 50000, 100000]:
@@ -126,9 +123,9 @@ def run_scaling(density=0.05, cutoff=5.0):
         cl_time, _, _ = benchmark_gpu(positions_gpu, box_gpu, cutoff, "cell_list")
 
         speedup = cpu_time / cl_time
-        print(
-            f"{n_atoms:>10} {n_pairs:>12} {cpu_time:>12.2f} {bf_time:>12.2f} {cl_time:>12.2f} {speedup:>9.1f}x"
-        )
+        row = f"{n_atoms:>10} {n_pairs:>12} {cpu_time:>12.2f} "
+        row += f"{bf_time:>12.2f} {cl_time:>12.2f} {speedup:>9.1f}x"
+        print(row)
 
     print()
 
@@ -143,9 +140,9 @@ def run_density(n_atoms=10000, cutoff=5.0):
     print(f"Density Benchmark (n_atoms={n_atoms}, cutoff={cutoff})")
     print("=" * 80)
     print()
-    print(
-        f"{'Density':>10} {'N pairs':>12} {'CPU (ms)':>12} {'GPU BF (ms)':>12} {'GPU CL (ms)':>12} {'Speedup':>10}"
-    )
+    header = f"{'Density':>10} {'N pairs':>12} {'CPU (ms)':>12} "
+    header += f"{'GPU BF (ms)':>12} {'GPU CL (ms)':>12} {'Speedup':>10}"
+    print(header)
     print("-" * 72)
 
     for density in [0.01, 0.02, 0.05, 0.1, 0.2]:
@@ -158,9 +155,9 @@ def run_density(n_atoms=10000, cutoff=5.0):
         cl_time, _, _ = benchmark_gpu(positions_gpu, box_gpu, cutoff, "cell_list")
 
         speedup = cpu_time / cl_time
-        print(
-            f"{density:>10.2f} {n_pairs:>12} {cpu_time:>12.2f} {bf_time:>12.2f} {cl_time:>12.2f} {speedup:>9.1f}x"
-        )
+        row = f"{density:>10.2f} {n_pairs:>12} {cpu_time:>12.2f} "
+        row += f"{bf_time:>12.2f} {cl_time:>12.2f} {speedup:>9.1f}x"
+        print(row)
 
     print()
 

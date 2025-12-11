@@ -22,7 +22,9 @@ __global__ void compute_cell_grid_params(
     int* __restrict__ n_search,
     int* __restrict__ n_cells_total
 ) {
-    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+    if (threadIdx.x != 0 || blockIdx.x != 0) {
+        return;
+    }
 
     // Box matrix elements
     double a = box[0], b = box[1], c = box[2];
@@ -50,18 +52,18 @@ __global__ void compute_cell_grid_params(
     double vc[3] = {box[6], box[7], box[8]};
 
     // Cross products for face normals
-    double bc[3] = {vb[1]*vc[2] - vb[2]*vc[1], vb[2]*vc[0] - vb[0]*vc[2], vb[0]*vc[1] - vb[1]*vc[0]};
-    double ca[3] = {vc[1]*va[2] - vc[2]*va[1], vc[2]*va[0] - vc[0]*va[2], vc[0]*va[1] - vc[1]*va[0]};
-    double ab[3] = {va[1]*vb[2] - va[2]*vb[1], va[2]*vb[0] - va[0]*vb[2], va[0]*vb[1] - va[1]*vb[0]};
+    double bc[3] = {vb[1] * vc[2] - vb[2] * vc[1], vb[2] * vc[0] - vb[0] * vc[2], vb[0] * vc[1] - vb[1] * vc[0]};
+    double ca[3] = {vc[1] * va[2] - vc[2] * va[1], vc[2] * va[0] - vc[0] * va[2], vc[0] * va[1] - vc[1] * va[0]};
+    double ab[3] = {va[1] * vb[2] - va[2] * vb[1], va[2] * vb[0] - va[0] * vb[2], va[0] * vb[1] - va[1] * vb[0]};
 
-    double bc_norm = sqrt(bc[0]*bc[0] + bc[1]*bc[1] + bc[2]*bc[2]);
-    double ca_norm = sqrt(ca[0]*ca[0] + ca[1]*ca[1] + ca[2]*ca[2]);
-    double ab_norm = sqrt(ab[0]*ab[0] + ab[1]*ab[1] + ab[2]*ab[2]);
+    double bc_norm = sqrt(bc[0] * bc[0] + bc[1] * bc[1] + bc[2] * bc[2]);
+    double ca_norm = sqrt(ca[0] * ca[0] + ca[1] * ca[1] + ca[2] * ca[2]);
+    double ab_norm = sqrt(ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]);
 
     // Distances between opposite faces
-    double dist_a = fabs(va[0]*bc[0] + va[1]*bc[1] + va[2]*bc[2]) / bc_norm;
-    double dist_b = fabs(vb[0]*ca[0] + vb[1]*ca[1] + vb[2]*ca[2]) / ca_norm;
-    double dist_c = fabs(vc[0]*ab[0] + vc[1]*ab[1] + vc[2]*ab[2]) / ab_norm;
+    double dist_a = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
+    double dist_b = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
+    double dist_c = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
     double distances[3] = {dist_a, dist_b, dist_c};
 
     // Compute number of cells based on cutoff (one cell per cutoff distance)
@@ -108,7 +110,9 @@ __global__ void assign_cell_indices(
     int32_t* __restrict__ particle_shifts
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_points) return;
+    if (i >= n_points) {
+        return;
+    }
 
     double pos[3] = {positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]};
 
@@ -146,7 +150,9 @@ __global__ void count_particles_per_cell(
     int* __restrict__ cell_counts
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_points) return;
+    if (i >= n_points) {
+        return;
+    }
     atomicAdd(&cell_counts[cell_indices[i]], 1);
 }
 
@@ -209,7 +215,9 @@ __global__ void scatter_particles(
     int* __restrict__ sorted_cell_indices
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_points) return;
+    if (i >= n_points) {
+        return;
+    }
 
     int cell = cell_indices[i];
     int slot = atomicAdd(&cell_offsets[cell], 1);
@@ -262,7 +270,9 @@ __global__ void find_neighbors_optimized(
     const size_t base_particle = (size_t)(blockIdx.x * warps_per_block + warp_id) * particles_per_warp;
     const size_t i = base_particle + particle_in_warp;
 
-    if (i >= n_points) return;
+    if (i >= n_points) {
+        return;
+    }
 
     const double cutoff2 = cutoff * cutoff;
 
@@ -315,24 +325,48 @@ __global__ void find_neighbors_optimized(
         int32_t cell_shift_x = 0, cell_shift_y = 0, cell_shift_z = 0;
 
         if (pbc_x) {
-            while (cell_jx < 0) { cell_jx += nc_x; cell_shift_x -= 1; }
-            while (cell_jx >= nc_x) { cell_jx -= nc_x; cell_shift_x += 1; }
+            while (cell_jx < 0) {
+                cell_jx += nc_x;
+                cell_shift_x -= 1;
+            }
+            while (cell_jx >= nc_x) {
+                cell_jx -= nc_x;
+                cell_shift_x += 1;
+            }
         } else {
-            if (cell_jx < 0 || cell_jx >= nc_x) continue;
+            if (cell_jx < 0 || cell_jx >= nc_x) {
+                continue;
+            }
         }
 
         if (pbc_y) {
-            while (cell_jy < 0) { cell_jy += nc_y; cell_shift_y -= 1; }
-            while (cell_jy >= nc_y) { cell_jy -= nc_y; cell_shift_y += 1; }
+            while (cell_jy < 0) {
+                cell_jy += nc_y;
+                cell_shift_y -= 1;
+            }
+            while (cell_jy >= nc_y) {
+                cell_jy -= nc_y;
+                cell_shift_y += 1;
+            }
         } else {
-            if (cell_jy < 0 || cell_jy >= nc_y) continue;
+            if (cell_jy < 0 || cell_jy >= nc_y) {
+                continue;
+            }
         }
 
         if (pbc_z) {
-            while (cell_jz < 0) { cell_jz += nc_z; cell_shift_z -= 1; }
-            while (cell_jz >= nc_z) { cell_jz -= nc_z; cell_shift_z += 1; }
+            while (cell_jz < 0) {
+                cell_jz += nc_z;
+                cell_shift_z -= 1;
+            }
+            while (cell_jz >= nc_z) {
+                cell_jz -= nc_z;
+                cell_shift_z += 1;
+            }
         } else {
-            if (cell_jz < 0 || cell_jz >= nc_z) continue;
+            if (cell_jz < 0 || cell_jz >= nc_z) {
+                continue;
+            }
         }
 
         const int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
@@ -352,15 +386,23 @@ __global__ void find_neighbors_optimized(
 
             const bool shift_is_zero = (total_shift_x == 0 && total_shift_y == 0 && total_shift_z == 0);
 
-            if (orig_i == orig_j && shift_is_zero) continue;
+            if (orig_i == orig_j && shift_is_zero) {
+                continue;
+            }
 
             if (!full_list) {
-                if (orig_i > orig_j) continue;
+                if (orig_i > orig_j) {
+                    continue;
+                }
                 if (orig_i == orig_j) {
                     int shift_sum = total_shift_x + total_shift_y + total_shift_z;
-                    if (shift_sum < 0) continue;
+                    if (shift_sum < 0) {
+                        continue;
+                    }
                     if (shift_sum == 0) {
-                        if (total_shift_z < 0 || (total_shift_z == 0 && total_shift_y < 0)) continue;
+                        if (total_shift_z < 0 || (total_shift_z == 0 && total_shift_y < 0)) {
+                            continue;
+                        }
                     }
                 }
             }
@@ -472,7 +514,9 @@ __global__ void find_neighbors_cell_pairs_smem(
 
     int cell_i = blockIdx.x;
     int n_cells_total = n_cells_total_ptr[0];
-    if (cell_i >= n_cells_total) return;
+    if (cell_i >= n_cells_total) {
+        return;
+    }
 
     int tid = threadIdx.x;
     int nthreads = blockDim.x;
@@ -522,24 +566,48 @@ __global__ void find_neighbors_cell_pairs_smem(
                 int32_t cell_shift[3] = {0, 0, 0};
 
                 if (periodic[0]) {
-                    while (cell_jx < 0) { cell_jx += nc_x; cell_shift[0] -= 1; }
-                    while (cell_jx >= nc_x) { cell_jx -= nc_x; cell_shift[0] += 1; }
+                    while (cell_jx < 0) {
+                        cell_jx += nc_x;
+                        cell_shift[0] -= 1;
+                    }
+                    while (cell_jx >= nc_x) {
+                        cell_jx -= nc_x;
+                        cell_shift[0] += 1;
+                    }
                 } else {
-                    if (cell_jx < 0 || cell_jx >= nc_x) continue;
+                    if (cell_jx < 0 || cell_jx >= nc_x) {
+                        continue;
+                    }
                 }
 
                 if (periodic[1]) {
-                    while (cell_jy < 0) { cell_jy += nc_y; cell_shift[1] -= 1; }
-                    while (cell_jy >= nc_y) { cell_jy -= nc_y; cell_shift[1] += 1; }
+                    while (cell_jy < 0) {
+                        cell_jy += nc_y;
+                        cell_shift[1] -= 1;
+                    }
+                    while (cell_jy >= nc_y) {
+                        cell_jy -= nc_y;
+                        cell_shift[1] += 1;
+                    }
                 } else {
-                    if (cell_jy < 0 || cell_jy >= nc_y) continue;
+                    if (cell_jy < 0 || cell_jy >= nc_y) {
+                        continue;
+                    }
                 }
 
                 if (periodic[2]) {
-                    while (cell_jz < 0) { cell_jz += nc_z; cell_shift[2] -= 1; }
-                    while (cell_jz >= nc_z) { cell_jz -= nc_z; cell_shift[2] += 1; }
+                    while (cell_jz < 0) {
+                        cell_jz += nc_z;
+                        cell_shift[2] -= 1;
+                    }
+                    while (cell_jz >= nc_z) {
+                        cell_jz -= nc_z;
+                        cell_shift[2] += 1;
+                    }
                 } else {
-                    if (cell_jz < 0 || cell_jz >= nc_z) continue;
+                    if (cell_jz < 0 || cell_jz >= nc_z) {
+                        continue;
+                    }
                 }
 
                 int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
@@ -588,15 +656,23 @@ __global__ void find_neighbors_cell_pairs_smem(
 
                     bool shift_is_zero = (total_shift[0] == 0 && total_shift[1] == 0 && total_shift[2] == 0);
 
-                    if (orig_i == orig_j && shift_is_zero) continue;
+                    if (orig_i == orig_j && shift_is_zero) {
+                        continue;
+                    }
 
                     if (!full_list) {
-                        if (orig_i > orig_j) continue;
+                        if (orig_i > orig_j) {
+                            continue;
+                        }
                         if (orig_i == orig_j) {
                             int shift_sum = total_shift[0] + total_shift[1] + total_shift[2];
-                            if (shift_sum < 0) continue;
+                            if (shift_sum < 0) {
+                                continue;
+                            }
                             if (shift_sum == 0) {
-                                if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) continue;
+                                if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) {
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -663,24 +739,48 @@ __global__ void find_neighbors_cell_pairs_smem(
                     int32_t cell_shift[3] = {0, 0, 0};
 
                     if (periodic[0]) {
-                        while (cell_jx < 0) { cell_jx += nc_x; cell_shift[0] -= 1; }
-                        while (cell_jx >= nc_x) { cell_jx -= nc_x; cell_shift[0] += 1; }
+                        while (cell_jx < 0) {
+                            cell_jx += nc_x;
+                            cell_shift[0] -= 1;
+                        }
+                        while (cell_jx >= nc_x) {
+                            cell_jx -= nc_x;
+                            cell_shift[0] += 1;
+                        }
                     } else {
-                        if (cell_jx < 0 || cell_jx >= nc_x) continue;
+                        if (cell_jx < 0 || cell_jx >= nc_x) {
+                            continue;
+                        }
                     }
 
                     if (periodic[1]) {
-                        while (cell_jy < 0) { cell_jy += nc_y; cell_shift[1] -= 1; }
-                        while (cell_jy >= nc_y) { cell_jy -= nc_y; cell_shift[1] += 1; }
+                        while (cell_jy < 0) {
+                            cell_jy += nc_y;
+                            cell_shift[1] -= 1;
+                        }
+                        while (cell_jy >= nc_y) {
+                            cell_jy -= nc_y;
+                            cell_shift[1] += 1;
+                        }
                     } else {
-                        if (cell_jy < 0 || cell_jy >= nc_y) continue;
+                        if (cell_jy < 0 || cell_jy >= nc_y) {
+                            continue;
+                        }
                     }
 
                     if (periodic[2]) {
-                        while (cell_jz < 0) { cell_jz += nc_z; cell_shift[2] -= 1; }
-                        while (cell_jz >= nc_z) { cell_jz -= nc_z; cell_shift[2] += 1; }
+                        while (cell_jz < 0) {
+                            cell_jz += nc_z;
+                            cell_shift[2] -= 1;
+                        }
+                        while (cell_jz >= nc_z) {
+                            cell_jz -= nc_z;
+                            cell_shift[2] += 1;
+                        }
                     } else {
-                        if (cell_jz < 0 || cell_jz >= nc_z) continue;
+                        if (cell_jz < 0 || cell_jz >= nc_z) {
+                            continue;
+                        }
                     }
 
                     int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
@@ -704,15 +804,23 @@ __global__ void find_neighbors_cell_pairs_smem(
 
                         bool shift_is_zero = (total_shift[0] == 0 && total_shift[1] == 0 && total_shift[2] == 0);
 
-                        if (orig_i == orig_j && shift_is_zero) continue;
+                        if (orig_i == orig_j && shift_is_zero) {
+                            continue;
+                        }
 
                         if (!full_list) {
-                            if (orig_i > orig_j) continue;
+                            if (orig_i > orig_j) {
+                                continue;
+                            }
                             if (orig_i == orig_j) {
                                 int shift_sum = total_shift[0] + total_shift[1] + total_shift[2];
-                                if (shift_sum < 0) continue;
+                                if (shift_sum < 0) {
+                                    continue;
+                                }
                                 if (shift_sum == 0) {
-                                    if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) continue;
+                                    if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) {
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -788,7 +896,9 @@ __global__ void find_neighbors_cell_pairs(
     // Each block handles one cell
     int cell_i = blockIdx.x;
     int n_cells_total = n_cells_total_ptr[0];
-    if (cell_i >= n_cells_total) return;
+    if (cell_i >= n_cells_total) {
+        return;
+    }
 
     int tid = threadIdx.x;
     int nthreads = blockDim.x;
@@ -821,24 +931,48 @@ __global__ void find_neighbors_cell_pairs(
 
                 // Wrap cell indices with periodic boundary conditions
                 if (periodic[0]) {
-                    while (cell_jx < 0) { cell_jx += nc_x; cell_shift[0] -= 1; }
-                    while (cell_jx >= nc_x) { cell_jx -= nc_x; cell_shift[0] += 1; }
+                    while (cell_jx < 0) {
+                        cell_jx += nc_x;
+                        cell_shift[0] -= 1;
+                    }
+                    while (cell_jx >= nc_x) {
+                        cell_jx -= nc_x;
+                        cell_shift[0] += 1;
+                    }
                 } else {
-                    if (cell_jx < 0 || cell_jx >= nc_x) continue;
+                    if (cell_jx < 0 || cell_jx >= nc_x) {
+                        continue;
+                    }
                 }
 
                 if (periodic[1]) {
-                    while (cell_jy < 0) { cell_jy += nc_y; cell_shift[1] -= 1; }
-                    while (cell_jy >= nc_y) { cell_jy -= nc_y; cell_shift[1] += 1; }
+                    while (cell_jy < 0) {
+                        cell_jy += nc_y;
+                        cell_shift[1] -= 1;
+                    }
+                    while (cell_jy >= nc_y) {
+                        cell_jy -= nc_y;
+                        cell_shift[1] += 1;
+                    }
                 } else {
-                    if (cell_jy < 0 || cell_jy >= nc_y) continue;
+                    if (cell_jy < 0 || cell_jy >= nc_y) {
+                        continue;
+                    }
                 }
 
                 if (periodic[2]) {
-                    while (cell_jz < 0) { cell_jz += nc_z; cell_shift[2] -= 1; }
-                    while (cell_jz >= nc_z) { cell_jz -= nc_z; cell_shift[2] += 1; }
+                    while (cell_jz < 0) {
+                        cell_jz += nc_z;
+                        cell_shift[2] -= 1;
+                    }
+                    while (cell_jz >= nc_z) {
+                        cell_jz -= nc_z;
+                        cell_shift[2] += 1;
+                    }
                 } else {
-                    if (cell_jz < 0 || cell_jz >= nc_z) continue;
+                    if (cell_jz < 0 || cell_jz >= nc_z) {
+                        continue;
+                    }
                 }
 
                 int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
@@ -879,16 +1013,24 @@ __global__ void find_neighbors_cell_pairs(
                     bool shift_is_zero = (total_shift[0] == 0 && total_shift[1] == 0 && total_shift[2] == 0);
 
                     // Skip self-pairs without shift
-                    if (orig_i == orig_j && shift_is_zero) continue;
+                    if (orig_i == orig_j && shift_is_zero) {
+                        continue;
+                    }
 
                     // For half list, apply filtering
                     if (!full_list) {
-                        if (orig_i > orig_j) continue;
+                        if (orig_i > orig_j) {
+                            continue;
+                        }
                         if (orig_i == orig_j) {
                             int shift_sum = total_shift[0] + total_shift[1] + total_shift[2];
-                            if (shift_sum < 0) continue;
+                            if (shift_sum < 0) {
+                                continue;
+                            }
                             if (shift_sum == 0) {
-                                if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) continue;
+                                if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) {
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -970,7 +1112,9 @@ __global__ void find_neighbors_cell_list(
     bool return_vectors
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_points) return;
+    if (i >= n_points) {
+        return;
+    }
 
     double cutoff2 = cutoff * cutoff;
 
@@ -1003,24 +1147,48 @@ __global__ void find_neighbors_cell_list(
 
                 // Wrap cell indices into [0, n_cells) with periodic shifts
                 if (periodic[0]) {
-                    while (cell_jx < 0) { cell_jx += n_cells[0]; cell_shift[0] -= 1; }
-                    while (cell_jx >= n_cells[0]) { cell_jx -= n_cells[0]; cell_shift[0] += 1; }
+                    while (cell_jx < 0) {
+                        cell_jx += n_cells[0];
+                        cell_shift[0] -= 1;
+                    }
+                    while (cell_jx >= n_cells[0]) {
+                        cell_jx -= n_cells[0];
+                        cell_shift[0] += 1;
+                    }
                 } else {
-                    if (cell_jx < 0 || cell_jx >= n_cells[0]) continue;
+                    if (cell_jx < 0 || cell_jx >= n_cells[0]) {
+                        continue;
+                    }
                 }
 
                 if (periodic[1]) {
-                    while (cell_jy < 0) { cell_jy += n_cells[1]; cell_shift[1] -= 1; }
-                    while (cell_jy >= n_cells[1]) { cell_jy -= n_cells[1]; cell_shift[1] += 1; }
+                    while (cell_jy < 0) {
+                        cell_jy += n_cells[1];
+                        cell_shift[1] -= 1;
+                    }
+                    while (cell_jy >= n_cells[1]) {
+                        cell_jy -= n_cells[1];
+                        cell_shift[1] += 1;
+                    }
                 } else {
-                    if (cell_jy < 0 || cell_jy >= n_cells[1]) continue;
+                    if (cell_jy < 0 || cell_jy >= n_cells[1]) {
+                        continue;
+                    }
                 }
 
                 if (periodic[2]) {
-                    while (cell_jz < 0) { cell_jz += n_cells[2]; cell_shift[2] -= 1; }
-                    while (cell_jz >= n_cells[2]) { cell_jz -= n_cells[2]; cell_shift[2] += 1; }
+                    while (cell_jz < 0) {
+                        cell_jz += n_cells[2];
+                        cell_shift[2] -= 1;
+                    }
+                    while (cell_jz >= n_cells[2]) {
+                        cell_jz -= n_cells[2];
+                        cell_shift[2] += 1;
+                    }
                 } else {
-                    if (cell_jz < 0 || cell_jz >= n_cells[2]) continue;
+                    if (cell_jz < 0 || cell_jz >= n_cells[2]) {
+                        continue;
+                    }
                 }
 
                 int cell_j = cell_jx + cell_jy * n_cells[0] + cell_jz * n_cells_xy;
@@ -1038,16 +1206,24 @@ __global__ void find_neighbors_cell_list(
 
                     bool shift_is_zero = (total_shift[0] == 0 && total_shift[1] == 0 && total_shift[2] == 0);
 
-                    if (orig_i == orig_j && shift_is_zero) continue;
+                    if (orig_i == orig_j && shift_is_zero) {
+                        continue;
+                    }
 
                     if (!full_list) {
-                        if (orig_i > orig_j) continue;
+                        if (orig_i > orig_j) {
+                            continue;
+                        }
                         if (orig_i == orig_j) {
                             // For self-pairs with periodic shifts, keep only positive half-space
                             int shift_sum = total_shift[0] + total_shift[1] + total_shift[2];
-                            if (shift_sum < 0) continue;
+                            if (shift_sum < 0) {
+                                continue;
+                            }
                             if (shift_sum == 0) {
-                                if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) continue;
+                                if (total_shift[2] < 0 || (total_shift[2] == 0 && total_shift[1] < 0)) {
+                                    continue;
+                                }
                             }
                         }
                     }

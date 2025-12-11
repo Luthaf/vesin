@@ -52,7 +52,7 @@ jobs:
               apt install -y software-properties-common
               apt install -y cmake make gcc g++ gfortran git curl
 
-          - os: macos-14
+          - os: macos-15
             compiler: Clang
             cc: clang
             cxx: clang++
@@ -76,7 +76,7 @@ jobs:
       - name: setup dependencies
         run: ${{ matrix.setup-dependencies }}
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

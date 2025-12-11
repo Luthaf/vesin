@@ -30,22 +30,22 @@ jobs:
       matrix:
         include:
           - name: x86_64 Linux
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             cibw_arch: x86_64
           - name: arm64 Linux
-            os: ubuntu-22.04-arm
+            os: ubuntu-24.04-arm
             cibw_arch: aarch64
           - name: x86_64 macOS
-            os: macos-13
+            os: macos-15-intel
             cibw_arch: x86_64
           - name: M1 macOS
-            os: macos-14
+            os: macos-15
             cibw_arch: arm64
           - name: x86_64 Windows
             os: windows-2022
             cibw_arch: AMD64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -82,25 +82,25 @@ jobs:
       matrix:
         torch-version: ['2.3', '2.4', '2.5', '2.6', '2.7', '2.8', '2.9']
         arch: ['arm64', 'x86_64']
-        os: ['ubuntu-22.04', 'ubuntu-22.04-arm', 'macos-14', 'windows-2022']
+        os: ['ubuntu-24.04', 'ubuntu-24.04-arm', 'macos-15', 'windows-2022']
         exclude:
           # remove mismatched architectures
-          - {os: macos-14, arch: x86_64}
-          - {os: ubuntu-22.04, arch: arm64}
-          - {os: ubuntu-22.04-arm, arch: x86_64}
+          - {os: macos-15, arch: x86_64}
+          - {os: ubuntu-24.04, arch: arm64}
+          - {os: ubuntu-24.04-arm, arch: x86_64}
           - {os: windows-2022, arch: arm64}
         include:
           # add `cibw-arch` to the different configurations
           - name: x86_64 Linux
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             arch: x86_64
             cibw-arch: x86_64
           - name: arm64 Linux
-            os: ubuntu-22.04-arm
+            os: ubuntu-24.04-arm
             arch: arm64
             cibw-arch: aarch64
           - name: arm64 macOS
-            os: macos-14
+            os: macos-15
             arch: arm64
             cibw-arch: arm64
           - name: x86_64 Windows
@@ -116,7 +116,7 @@ jobs:
           - {torch-version: '2.8',  python-version: '3.13', cibw-python: 'cp313-*'}
           - {torch-version: '2.9',  python-version: '3.13', cibw-python: 'cp313-*'}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -154,25 +154,25 @@ jobs:
 
   merge-torch-wheels:
     needs: build-torch-wheels
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     name: merge vesin-torch ${{ matrix.name }}
     strategy:
       matrix:
         include:
           - name: x86_64 Linux
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             arch: x86_64
           - name: arm64 Linux
-            os: ubuntu-22.04-arm
+            os: ubuntu-24.04-arm
             arch: arm64
           - name: arm64 macOS
-            os: macos-14
+            os: macos-15
             arch: arm64
           - name: x86_64 Windows
             os: windows-2022
             arch: x86_64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download wheels
         uses: actions/download-artifact@v6
@@ -223,10 +223,10 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-sdist:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     name: sdist
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -249,7 +249,7 @@ jobs:
   merge-and-release:
     name: Merge and release wheels/sdists
     needs: [build-wheels, merge-torch-wheels, build-sdist]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -292,12 +292,12 @@ jobs:
 
   single-cxx-build:
     name: Create the single file build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

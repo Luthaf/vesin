@@ -1,6 +1,8 @@
 #ifndef VESIN_CUDA_HPP
 #define VESIN_CUDA_HPP
 
+#include <vector>
+
 #include "vesin.h"
 
 namespace vesin {
@@ -13,10 +15,10 @@ namespace cuda {
 #endif
 
 struct CudaNeighborListExtras {
-    size_t* length_ptr = nullptr;  // GPU-side counter
-    size_t capacity = 0;           // Current capacity per device
-    int* cell_check_ptr = nullptr; // GPU-side status code for checking cell
-    int allocated_device = -1;     // which device are we currently allocated on
+    unsigned long* length_ptr = nullptr; // GPU-side counter
+    unsigned long capacity = 0;          // Current capacity per device
+    int* cell_check_ptr = nullptr;       // GPU-side status code for checking cell
+    int allocated_device = -1;           // which device are we currently allocated on
 
     ~CudaNeighborListExtras();
 };
@@ -35,24 +37,17 @@ void free_neighbors(VesinNeighborList& neighbors);
 /// This function only works under Minimum Image Convention for now.
 ///
 /// This function generates a neighbor list for a set of points within a
-/// periodic simulation box using GPU acceleration. The output is stored in a
+/// periodic simulation cell using GPU acceleration. The output is stored in a
 /// `VesinNeighborList` structure, which must be initialized for GPU usage.
 ///
 /// @param points Pointer to an array of 3D points (shape: [n_points][3]).
 /// @param n_points Number of points (atoms, particles, etc.).
-/// @param box 3×3 matrix defining the bounding box of the system.
-/// @param periodic Array of three booleans indicating periodicity in each dimension.
+/// @param cell 3×3 simulation box matrix defining the periodic boundary
+/// conditions.
 /// @param options Struct holding parameters such as cutoff, symmetry, etc.
 /// @param neighbors Output neighbor list (device memory will be allocated as
 /// needed).
-void neighbors(
-    const double (*points)[3],
-    size_t n_points,
-    const double box[3][3],
-    const bool periodic[3],
-    VesinOptions options,
-    VesinNeighborList& neighbors
-);
+void neighbors(const double (*points)[3], long n_points, const double cell[3][3], VesinOptions options, VesinNeighborList& neighbors);
 
 /// Get the `CudaNeighborListExtras` stored inside `VesinNeighborList`'s opaque pointer
 CudaNeighborListExtras* get_cuda_extras(VesinNeighborList* neighbors);

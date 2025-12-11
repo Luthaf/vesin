@@ -1,18 +1,12 @@
-#include "mic_neighbourlist.cuh"
-
-#include "vesin_cuda.hpp"
-
-#include <cassert>
-#include <cstdio>
-#include <stdexcept>
-
-#include <cuda_runtime.h>
+// Type definitions for NVRTC compilation (no system headers available)
+// Note: size_t is already defined by NVRTC builtin headers as unsigned long
+#if defined(__CUDACC_RTC__)
+typedef int int32_t;
+typedef unsigned int uint32_t;
+#endif
 
 #define NWARPS 4
 #define WARP_SIZE 32
-
-static_assert(sizeof(int3) == 3 * sizeof(int32_t));
-static_assert(sizeof(ulong2) == 2 * sizeof(size_t));
 
 __device__ inline size_t atomicAdd(size_t* address, size_t val) {
     unsigned long long* address_as_ull = reinterpret_cast<unsigned long long*>(address);
@@ -30,154 +24,151 @@ __device__ inline size_t atomicAdd(size_t* address, size_t val) {
     return static_cast<size_t>(old);
 }
 
-// ops for vector types
-__device__ inline double3 operator-(double3 a, double3 b) {
-    return make_double3(a.x - b.x, a.y - b.y, a.z - b.z);
+// Vector math helpers using flat array indexing
+__device__ inline double dot3(const double* a, const double* b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-__device__ inline double dot(double3 a, double3 b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
+__device__ inline void cross3(const double* a, const double* b, double* result) {
+    result[0] = a[1] * b[2] - a[2] * b[1];
+    result[1] = a[2] * b[0] - a[0] * b[2];
+    result[2] = a[0] * b[1] - a[1] * b[0];
 }
 
-__device__ inline double3 cross(double3 a, double3 b) {
-    auto x = a.y * b.z - a.z * b.y;
-    auto y = a.z * b.x - a.x * b.z;
-    auto z = a.x * b.y - a.y * b.x;
-    return {x, y, z};
+__device__ inline double norm3(const double* a) {
+    return sqrt(dot3(a, a));
 }
 
-__device__ inline double norm(double3 a) {
-    return sqrt(dot(a, a));
+__device__ inline void normalize3(double* a) {
+    double n = norm3(a);
+    a[0] /= n;
+    a[1] /= n;
+    a[2] /= n;
 }
 
-__device__ inline double3 normalize(double3 a) {
-    auto norm_a = norm(a);
-    return make_double3(a.x / norm_a, a.y / norm_a, a.z / norm_a);
-}
-
-__device__ void invert_matrix(const double3 matrix[3], double3 inverse[3]) {
-    double a = matrix[0].x, b = matrix[0].y, c = matrix[0].z;
-    double d = matrix[1].x, e = matrix[1].y, f = matrix[1].z;
-    double g = matrix[2].x, h = matrix[2].y, i = matrix[2].z;
+__device__ void invert_matrix(const double* matrix, double* inverse) {
+    // matrix is row-major: matrix[row*3 + col]
+    double a = matrix[0], b = matrix[1], c = matrix[2];
+    double d = matrix[3], e = matrix[4], f = matrix[5];
+    double g = matrix[6], h = matrix[7], i = matrix[8];
 
     double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-    double invdet = double(1.0) / det;
+    double invdet = 1.0 / det;
 
-    inverse[0] = {
-        (e * i - f * h) * invdet,
-        (c * h - b * i) * invdet,
-        (b * f - c * e) * invdet
-    };
-    inverse[1] = {
-        (f * g - d * i) * invdet,
-        (a * i - c * g) * invdet,
-        (c * d - a * f) * invdet
-    };
-    inverse[2] = {
-        (d * h - e * g) * invdet,
-        (b * g - a * h) * invdet,
-        (a * e - b * d) * invdet
-    };
+    inverse[0] = (e * i - f * h) * invdet;
+    inverse[1] = (c * h - b * i) * invdet;
+    inverse[2] = (b * f - c * e) * invdet;
+    inverse[3] = (f * g - d * i) * invdet;
+    inverse[4] = (a * i - c * g) * invdet;
+    inverse[5] = (c * d - a * f) * invdet;
+    inverse[6] = (d * h - e * g) * invdet;
+    inverse[7] = (b * g - a * h) * invdet;
+    inverse[8] = (a * e - b * d) * invdet;
 }
+
 // Helper to compute Cartesian vector from fractional coordinates
 // Using row convention: cart = frac @ box (frac as row vector times box matrix)
-// cart[j] = sum_i(frac[i] * box[i,j]) = frac.x*box[0,j] + frac.y*box[1,j] + frac.z*box[2,j]
-__device__ inline double3 frac_to_cart(
-    double3 frac,
-    const double3 box[3]
+// cart[j] = sum_i(frac[i] * box[i*3+j])
+__device__ inline void frac_to_cart(
+    const double* frac,
+    const double* box,
+    double* cart
 ) {
-    return make_double3(
-        frac.x * box[0].x + frac.y * box[1].x + frac.z * box[2].x,
-        frac.x * box[0].y + frac.y * box[1].y + frac.z * box[2].y,
-        frac.x * box[0].z + frac.y * box[1].z + frac.z * box[2].z
-    );
+    cart[0] = frac[0] * box[0] + frac[1] * box[3] + frac[2] * box[6];
+    cart[1] = frac[0] * box[1] + frac[1] * box[4] + frac[2] * box[7];
+    cart[2] = frac[0] * box[2] + frac[1] * box[5] + frac[2] * box[8];
 }
 
 __device__ void apply_periodic_boundary(
-    double3& vector,
-    int3& shift,
-    const double3 box[3],
-    const double3 inv_box[3],
-    const bool periodic[3],
+    double* vector,
+    int32_t* shift,
+    const double* box,
+    const double* inv_box,
+    const bool* periodic,
     bool is_orthogonal
 ) {
     // Compute fractional coordinates using row convention: frac = vector @ inv_box
-    // frac[i] = sum_j(vector[j] * inv_box[j,i]) = vector.x*inv_box[0,i] + vector.y*inv_box[1,i] + vector.z*inv_box[2,i]
-    double3 fractional;
-    fractional.x = vector.x * inv_box[0].x + vector.y * inv_box[1].x + vector.z * inv_box[2].x;
-    fractional.y = vector.x * inv_box[0].y + vector.y * inv_box[1].y + vector.z * inv_box[2].y;
-    fractional.z = vector.x * inv_box[0].z + vector.y * inv_box[1].z + vector.z * inv_box[2].z;
+    // frac[i] = sum_j(vector[j] * inv_box[j*3+i])
+    double fractional[3];
+    fractional[0] = vector[0] * inv_box[0] + vector[1] * inv_box[3] + vector[2] * inv_box[6];
+    fractional[1] = vector[0] * inv_box[1] + vector[1] * inv_box[4] + vector[2] * inv_box[7];
+    fractional[2] = vector[0] * inv_box[2] + vector[1] * inv_box[5] + vector[2] * inv_box[8];
 
     // Compute the initial wrapping to bring fractional coords into [-0.5, 0.5]
     // The multiplication by `periodic` sets the wrap to zero for non-periodic directions
-    int3 wrap;
-    wrap.x = static_cast<int32_t>(periodic[0]) * static_cast<int32_t>(round(fractional.x));
-    wrap.y = static_cast<int32_t>(periodic[1]) * static_cast<int32_t>(round(fractional.y));
-    wrap.z = static_cast<int32_t>(periodic[2]) * static_cast<int32_t>(round(fractional.z));
+    int32_t wrap[3];
+    wrap[0] = static_cast<int32_t>(periodic[0]) * static_cast<int32_t>(round(fractional[0]));
+    wrap[1] = static_cast<int32_t>(periodic[1]) * static_cast<int32_t>(round(fractional[1]));
+    wrap[2] = static_cast<int32_t>(periodic[2]) * static_cast<int32_t>(round(fractional[2]));
 
     if (!is_orthogonal) {
         // For non-orthogonal cells, simple rounding may not find the true minimum image.
         // Search all 27 neighboring images to find the one with minimum distance.
         double min_dist2 = 1e30;
-        int3 best_wrap = wrap;
+        int32_t best_wrap[3] = {wrap[0], wrap[1], wrap[2]};
 
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
                 for (int dz = -1; dz <= 1; dz++) {
-                    int3 test_wrap;
-                    test_wrap.x = (wrap.x + dx) * static_cast<int32_t>(periodic[0]);
-                    test_wrap.y = (wrap.y + dy) * static_cast<int32_t>(periodic[1]);
-                    test_wrap.z = (wrap.z + dz) * static_cast<int32_t>(periodic[2]);
+                    int32_t test_wrap[3];
+                    test_wrap[0] = (wrap[0] + dx) * static_cast<int32_t>(periodic[0]);
+                    test_wrap[1] = (wrap[1] + dy) * static_cast<int32_t>(periodic[1]);
+                    test_wrap[2] = (wrap[2] + dz) * static_cast<int32_t>(periodic[2]);
 
-                    double3 test_frac = make_double3(
-                        fractional.x - test_wrap.x,
-                        fractional.y - test_wrap.y,
-                        fractional.z - test_wrap.z
-                    );
+                    double test_frac[3] = {
+                        fractional[0] - test_wrap[0],
+                        fractional[1] - test_wrap[1],
+                        fractional[2] - test_wrap[2]
+                    };
 
-                    double3 test_vec = frac_to_cart(test_frac, box);
-                    double dist2 = dot(test_vec, test_vec);
+                    double test_vec[3];
+                    frac_to_cart(test_frac, box, test_vec);
+                    double dist2 = dot3(test_vec, test_vec);
 
                     if (dist2 < min_dist2) {
                         min_dist2 = dist2;
-                        best_wrap = test_wrap;
+                        best_wrap[0] = test_wrap[0];
+                        best_wrap[1] = test_wrap[1];
+                        best_wrap[2] = test_wrap[2];
                     }
                 }
             }
         }
-        wrap = best_wrap;
+        wrap[0] = best_wrap[0];
+        wrap[1] = best_wrap[1];
+        wrap[2] = best_wrap[2];
     }
 
     // The stored shift follows the convention: vector = rj - ri + shift @ box
     // Since we compute wrapped = vector - wrap @ box, the shift is -wrap
-    shift.x = -wrap.x;
-    shift.y = -wrap.y;
-    shift.z = -wrap.z;
+    shift[0] = -wrap[0];
+    shift[1] = -wrap[1];
+    shift[2] = -wrap[2];
 
-    fractional.x -= wrap.x;
-    fractional.y -= wrap.y;
-    fractional.z -= wrap.z;
+    fractional[0] -= wrap[0];
+    fractional[1] -= wrap[1];
+    fractional[2] -= wrap[2];
 
-    vector = frac_to_cart(fractional, box);
+    frac_to_cart(fractional, box, vector);
 }
 
 __global__ void compute_mic_neighbours_full_impl(
-    const double3* positions,
-    const double3 box[3],
-    const bool periodic[3],
+    const double* positions,
+    const double* box,
+    const bool* periodic,
     size_t n_points,
     double cutoff,
     size_t* length,
-    ulong2* pair_indices,
-    int3* shifts,
+    size_t* pair_indices,
+    int32_t* shifts,
     double* distances,
-    double3* vectors,
+    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors
 ) {
-    __shared__ double3 shared_box[3];
-    __shared__ double3 shared_inv_box[3];
+    __shared__ double shared_box[9];
+    __shared__ double shared_inv_box[9];
     __shared__ bool shared_is_orthogonal;
 
     const int32_t warp_id = threadIdx.x / WARP_SIZE;
@@ -187,147 +178,12 @@ __global__ void compute_mic_neighbours_full_impl(
     const double cutoff2 = cutoff * cutoff;
 
     // Load current box to shared memory
-    if (threadIdx.x < 3) {
+    if (threadIdx.x < 9) {
         shared_box[threadIdx.x] = box[threadIdx.x];
     }
     __syncthreads();
 
-    // Overwrite non-periodic directions with unit vectors orthogonal to the
-    // periodic subspace
-    if (threadIdx.x == 0) {
-        // Collect periodic / non-periodic indices
-        int n_periodic = 0;
-        int periodic_idx_1 = -1;
-        int periodic_idx_2 = -1;
-        for (int i = 0; i < 3; ++i) {
-            if (periodic[i]) {
-                n_periodic += 1;
-                if (periodic_idx_1 == -1) {
-                    periodic_idx_1 = i;
-                } else if (periodic_idx_2 == -1) {
-                    periodic_idx_2 = i;
-                }
-            }
-        }
-
-        if (n_periodic == 0) {
-            // Fully non-periodic: any orthonormal basis is fine; keep it simple & deterministic
-            shared_box[0] = make_double3(1.0, 0.0, 0.0);
-            shared_box[1] = make_double3(0.0, 1.0, 0.0);
-            shared_box[2] = make_double3(0.0, 0.0, 1.0);
-        } else if (n_periodic == 1) {
-            // 1D periodic: build an orthonormal pair spanning the plane
-            // orthogonal to the single periodic vector
-            double3 a = shared_box[periodic_idx_1];
-
-            double3 b = make_double3(0, 1, 0);
-            if (fabs(dot(normalize(a), b)) > 0.9) {
-                b = make_double3(0, 0, 1);
-            }
-            auto c = normalize(cross(a, b));
-            b = normalize(cross(c, a));
-
-            shared_box[(periodic_idx_1 + 1) % 3] = b;
-            shared_box[(periodic_idx_1 + 2) % 3] = c;
-        } else if (n_periodic == 2) {
-            // 2D periodic: set the sole non-periodic direction to the plane normal
-            auto a = shared_box[periodic_idx_1];
-            auto b = shared_box[periodic_idx_2];
-
-            shared_box[(3 - periodic_idx_1 - periodic_idx_2)] = normalize(cross(a, b));
-        } else {
-            // n_periodic == 3: fully periodic, keep shared_box as-is
-        }
-
-        invert_matrix(shared_box, shared_inv_box);
-
-        // Check orthogonality: all off-diagonal dot products should be ~0
-        double tol = 1e-10;
-        double ab = fabs(dot(shared_box[0], shared_box[1]));
-        double ac = fabs(dot(shared_box[0], shared_box[2]));
-        double bc = fabs(dot(shared_box[1], shared_box[2]));
-        shared_is_orthogonal = (ab < tol) && (ac < tol) && (bc < tol);
-    }
-
-    // Ensure inv_box and is_orthogonal are ready
-    __syncthreads();
-
-    if (point_i >= n_points) {
-        return;
-    }
-
-    bool is_orthogonal = shared_is_orthogonal;
-    double3 ri = positions[point_i];
-
-    for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
-        double3 rj = positions[j];
-
-        double3 vector = rj - ri;
-        int3 shift = make_int3(0, 0, 0);
-        apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic, is_orthogonal);
-
-        double distance2 = dot(vector, vector);
-        auto is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
-
-        if (is_valid) {
-            auto mask = __activemask();
-            auto ballot = __ballot_sync(mask, true);
-            auto local_offset = __popc(ballot & ((1U << thread_id) - 1));
-            auto warp_total = __popc(ballot);
-
-            size_t base_pair_index;
-            if (local_offset == 0) {
-                base_pair_index = atomicAdd(&length[0], warp_total);
-            }
-            base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
-
-            size_t current_pair = base_pair_index + local_offset;
-            pair_indices[current_pair] = {point_i, j};
-
-            if (return_shifts) {
-                shifts[current_pair] = shift;
-            }
-            if (return_vectors) {
-                vectors[current_pair] = vector;
-            }
-            if (return_distances) {
-                distances[current_pair] = sqrt(distance2);
-            }
-        }
-    }
-}
-
-__global__ void compute_mic_neighbours_half_impl(
-    const double3* positions,
-    const double3 box[3],
-    const bool periodic[3],
-    size_t n_points,
-    double cutoff,
-    size_t* length,
-    ulong2* pair_indices,
-    int3* shifts,
-    double* distances,
-    double3* vectors,
-    bool return_shifts,
-    bool return_distances,
-    bool return_vectors
-) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
-    const double cutoff2 = cutoff * cutoff;
-
-    __shared__ double3 shared_box[3];
-    __shared__ double3 shared_inv_box[3];
-    __shared__ bool shared_is_orthogonal;
-
-    // Load current box to shared memory
-    if (threadIdx.x < 3) {
-        shared_box[threadIdx.x] = box[threadIdx.x];
-    }
-    __syncthreads();
-
-    // Overwrite non-periodic directions with unit vectors orthogonal to the
-    // periodic subspace
+    // Overwrite non-periodic directions with unit vectors orthogonal to the periodic subspace
     if (threadIdx.x == 0) {
         // Collect periodic / non-periodic indices
         int n_periodic = 0;
@@ -346,46 +202,212 @@ __global__ void compute_mic_neighbours_half_impl(
 
         if (n_periodic == 0) {
             // Fully non-periodic: any orthonormal basis is fine
-            shared_box[0] = make_double3(1.0, 0.0, 0.0);
-            shared_box[1] = make_double3(0.0, 1.0, 0.0);
-            shared_box[2] = make_double3(0.0, 0.0, 1.0);
-        } else if (n_periodic == 1) {
-            // 1D periodic: build an orthonormal pair spanning the plane
-            // orthogonal to the single periodic vector
-            double3 a = shared_box[periodic_idx_1];
-
-            double3 b = make_double3(0, 1, 0);
-            if (fabs(dot(normalize(a), b)) > 0.9) {
-                b = make_double3(0, 0, 1);
+            for (int i = 0; i < 9; i++) {
+                shared_box[i] = 0.0;
             }
-            auto c = normalize(cross(a, b));
-            b = normalize(cross(c, a));
+            shared_box[0] = 1.0; // row 0: (1,0,0)
+            shared_box[4] = 1.0; // row 1: (0,1,0)
+            shared_box[8] = 1.0; // row 2: (0,0,1)
+        } else if (n_periodic == 1) {
+            // 1D periodic: build an orthonormal pair spanning the plane orthogonal to the periodic vector
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
 
-            shared_box[(periodic_idx_1 + 1) % 3] = b;
-            shared_box[(periodic_idx_1 + 2) % 3] = c;
+            double b[3] = {0, 1, 0};
+            double a_normalized[3] = {a[0], a[1], a[2]};
+            normalize3(a_normalized);
+            if (fabs(dot3(a_normalized, b)) > 0.9) {
+                b[0] = 0;
+                b[1] = 0;
+                b[2] = 1;
+            }
+            double c[3];
+            cross3(a, b, c);
+            normalize3(c);
+            cross3(c, a, b);
+            normalize3(b);
+
+            int idx1 = (periodic_idx_1 + 1) % 3;
+            int idx2 = (periodic_idx_1 + 2) % 3;
+            shared_box[idx1 * 3] = b[0];
+            shared_box[idx1 * 3 + 1] = b[1];
+            shared_box[idx1 * 3 + 2] = b[2];
+            shared_box[idx2 * 3] = c[0];
+            shared_box[idx2 * 3 + 1] = c[1];
+            shared_box[idx2 * 3 + 2] = c[2];
         } else if (n_periodic == 2) {
             // 2D periodic: set the sole non-periodic direction to the plane normal
-            auto a = shared_box[periodic_idx_1];
-            auto b = shared_box[periodic_idx_2];
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
+            double b[3] = {shared_box[periodic_idx_2 * 3], shared_box[periodic_idx_2 * 3 + 1], shared_box[periodic_idx_2 * 3 + 2]};
+            double c[3];
+            cross3(a, b, c);
+            normalize3(c);
 
-            shared_box[(3 - periodic_idx_1 - periodic_idx_2)] = normalize(cross(a, b));
-        } else {
-            // n_periodic == 3: fully periodic, keep shared_box as-is
+            int non_periodic_idx = 3 - periodic_idx_1 - periodic_idx_2;
+            shared_box[non_periodic_idx * 3] = c[0];
+            shared_box[non_periodic_idx * 3 + 1] = c[1];
+            shared_box[non_periodic_idx * 3 + 2] = c[2];
         }
+        // n_periodic == 3: fully periodic, keep shared_box as-is
 
         invert_matrix(shared_box, shared_inv_box);
 
         // Check orthogonality: all off-diagonal dot products should be ~0
         double tol = 1e-10;
-        double ab = fabs(dot(shared_box[0], shared_box[1]));
-        double ac = fabs(dot(shared_box[0], shared_box[2]));
-        double bc = fabs(dot(shared_box[1], shared_box[2]));
+        double row0[3] = {shared_box[0], shared_box[1], shared_box[2]};
+        double row1[3] = {shared_box[3], shared_box[4], shared_box[5]};
+        double row2[3] = {shared_box[6], shared_box[7], shared_box[8]};
+        double ab = fabs(dot3(row0, row1));
+        double ac = fabs(dot3(row0, row2));
+        double bc = fabs(dot3(row1, row2));
+        shared_is_orthogonal = (ab < tol) && (ac < tol) && (bc < tol);
+    }
+
+    // Ensure inv_box and is_orthogonal are ready
+    __syncthreads();
+
+    if (point_i >= n_points) {
+        return;
+    }
+
+    bool is_orthogonal = shared_is_orthogonal;
+    double ri[3] = {positions[point_i * 3], positions[point_i * 3 + 1], positions[point_i * 3 + 2]};
+
+    for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
+        double rj[3] = {positions[j * 3], positions[j * 3 + 1], positions[j * 3 + 2]};
+
+        double vector[3] = {rj[0] - ri[0], rj[1] - ri[1], rj[2] - ri[2]};
+        int32_t shift[3] = {0, 0, 0};
+        apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic, is_orthogonal);
+
+        double distance2 = dot3(vector, vector);
+        auto is_valid = (distance2 < cutoff2 && distance2 > 0.0);
+
+        if (is_valid) {
+            size_t current_pair = atomicAdd(&length[0], 1);
+            pair_indices[current_pair * 2] = point_i;
+            pair_indices[current_pair * 2 + 1] = j;
+
+            if (return_shifts) {
+                shifts[current_pair * 3] = shift[0];
+                shifts[current_pair * 3 + 1] = shift[1];
+                shifts[current_pair * 3 + 2] = shift[2];
+            }
+            if (return_vectors) {
+                vectors[current_pair * 3] = vector[0];
+                vectors[current_pair * 3 + 1] = vector[1];
+                vectors[current_pair * 3 + 2] = vector[2];
+            }
+            if (return_distances) {
+                distances[current_pair] = sqrt(distance2);
+            }
+        }
+    }
+}
+
+__global__ void compute_mic_neighbours_half_impl(
+    const double* positions,
+    const double* box,
+    const bool* periodic,
+    size_t n_points,
+    double cutoff,
+    size_t* length,
+    size_t* pair_indices,
+    int32_t* shifts,
+    double* distances,
+    double* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+    const double cutoff2 = cutoff * cutoff;
+
+    __shared__ double shared_box[9];
+    __shared__ double shared_inv_box[9];
+    __shared__ bool shared_is_orthogonal;
+
+    // Load current box to shared memory
+    if (threadIdx.x < 9) {
+        shared_box[threadIdx.x] = box[threadIdx.x];
+    }
+    __syncthreads();
+
+    // Overwrite non-periodic directions with unit vectors orthogonal to the periodic subspace
+    if (threadIdx.x == 0) {
+        int n_periodic = 0;
+        int periodic_idx_1 = -1;
+        int periodic_idx_2 = -1;
+        for (int i = 0; i < 3; ++i) {
+            if (periodic[i]) {
+                n_periodic += 1;
+                if (periodic_idx_1 == -1) {
+                    periodic_idx_1 = i;
+                } else if (periodic_idx_2 == -1) {
+                    periodic_idx_2 = i;
+                }
+            }
+        }
+
+        if (n_periodic == 0) {
+            for (int i = 0; i < 9; i++) {
+                shared_box[i] = 0.0;
+            }
+            shared_box[0] = 1.0;
+            shared_box[4] = 1.0;
+            shared_box[8] = 1.0;
+        } else if (n_periodic == 1) {
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
+
+            double b[3] = {0, 1, 0};
+            double a_normalized[3] = {a[0], a[1], a[2]};
+            normalize3(a_normalized);
+            if (fabs(dot3(a_normalized, b)) > 0.9) {
+                b[0] = 0;
+                b[1] = 0;
+                b[2] = 1;
+            }
+            double c[3];
+            cross3(a, b, c);
+            normalize3(c);
+            cross3(c, a, b);
+            normalize3(b);
+
+            int idx1 = (periodic_idx_1 + 1) % 3;
+            int idx2 = (periodic_idx_1 + 2) % 3;
+            shared_box[idx1 * 3] = b[0];
+            shared_box[idx1 * 3 + 1] = b[1];
+            shared_box[idx1 * 3 + 2] = b[2];
+            shared_box[idx2 * 3] = c[0];
+            shared_box[idx2 * 3 + 1] = c[1];
+            shared_box[idx2 * 3 + 2] = c[2];
+        } else if (n_periodic == 2) {
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
+            double b[3] = {shared_box[periodic_idx_2 * 3], shared_box[periodic_idx_2 * 3 + 1], shared_box[periodic_idx_2 * 3 + 2]};
+            double c[3];
+            cross3(a, b, c);
+            normalize3(c);
+
+            int non_periodic_idx = 3 - periodic_idx_1 - periodic_idx_2;
+            shared_box[non_periodic_idx * 3] = c[0];
+            shared_box[non_periodic_idx * 3 + 1] = c[1];
+            shared_box[non_periodic_idx * 3 + 2] = c[2];
+        }
+
+        invert_matrix(shared_box, shared_inv_box);
+
+        double tol = 1e-10;
+        double row0[3] = {shared_box[0], shared_box[1], shared_box[2]};
+        double row1[3] = {shared_box[3], shared_box[4], shared_box[5]};
+        double row2[3] = {shared_box[6], shared_box[7], shared_box[8]};
+        double ab = fabs(dot3(row0, row1));
+        double ac = fabs(dot3(row0, row2));
+        double bc = fabs(dot3(row1, row2));
         shared_is_orthogonal = (ab < tol) && (ac < tol) && (bc < tol);
     }
 
     __syncthreads();
 
-    // Early exit check
     if (index >= num_all_pairs) {
         return;
     }
@@ -398,38 +420,30 @@ __global__ void compute_mic_neighbours_half_impl(
     }
     const size_t point_i = index - point_j * (point_j - 1) / 2;
 
-    double3 ri = positions[point_i];
-    double3 rj = positions[point_j];
+    double ri[3] = {positions[point_i * 3], positions[point_i * 3 + 1], positions[point_i * 3 + 2]};
+    double rj[3] = {positions[point_j * 3], positions[point_j * 3 + 1], positions[point_j * 3 + 2]};
 
-    double3 vector = rj - ri;
-    int3 shift = make_int3(0, 0, 0);
+    double vector[3] = {rj[0] - ri[0], rj[1] - ri[1], rj[2] - ri[2]};
+    int32_t shift[3] = {0, 0, 0};
     apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic, is_orthogonal);
 
-    double distance2 = dot(vector, vector);
-    bool is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
+    double distance2 = dot3(vector, vector);
+    bool is_valid = (distance2 < cutoff2 && distance2 > 0.0);
 
     if (is_valid) {
-        int32_t warp_rank = threadIdx.x % WARP_SIZE;
-
-        uint32_t mask = __activemask();
-        uint32_t ballot = __ballot_sync(mask, true);
-        int32_t local_offset = __popc(ballot & ((1U << warp_rank) - 1));
-        int32_t warp_total = __popc(ballot);
-
-        size_t base_pair_index;
-        if (local_offset == 0) {
-            base_pair_index = atomicAdd(&length[0], warp_total);
-        }
-        base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
-
-        size_t pair_index = base_pair_index + local_offset;
-        pair_indices[pair_index] = {point_i, point_j};
+        size_t pair_index = atomicAdd(&length[0], 1);
+        pair_indices[pair_index * 2] = point_i;
+        pair_indices[pair_index * 2 + 1] = point_j;
 
         if (return_shifts) {
-            shifts[pair_index] = shift;
+            shifts[pair_index * 3] = shift[0];
+            shifts[pair_index * 3 + 1] = shift[1];
+            shifts[pair_index * 3 + 2] = shift[2];
         }
         if (return_vectors) {
-            vectors[pair_index] = vector;
+            vectors[pair_index * 3] = vector[0];
+            vectors[pair_index * 3 + 1] = vector[1];
+            vectors[pair_index * 3 + 2] = vector[2];
         }
         if (return_distances) {
             distances[pair_index] = sqrt(distance2);
@@ -441,64 +455,62 @@ __global__ void compute_mic_neighbours_half_impl(
 #define CUTOFF_TOO_LARGE 1
 
 __global__ void mic_box_check(
-    const double3 box[3],
-    const bool periodic[3],
+    const double* box,
+    const bool* periodic,
     const double cutoff,
     int32_t* status
 ) {
-    __shared__ double3 shared_box[3];
+    __shared__ double shared_box[9];
 
-    if (threadIdx.x < 3) {
+    if (threadIdx.x < 9) {
         shared_box[threadIdx.x] = box[threadIdx.x];
     }
 
     __syncthreads();
 
-    auto a = shared_box[0];
-    auto b = shared_box[1];
-    auto c = shared_box[2];
+    double a[3] = {shared_box[0], shared_box[1], shared_box[2]};
+    double b[3] = {shared_box[3], shared_box[4], shared_box[5]};
+    double c[3] = {shared_box[6], shared_box[7], shared_box[8]};
 
     if (threadIdx.x == 0) {
-        // Compute norms
-        double a_norm = norm(a);
-        double b_norm = norm(b);
-        double c_norm = norm(c);
+        double a_norm = norm3(a);
+        double b_norm = norm3(b);
+        double c_norm = norm3(c);
 
-        // Dot products
-        double ab_dot = dot(a, b);
-        double ac_dot = dot(a, c);
-        double bc_dot = dot(b, c);
+        double ab_dot = dot3(a, b);
+        double ac_dot = dot3(a, c);
+        double bc_dot = dot3(b, c);
 
-        // Orthogonality check (relative tolerance)
         double tol = 1e-6;
         bool is_orthogonal = (fabs(ab_dot) < tol * a_norm * b_norm) &&
                              (fabs(ac_dot) < tol * a_norm * c_norm) &&
                              (fabs(bc_dot) < tol * b_norm * c_norm);
 
-        double min_dim = INFINITY;
+        double min_dim = 1e30;
         if (is_orthogonal) {
             if (periodic[0]) {
                 min_dim = a_norm;
             }
 
             if (periodic[1]) {
-                min_dim = fminf(min_dim, b_norm);
+                min_dim = fmin(min_dim, b_norm);
             }
 
             if (periodic[2]) {
-                min_dim = fminf(min_dim, c_norm);
+                min_dim = fmin(min_dim, c_norm);
             }
         } else {
             // General case
-            auto bc = cross(b, c);
-            auto ac = cross(a, c);
-            auto ab = cross(a, b);
+            double bc_cross[3], ac_cross[3], ab_cross[3];
+            cross3(b, c, bc_cross);
+            cross3(a, c, ac_cross);
+            cross3(a, b, ab_cross);
 
-            double bc_norm = norm(bc);
-            double ac_norm = norm(ac);
-            double ab_norm = norm(ab);
+            double bc_norm = norm3(bc_cross);
+            double ac_norm = norm3(ac_cross);
+            double ab_norm = norm3(ab_cross);
 
-            double V = fabs(dot(a, bc));
+            double V = fabs(dot3(a, bc_cross));
 
             double d_a = V / bc_norm;
             double d_b = V / ac_norm;
@@ -509,11 +521,11 @@ __global__ void mic_box_check(
             }
 
             if (periodic[1]) {
-                min_dim = fminf(min_dim, d_b);
+                min_dim = fmin(min_dim, d_b);
             }
 
             if (periodic[2]) {
-                min_dim = fminf(min_dim, d_c);
+                min_dim = fmin(min_dim, d_c);
             }
         }
 
@@ -525,98 +537,4 @@ __global__ void mic_box_check(
         // everything is fine!
         status[0] = 0;
     }
-}
-
-void vesin::cuda::compute_mic_neighbourlist(
-    const double (*points)[3],
-    size_t n_points,
-    const double box[3][3],
-    const bool periodic[3],
-    int32_t* d_box_check,
-    VesinOptions options,
-    VesinNeighborList& neighbors
-) {
-    auto extras = vesin::cuda::get_cuda_extras(&neighbors);
-
-    assert(n_points == 0 || points != nullptr);
-    assert(box != nullptr);
-    assert(periodic != nullptr);
-
-    auto* d_positions = reinterpret_cast<const double3*>(points);
-    auto* d_box = reinterpret_cast<const double3*>(box);
-    auto* d_periodic = periodic;
-
-    auto* d_pair_indices = reinterpret_cast<ulong2*>(neighbors.pairs);
-    auto* d_shifts = reinterpret_cast<int3*>(neighbors.shifts);
-    auto* d_distances = reinterpret_cast<double*>(neighbors.distances);
-    auto* d_vectors = reinterpret_cast<double3*>(neighbors.vectors);
-    size_t* d_pair_counter = extras->length_ptr;
-
-    dim3 blockDim(WARP_SIZE * NWARPS);
-
-    mic_box_check<<<1, 32>>>(d_box, periodic, options.cutoff, d_box_check);
-    int32_t h_box_check = 0;
-    cudaMemcpy(&h_box_check, d_box_check, sizeof(int32_t), cudaMemcpyDeviceToHost);
-
-    if (h_box_check == CUTOFF_TOO_LARGE) {
-        throw std::runtime_error(
-            "cutoff it too large for the current box, the CUDA implementation "
-            "of vesin uses minimum image convention. Each box dimension "
-            "must be at least twice the cutoff."
-        );
-    } else if (h_box_check != 0) {
-        throw std::runtime_error("unknown error in box check");
-    }
-
-    if (options.full) {
-        dim3 gridDim(max((int32_t)(n_points + NWARPS - 1) / NWARPS, 1));
-
-        compute_mic_neighbours_full_impl<<<gridDim, blockDim>>>(
-            d_positions,
-            d_box,
-            d_periodic,
-            n_points,
-            options.cutoff,
-            d_pair_counter,
-            d_pair_indices,
-            d_shifts,
-            d_distances,
-            d_vectors,
-            options.return_shifts,
-            options.return_distances,
-            options.return_vectors
-        );
-
-    } else {
-        size_t num_all_pairs = n_points * (n_points - 1) / 2;
-        auto threads_per_block = WARP_SIZE * NWARPS;
-        auto num_blocks = static_cast<unsigned long long>(
-            (num_all_pairs + threads_per_block - 1) / threads_per_block
-        );
-        dim3 gridDim(max(num_blocks, 1ull));
-
-        compute_mic_neighbours_half_impl<<<gridDim, blockDim>>>(
-            d_positions,
-            d_box,
-            d_periodic,
-            n_points,
-            options.cutoff,
-            d_pair_counter,
-            d_pair_indices,
-            d_shifts,
-            d_distances,
-            d_vectors,
-            options.return_shifts,
-            options.return_distances,
-            options.return_vectors
-        );
-    }
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(cudaGetErrorString(err));
-    }
-
-    // set the length from the cuda extra data
-    cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(size_t), cudaMemcpyDeviceToHost);
 }

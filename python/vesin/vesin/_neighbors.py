@@ -134,13 +134,30 @@ class NeighborList:
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities
 
-        if isinstance(periodic, bool):
-            periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)
-
+        # Handle single bool, numpy bool, or 0-dim array
         if is_cupy:
-            periodic = cp.asarray(periodic, dtype=cp.bool_)
+            # For CuPy arrays, handle conversion differently
+            if isinstance(periodic, cp.ndarray):
+                if periodic.ndim == 0:
+                    val = bool(periodic.get())
+                    periodic = cp.array([val, val, val], dtype=cp.bool_)
+                else:
+                    periodic = cp.asarray(periodic, dtype=cp.bool_)
+            else:
+                # periodic is a Python bool or similar
+                periodic_arr = np.asarray(periodic)
+                if periodic_arr.ndim == 0:
+                    val = bool(periodic_arr)
+                    periodic = cp.array([val, val, val], dtype=cp.bool_)
+                else:
+                    periodic = cp.asarray(periodic_arr, dtype=cp.bool_)
         else:
-            periodic = np.asarray(periodic, dtype=np.bool_)
+            periodic_arr = np.asarray(periodic)
+            if periodic_arr.ndim == 0:
+                val = bool(periodic_arr)
+                periodic = np.array([val, val, val], dtype=np.bool_)
+            else:
+                periodic = np.asarray(periodic_arr, dtype=np.bool_)
 
         if periodic.shape != (3,):
             raise ValueError(

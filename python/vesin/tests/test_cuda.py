@@ -125,9 +125,7 @@ def test_large_box_small_cutoff(full_list):
     assert cp.allclose(D, expected_vectors)
 
 
-# FIXME: re-enable 'diamond' and 'carbon' tests for CUDA
-# @pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
-@pytest.mark.parametrize("system", ["water", "naphthalene"])
+@pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
 def test_neighbors(system):
     atoms = ase.io.read(f"{CURRENT_DIR}/../../vesin/tests/data/{system}.xyz")
 
@@ -172,7 +170,6 @@ def test_neighbors(system):
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
 
 
-@pytest.mark.skip(reason="cuda implementataion is currently broken")
 @pytest.mark.parametrize(
     "periodic",
     list(itertools.product([False, True], repeat=3)),

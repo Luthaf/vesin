@@ -79,34 +79,86 @@ __device__ void invert_matrix(const double3 matrix[3], double3 inverse[3]) {
         (a * e - b * d) * invdet
     };
 }
+// Helper to compute Cartesian vector from fractional coordinates
+// Using row convention: cart = frac @ box (frac as row vector times box matrix)
+// cart[j] = sum_i(frac[i] * box[i,j]) = frac.x*box[0,j] + frac.y*box[1,j] + frac.z*box[2,j]
+__device__ inline double3 frac_to_cart(
+    double3 frac,
+    const double3 box[3]
+) {
+    return make_double3(
+        frac.x * box[0].x + frac.y * box[1].x + frac.z * box[2].x,
+        frac.x * box[0].y + frac.y * box[1].y + frac.z * box[2].y,
+        frac.x * box[0].z + frac.y * box[1].z + frac.z * box[2].z
+    );
+}
+
 __device__ void apply_periodic_boundary(
     double3& vector,
     int3& shift,
     const double3 box[3],
     const double3 inv_box[3],
-    const bool periodic[3]
+    const bool periodic[3],
+    bool is_orthogonal
 ) {
+    // Compute fractional coordinates using row convention: frac = vector @ inv_box
+    // frac[i] = sum_j(vector[j] * inv_box[j,i]) = vector.x*inv_box[0,i] + vector.y*inv_box[1,i] + vector.z*inv_box[2,i]
     double3 fractional;
-    fractional.x = dot(vector, inv_box[0]);
-    fractional.y = dot(vector, inv_box[1]);
-    fractional.z = dot(vector, inv_box[2]);
+    fractional.x = vector.x * inv_box[0].x + vector.y * inv_box[1].x + vector.z * inv_box[2].x;
+    fractional.y = vector.x * inv_box[0].y + vector.y * inv_box[1].y + vector.z * inv_box[2].y;
+    fractional.z = vector.x * inv_box[0].z + vector.y * inv_box[1].z + vector.z * inv_box[2].z;
 
-    // the multiplication by `periodic` allows to set the shift to zero
-    // for non-periodic directions
-    shift.x = static_cast<int32_t>(periodic[0]) * static_cast<int32_t>(round(fractional.x));
-    shift.y = static_cast<int32_t>(periodic[1]) * static_cast<int32_t>(round(fractional.y));
-    shift.z = static_cast<int32_t>(periodic[2]) * static_cast<int32_t>(round(fractional.z));
+    // Compute the initial wrapping to bring fractional coords into [-0.5, 0.5]
+    // The multiplication by `periodic` sets the wrap to zero for non-periodic directions
+    int3 wrap;
+    wrap.x = static_cast<int32_t>(periodic[0]) * static_cast<int32_t>(round(fractional.x));
+    wrap.y = static_cast<int32_t>(periodic[1]) * static_cast<int32_t>(round(fractional.y));
+    wrap.z = static_cast<int32_t>(periodic[2]) * static_cast<int32_t>(round(fractional.z));
 
-    fractional.x -= shift.x;
-    fractional.y -= shift.y;
-    fractional.z -= shift.z;
+    if (!is_orthogonal) {
+        // For non-orthogonal cells, simple rounding may not find the true minimum image.
+        // Search all 27 neighboring images to find the one with minimum distance.
+        double min_dist2 = 1e30;
+        int3 best_wrap = wrap;
 
-    double3 wrapped;
-    wrapped.x = fractional.x * box[0].x + fractional.y * box[1].x + fractional.z * box[2].x;
-    wrapped.y = fractional.x * box[0].y + fractional.y * box[1].y + fractional.z * box[2].y;
-    wrapped.z = fractional.x * box[0].z + fractional.y * box[1].z + fractional.z * box[2].z;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    int3 test_wrap;
+                    test_wrap.x = (wrap.x + dx) * static_cast<int32_t>(periodic[0]);
+                    test_wrap.y = (wrap.y + dy) * static_cast<int32_t>(periodic[1]);
+                    test_wrap.z = (wrap.z + dz) * static_cast<int32_t>(periodic[2]);
 
-    vector = wrapped;
+                    double3 test_frac = make_double3(
+                        fractional.x - test_wrap.x,
+                        fractional.y - test_wrap.y,
+                        fractional.z - test_wrap.z
+                    );
+
+                    double3 test_vec = frac_to_cart(test_frac, box);
+                    double dist2 = dot(test_vec, test_vec);
+
+                    if (dist2 < min_dist2) {
+                        min_dist2 = dist2;
+                        best_wrap = test_wrap;
+                    }
+                }
+            }
+        }
+        wrap = best_wrap;
+    }
+
+    // The stored shift follows the convention: vector = rj - ri + shift @ box
+    // Since we compute wrapped = vector - wrap @ box, the shift is -wrap
+    shift.x = -wrap.x;
+    shift.y = -wrap.y;
+    shift.z = -wrap.z;
+
+    fractional.x -= wrap.x;
+    fractional.y -= wrap.y;
+    fractional.z -= wrap.z;
+
+    vector = frac_to_cart(fractional, box);
 }
 
 __global__ void compute_mic_neighbours_full_impl(
@@ -126,102 +178,13 @@ __global__ void compute_mic_neighbours_full_impl(
 ) {
     __shared__ double3 shared_box[3];
     __shared__ double3 shared_inv_box[3];
+    __shared__ bool shared_is_orthogonal;
+
     const int32_t warp_id = threadIdx.x / WARP_SIZE;
     const int32_t thread_id = threadIdx.x % WARP_SIZE;
 
     const size_t point_i = blockIdx.x * NWARPS + warp_id;
     const double cutoff2 = cutoff * cutoff;
-
-    if (threadIdx.x < 3) {
-        shared_box[threadIdx.x] = box[threadIdx.x];
-
-        if (threadIdx.x == 0 && !periodic[0]) {
-            shared_box[0] = make_double3(1, 0, 0);
-        } else if (threadIdx.x == 1 && !periodic[1]) {
-            shared_box[1] = make_double3(0, 1, 0);
-        } else if (threadIdx.x == 2 && !periodic[2]) {
-            shared_box[2] = make_double3(0, 0, 1);
-        }
-    }
-
-    __syncthreads();
-
-    if (threadIdx.x == 0) {
-        invert_matrix(shared_box, shared_inv_box);
-    }
-
-    // Ensure inv_box is ready
-    __syncthreads();
-
-    if (point_i >= n_points) {
-        return;
-    }
-
-    double3 ri = positions[point_i];
-
-    for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
-        double3 rj = positions[j];
-
-        double3 vector = rj - ri;
-        int3 shift = make_int3(0, 0, 0);
-        apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic);
-
-        double distance2 = dot(vector, vector);
-        auto is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
-
-        auto mask = __activemask();
-        auto ballot = __ballot_sync(mask, is_valid);
-        auto local_offset = __popc(ballot & ((1U << thread_id) - 1));
-        auto warp_total = __popc(ballot);
-
-        auto base_pair_index = -1;
-        if (is_valid && local_offset == 0) {
-            base_pair_index = atomicAdd(&length[0], warp_total);
-        }
-
-        base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
-        if (is_valid) {
-            size_t current_pair = base_pair_index + local_offset;
-            pair_indices[current_pair] = {point_i, j};
-
-            if (return_shifts) {
-                shifts[current_pair] = shift;
-            }
-            if (return_vectors) {
-                vectors[current_pair] = vector;
-            }
-            if (return_distances) {
-                distances[current_pair] = sqrt(distance2);
-            }
-        }
-    }
-}
-
-__global__ void compute_mic_neighbours_half_impl(
-    const double3* positions,
-    const double3 box[3],
-    const bool periodic[3],
-    size_t n_points,
-    double cutoff,
-    size_t* length,
-    ulong2* pair_indices,
-    int3* shifts,
-    double* distances,
-    double3* vectors,
-    bool return_shifts,
-    bool return_distances,
-    bool return_vectors
-) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
-    const double cutoff2 = cutoff * cutoff;
-
-    if (index >= num_all_pairs) {
-        return;
-    }
-
-    __shared__ double3 shared_box[3];
-    __shared__ double3 shared_inv_box[3];
 
     // Load current box to shared memory
     if (threadIdx.x < 3) {
@@ -277,12 +240,159 @@ __global__ void compute_mic_neighbours_half_impl(
         }
 
         invert_matrix(shared_box, shared_inv_box);
+
+        // Check orthogonality: all off-diagonal dot products should be ~0
+        double tol = 1e-10;
+        double ab = fabs(dot(shared_box[0], shared_box[1]));
+        double ac = fabs(dot(shared_box[0], shared_box[2]));
+        double bc = fabs(dot(shared_box[1], shared_box[2]));
+        shared_is_orthogonal = (ab < tol) && (ac < tol) && (bc < tol);
     }
 
-    // Ensure shared_inv_box is ready
+    // Ensure inv_box and is_orthogonal are ready
     __syncthreads();
 
-    size_t point_j = floor((sqrtf(8 * index + 1) + 1) / 2);
+    if (point_i >= n_points) {
+        return;
+    }
+
+    bool is_orthogonal = shared_is_orthogonal;
+    double3 ri = positions[point_i];
+
+    for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
+        double3 rj = positions[j];
+
+        double3 vector = rj - ri;
+        int3 shift = make_int3(0, 0, 0);
+        apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic, is_orthogonal);
+
+        double distance2 = dot(vector, vector);
+        auto is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
+
+        if (is_valid) {
+            auto mask = __activemask();
+            auto ballot = __ballot_sync(mask, true);
+            auto local_offset = __popc(ballot & ((1U << thread_id) - 1));
+            auto warp_total = __popc(ballot);
+
+            size_t base_pair_index;
+            if (local_offset == 0) {
+                base_pair_index = atomicAdd(&length[0], warp_total);
+            }
+            base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
+
+            size_t current_pair = base_pair_index + local_offset;
+            pair_indices[current_pair] = {point_i, j};
+
+            if (return_shifts) {
+                shifts[current_pair] = shift;
+            }
+            if (return_vectors) {
+                vectors[current_pair] = vector;
+            }
+            if (return_distances) {
+                distances[current_pair] = sqrt(distance2);
+            }
+        }
+    }
+}
+
+__global__ void compute_mic_neighbours_half_impl(
+    const double3* positions,
+    const double3 box[3],
+    const bool periodic[3],
+    size_t n_points,
+    double cutoff,
+    size_t* length,
+    ulong2* pair_indices,
+    int3* shifts,
+    double* distances,
+    double3* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+    const double cutoff2 = cutoff * cutoff;
+
+    __shared__ double3 shared_box[3];
+    __shared__ double3 shared_inv_box[3];
+    __shared__ bool shared_is_orthogonal;
+
+    // Load current box to shared memory
+    if (threadIdx.x < 3) {
+        shared_box[threadIdx.x] = box[threadIdx.x];
+    }
+    __syncthreads();
+
+    // Overwrite non-periodic directions with unit vectors orthogonal to the
+    // periodic subspace
+    if (threadIdx.x == 0) {
+        // Collect periodic / non-periodic indices
+        int n_periodic = 0;
+        int periodic_idx_1 = -1;
+        int periodic_idx_2 = -1;
+        for (int i = 0; i < 3; ++i) {
+            if (periodic[i]) {
+                n_periodic += 1;
+                if (periodic_idx_1 == -1) {
+                    periodic_idx_1 = i;
+                } else if (periodic_idx_2 == -1) {
+                    periodic_idx_2 = i;
+                }
+            }
+        }
+
+        if (n_periodic == 0) {
+            // Fully non-periodic: any orthonormal basis is fine
+            shared_box[0] = make_double3(1.0, 0.0, 0.0);
+            shared_box[1] = make_double3(0.0, 1.0, 0.0);
+            shared_box[2] = make_double3(0.0, 0.0, 1.0);
+        } else if (n_periodic == 1) {
+            // 1D periodic: build an orthonormal pair spanning the plane
+            // orthogonal to the single periodic vector
+            double3 a = shared_box[periodic_idx_1];
+
+            double3 b = make_double3(0, 1, 0);
+            if (fabs(dot(normalize(a), b)) > 0.9) {
+                b = make_double3(0, 0, 1);
+            }
+            auto c = normalize(cross(a, b));
+            b = normalize(cross(c, a));
+
+            shared_box[(periodic_idx_1 + 1) % 3] = b;
+            shared_box[(periodic_idx_1 + 2) % 3] = c;
+        } else if (n_periodic == 2) {
+            // 2D periodic: set the sole non-periodic direction to the plane normal
+            auto a = shared_box[periodic_idx_1];
+            auto b = shared_box[periodic_idx_2];
+
+            shared_box[(3 - periodic_idx_1 - periodic_idx_2)] = normalize(cross(a, b));
+        } else {
+            // n_periodic == 3: fully periodic, keep shared_box as-is
+        }
+
+        invert_matrix(shared_box, shared_inv_box);
+
+        // Check orthogonality: all off-diagonal dot products should be ~0
+        double tol = 1e-10;
+        double ab = fabs(dot(shared_box[0], shared_box[1]));
+        double ac = fabs(dot(shared_box[0], shared_box[2]));
+        double bc = fabs(dot(shared_box[1], shared_box[2]));
+        shared_is_orthogonal = (ab < tol) && (ac < tol) && (bc < tol);
+    }
+
+    __syncthreads();
+
+    // Early exit check
+    if (index >= num_all_pairs) {
+        return;
+    }
+
+    bool is_orthogonal = shared_is_orthogonal;
+
+    size_t point_j = floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0);
     if (point_j * (point_j - 1) > 2 * index) {
         point_j--;
     }
@@ -293,26 +403,25 @@ __global__ void compute_mic_neighbours_half_impl(
 
     double3 vector = rj - ri;
     int3 shift = make_int3(0, 0, 0);
-    apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic);
+    apply_periodic_boundary(vector, shift, shared_box, shared_inv_box, periodic, is_orthogonal);
 
     double distance2 = dot(vector, vector);
     bool is_valid = (distance2 < cutoff2 && distance2 > double(0.0));
 
-    int32_t warp_rank = threadIdx.x % WARP_SIZE;
-
-    uint32_t mask = __activemask();
-    uint32_t ballot = __ballot_sync(mask, is_valid);
-    int32_t local_offset = __popc(ballot & ((1U << warp_rank) - 1));
-    int32_t warp_total = __popc(ballot);
-
-    int32_t base_pair_index = -1;
-    if (is_valid && local_offset == 0) {
-        base_pair_index = atomicAdd(&length[0], warp_total);
-    }
-
-    base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
-
     if (is_valid) {
+        int32_t warp_rank = threadIdx.x % WARP_SIZE;
+
+        uint32_t mask = __activemask();
+        uint32_t ballot = __ballot_sync(mask, true);
+        int32_t local_offset = __popc(ballot & ((1U << warp_rank) - 1));
+        int32_t warp_total = __popc(ballot);
+
+        size_t base_pair_index;
+        if (local_offset == 0) {
+            base_pair_index = atomicAdd(&length[0], warp_total);
+        }
+        base_pair_index = __shfl_sync(mask, base_pair_index, __ffs(ballot) - 1);
+
         size_t pair_index = base_pair_index + local_offset;
         pair_indices[pair_index] = {point_i, point_j};
 

@@ -36,7 +36,7 @@ jobs:
             os: ubuntu-22.04-arm
             cibw_arch: aarch64
           - name: x86_64 macOS
-            os: macos-13
+            os: macos-15
             cibw_arch: x86_64
           - name: M1 macOS
             os: macos-14

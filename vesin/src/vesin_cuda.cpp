@@ -262,12 +262,12 @@ void vesin::cuda::neighbors(
 
     // Launch box check kernel
     box_check_kernel->launch(
-        dim3(1),         // grid size
-        dim3(32),        // block size
-        0,               // shared memory
-        nullptr,         // stream
-        box_check_args,  // arguments
-        true             // synchronize
+        dim3(1),        // grid size
+        dim3(32),       // block size
+        0,              // shared memory
+        nullptr,        // stream
+        box_check_args, // arguments
+        true            // synchronize
     );
 
     // Check box validity, assume fail

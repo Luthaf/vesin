@@ -202,19 +202,23 @@ __global__ void compute_mic_neighbours_full_impl(
 
         if (n_periodic == 0) {
             // Fully non-periodic: any orthonormal basis is fine
-            for (int i = 0; i < 9; i++) shared_box[i] = 0.0;
+            for (int i = 0; i < 9; i++) {
+                shared_box[i] = 0.0;
+            }
             shared_box[0] = 1.0; // row 0: (1,0,0)
             shared_box[4] = 1.0; // row 1: (0,1,0)
             shared_box[8] = 1.0; // row 2: (0,0,1)
         } else if (n_periodic == 1) {
             // 1D periodic: build an orthonormal pair spanning the plane orthogonal to the periodic vector
-            double a[3] = {shared_box[periodic_idx_1*3], shared_box[periodic_idx_1*3+1], shared_box[periodic_idx_1*3+2]};
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
 
             double b[3] = {0, 1, 0};
             double a_normalized[3] = {a[0], a[1], a[2]};
             normalize3(a_normalized);
             if (fabs(dot3(a_normalized, b)) > 0.9) {
-                b[0] = 0; b[1] = 0; b[2] = 1;
+                b[0] = 0;
+                b[1] = 0;
+                b[2] = 1;
             }
             double c[3];
             cross3(a, b, c);
@@ -224,20 +228,24 @@ __global__ void compute_mic_neighbours_full_impl(
 
             int idx1 = (periodic_idx_1 + 1) % 3;
             int idx2 = (periodic_idx_1 + 2) % 3;
-            shared_box[idx1*3] = b[0]; shared_box[idx1*3+1] = b[1]; shared_box[idx1*3+2] = b[2];
-            shared_box[idx2*3] = c[0]; shared_box[idx2*3+1] = c[1]; shared_box[idx2*3+2] = c[2];
+            shared_box[idx1 * 3] = b[0];
+            shared_box[idx1 * 3 + 1] = b[1];
+            shared_box[idx1 * 3 + 2] = b[2];
+            shared_box[idx2 * 3] = c[0];
+            shared_box[idx2 * 3 + 1] = c[1];
+            shared_box[idx2 * 3 + 2] = c[2];
         } else if (n_periodic == 2) {
             // 2D periodic: set the sole non-periodic direction to the plane normal
-            double a[3] = {shared_box[periodic_idx_1*3], shared_box[periodic_idx_1*3+1], shared_box[periodic_idx_1*3+2]};
-            double b[3] = {shared_box[periodic_idx_2*3], shared_box[periodic_idx_2*3+1], shared_box[periodic_idx_2*3+2]};
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
+            double b[3] = {shared_box[periodic_idx_2 * 3], shared_box[periodic_idx_2 * 3 + 1], shared_box[periodic_idx_2 * 3 + 2]};
             double c[3];
             cross3(a, b, c);
             normalize3(c);
 
             int non_periodic_idx = 3 - periodic_idx_1 - periodic_idx_2;
-            shared_box[non_periodic_idx*3] = c[0];
-            shared_box[non_periodic_idx*3+1] = c[1];
-            shared_box[non_periodic_idx*3+2] = c[2];
+            shared_box[non_periodic_idx * 3] = c[0];
+            shared_box[non_periodic_idx * 3 + 1] = c[1];
+            shared_box[non_periodic_idx * 3 + 2] = c[2];
         }
         // n_periodic == 3: fully periodic, keep shared_box as-is
 
@@ -262,10 +270,10 @@ __global__ void compute_mic_neighbours_full_impl(
     }
 
     bool is_orthogonal = shared_is_orthogonal;
-    double ri[3] = {positions[point_i*3], positions[point_i*3+1], positions[point_i*3+2]};
+    double ri[3] = {positions[point_i * 3], positions[point_i * 3 + 1], positions[point_i * 3 + 2]};
 
     for (size_t j = thread_id; j < n_points; j += WARP_SIZE) {
-        double rj[3] = {positions[j*3], positions[j*3+1], positions[j*3+2]};
+        double rj[3] = {positions[j * 3], positions[j * 3 + 1], positions[j * 3 + 2]};
 
         double vector[3] = {rj[0] - ri[0], rj[1] - ri[1], rj[2] - ri[2]};
         int32_t shift[3] = {0, 0, 0};
@@ -342,18 +350,22 @@ __global__ void compute_mic_neighbours_half_impl(
         }
 
         if (n_periodic == 0) {
-            for (int i = 0; i < 9; i++) shared_box[i] = 0.0;
+            for (int i = 0; i < 9; i++) {
+                shared_box[i] = 0.0;
+            }
             shared_box[0] = 1.0;
             shared_box[4] = 1.0;
             shared_box[8] = 1.0;
         } else if (n_periodic == 1) {
-            double a[3] = {shared_box[periodic_idx_1*3], shared_box[periodic_idx_1*3+1], shared_box[periodic_idx_1*3+2]};
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
 
             double b[3] = {0, 1, 0};
             double a_normalized[3] = {a[0], a[1], a[2]};
             normalize3(a_normalized);
             if (fabs(dot3(a_normalized, b)) > 0.9) {
-                b[0] = 0; b[1] = 0; b[2] = 1;
+                b[0] = 0;
+                b[1] = 0;
+                b[2] = 1;
             }
             double c[3];
             cross3(a, b, c);
@@ -363,19 +375,23 @@ __global__ void compute_mic_neighbours_half_impl(
 
             int idx1 = (periodic_idx_1 + 1) % 3;
             int idx2 = (periodic_idx_1 + 2) % 3;
-            shared_box[idx1*3] = b[0]; shared_box[idx1*3+1] = b[1]; shared_box[idx1*3+2] = b[2];
-            shared_box[idx2*3] = c[0]; shared_box[idx2*3+1] = c[1]; shared_box[idx2*3+2] = c[2];
+            shared_box[idx1 * 3] = b[0];
+            shared_box[idx1 * 3 + 1] = b[1];
+            shared_box[idx1 * 3 + 2] = b[2];
+            shared_box[idx2 * 3] = c[0];
+            shared_box[idx2 * 3 + 1] = c[1];
+            shared_box[idx2 * 3 + 2] = c[2];
         } else if (n_periodic == 2) {
-            double a[3] = {shared_box[periodic_idx_1*3], shared_box[periodic_idx_1*3+1], shared_box[periodic_idx_1*3+2]};
-            double b[3] = {shared_box[periodic_idx_2*3], shared_box[periodic_idx_2*3+1], shared_box[periodic_idx_2*3+2]};
+            double a[3] = {shared_box[periodic_idx_1 * 3], shared_box[periodic_idx_1 * 3 + 1], shared_box[periodic_idx_1 * 3 + 2]};
+            double b[3] = {shared_box[periodic_idx_2 * 3], shared_box[periodic_idx_2 * 3 + 1], shared_box[periodic_idx_2 * 3 + 2]};
             double c[3];
             cross3(a, b, c);
             normalize3(c);
 
             int non_periodic_idx = 3 - periodic_idx_1 - periodic_idx_2;
-            shared_box[non_periodic_idx*3] = c[0];
-            shared_box[non_periodic_idx*3+1] = c[1];
-            shared_box[non_periodic_idx*3+2] = c[2];
+            shared_box[non_periodic_idx * 3] = c[0];
+            shared_box[non_periodic_idx * 3 + 1] = c[1];
+            shared_box[non_periodic_idx * 3 + 2] = c[2];
         }
 
         invert_matrix(shared_box, shared_inv_box);
@@ -404,8 +420,8 @@ __global__ void compute_mic_neighbours_half_impl(
     }
     const size_t point_i = index - point_j * (point_j - 1) / 2;
 
-    double ri[3] = {positions[point_i*3], positions[point_i*3+1], positions[point_i*3+2]};
-    double rj[3] = {positions[point_j*3], positions[point_j*3+1], positions[point_j*3+2]};
+    double ri[3] = {positions[point_i * 3], positions[point_i * 3 + 1], positions[point_i * 3 + 2]};
+    double rj[3] = {positions[point_j * 3], positions[point_j * 3 + 1], positions[point_j * 3 + 2]};
 
     double vector[3] = {rj[0] - ri[0], rj[1] - ri[1], rj[2] - ri[2]};
     int32_t shift[3] = {0, 0, 0};

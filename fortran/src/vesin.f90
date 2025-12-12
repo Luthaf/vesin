@@ -4,7 +4,7 @@
 !! from and to the C API for you.
 module vesin
     use, intrinsic :: iso_c_binding
-    use vesin_c, only: VesinOptions, VesinNeighborList, &
+    use vesin_c, only: VesinOptions, VesinNeighborList, VesinDevice, &
                        vesin_neighbors, vesin_free, &
                        VesinUnknownDevice, VesinCPU
     implicit none
@@ -183,7 +183,7 @@ contains
             int(points_shape(2), c_size_t),     &
             box,                                &
             c_periodic,                         &
-            VesinCPU,                           &
+            VesinDevice(VesinCPU, 0),           &
             self%options,                       &
             self%c_neighbors,                   &
             c_errmsg                            &

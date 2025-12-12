@@ -14,7 +14,7 @@ extern "C" int vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],
-    bool periodic[3],
+    const bool periodic[3],
     VesinDevice device,
     VesinOptions options,
     VesinNeighborList* neighbors,
@@ -111,6 +111,7 @@ extern "C" int vesin_neighbors(
 }
 
 extern "C" void vesin_free(VesinNeighborList* neighbors) {
+
     if (neighbors == nullptr) {
         return;
     }
@@ -132,6 +133,5 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
         std::cerr << "fatal error in vesin_free, unknown type thrown as exception" << std::endl;
         return;
     }
-
     std::memset(neighbors, 0, sizeof(VesinNeighborList));
 }

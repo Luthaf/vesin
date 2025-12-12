@@ -1,7 +1,7 @@
 #include "vesin_cuda.hpp"
 
 #include <cassert>
-#include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -29,36 +29,125 @@
 using namespace vesin::cuda;
 using namespace std;
 
-// Debug timing: set VESIN_DEBUG_TIMING=1 to enable per-kernel timing with sync
-static bool debug_timing_enabled() {
-    // Check every time (not cached) to allow runtime enable/disable
-    const char* env = std::getenv("VESIN_DEBUG_TIMING");
-    return (env && (std::string(env) == "1" || std::string(env) == "true"));
-}
-
-// Sync and print timing if debug enabled
-#define DEBUG_SYNC_AND_TIME(name)                                                                         \
-    if (debug_timing_enabled()) {                                                                         \
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaDeviceSynchronize());                                        \
-        auto now = std::chrono::high_resolution_clock::now();                                             \
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - _debug_start).count(); \
-        fprintf(stderr, "[TIMING] %s: %ld us\n", name, elapsed);                                          \
-        fflush(stderr);                                                                                   \
-        _debug_start = now;                                                                               \
-    }
-
-#define DEBUG_TIMING_START()                                       \
-    auto _debug_start = std::chrono::high_resolution_clock::now(); \
-    if (debug_timing_enabled()) {                                  \
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaDeviceSynchronize()); \
-        _debug_start = std::chrono::high_resolution_clock::now();  \
-    }
-
 // Maximum number of cells (limited by single-block prefix sum)
 static constexpr size_t MAX_CELLS = 8192;
 // Minimum particles per cell target for good GPU utilization
 // Higher values = fewer cells = more work per block but larger search range
 static constexpr int MIN_PARTICLES_PER_CELL = 128;
+
+// Helper functions for CPU-side vector math
+static inline double cpu_dot3(const double* a, const double* b) {
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+static inline double cpu_norm3(const double* v) {
+    return std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+}
+
+static inline void cpu_cross3(const double* a, const double* b, double* result) {
+    result[0] = a[1]*b[2] - a[2]*b[1];
+    result[1] = a[2]*b[0] - a[0]*b[2];
+    result[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+static inline void cpu_invert_matrix(const double* m, double* inv) {
+    double det = m[0]*(m[4]*m[8] - m[5]*m[7])
+               - m[1]*(m[3]*m[8] - m[5]*m[6])
+               + m[2]*(m[3]*m[7] - m[4]*m[6]);
+
+    double inv_det = 1.0 / det;
+
+    inv[0] = (m[4]*m[8] - m[5]*m[7]) * inv_det;
+    inv[1] = (m[2]*m[7] - m[1]*m[8]) * inv_det;
+    inv[2] = (m[1]*m[5] - m[2]*m[4]) * inv_det;
+    inv[3] = (m[5]*m[6] - m[3]*m[8]) * inv_det;
+    inv[4] = (m[0]*m[8] - m[2]*m[6]) * inv_det;
+    inv[5] = (m[2]*m[3] - m[0]*m[5]) * inv_det;
+    inv[6] = (m[3]*m[7] - m[4]*m[6]) * inv_det;
+    inv[7] = (m[1]*m[6] - m[0]*m[7]) * inv_det;
+    inv[8] = (m[0]*m[4] - m[1]*m[3]) * inv_det;
+}
+
+/// CPU-side box check that avoids GPU kernel launch overhead
+/// Returns: {is_valid, is_orthogonal}
+/// Also fills box_diag_out[3] and inv_box_out[9] if provided
+static std::pair<bool, bool> cpu_box_check(
+    const double h_box[9],
+    const bool h_periodic[3],
+    double cutoff,
+    double* box_diag_out,    // [3] output, can be nullptr
+    double* inv_box_out      // [9] output, can be nullptr
+) {
+    const double* a = &h_box[0];
+    const double* b = &h_box[3];
+    const double* c = &h_box[6];
+
+    double a_norm = cpu_norm3(a);
+    double b_norm = cpu_norm3(b);
+    double c_norm = cpu_norm3(c);
+
+    // Count periodic directions
+    int n_periodic = 0;
+    if (h_periodic[0]) n_periodic++;
+    if (h_periodic[1]) n_periodic++;
+    if (h_periodic[2]) n_periodic++;
+
+    double ab_dot = cpu_dot3(a, b);
+    double ac_dot = cpu_dot3(a, c);
+    double bc_dot = cpu_dot3(b, c);
+
+    double tol = 1e-6;
+    // Treat fully non-periodic systems as orthogonal
+    // Also treat systems with zero-norm vectors as orthogonal (degenerate case)
+    bool is_orthogonal = (n_periodic == 0) ||
+                         (a_norm < tol || b_norm < tol || c_norm < tol) ||
+                         ((std::fabs(ab_dot) < tol * a_norm * b_norm) &&
+                          (std::fabs(ac_dot) < tol * a_norm * c_norm) &&
+                          (std::fabs(bc_dot) < tol * b_norm * c_norm));
+
+    // Output box diagonal (lengths)
+    if (box_diag_out) {
+        box_diag_out[0] = a_norm;
+        box_diag_out[1] = b_norm;
+        box_diag_out[2] = c_norm;
+    }
+
+    // Compute and output inverse box (needed for general PBC)
+    if (inv_box_out && !is_orthogonal) {
+        cpu_invert_matrix(h_box, inv_box_out);
+    }
+
+    // Compute minimum dimension for cutoff check
+    double min_dim = 1e30;
+    if (is_orthogonal) {
+        if (h_periodic[0]) min_dim = a_norm;
+        if (h_periodic[1]) min_dim = std::fmin(min_dim, b_norm);
+        if (h_periodic[2]) min_dim = std::fmin(min_dim, c_norm);
+    } else {
+        // General case: compute perpendicular distances
+        double bc_cross[3], ac_cross[3], ab_cross[3];
+        cpu_cross3(b, c, bc_cross);
+        cpu_cross3(a, c, ac_cross);
+        cpu_cross3(a, b, ab_cross);
+
+        double bc_norm = cpu_norm3(bc_cross);
+        double ac_norm = cpu_norm3(ac_cross);
+        double ab_norm = cpu_norm3(ab_cross);
+
+        double V = std::fabs(cpu_dot3(a, bc_cross));
+
+        double d_a = V / bc_norm;
+        double d_b = V / ac_norm;
+        double d_c = V / ab_norm;
+
+        if (h_periodic[0]) min_dim = d_a;
+        if (h_periodic[1]) min_dim = std::fmin(min_dim, d_b);
+        if (h_periodic[2]) min_dim = std::fmin(min_dim, d_c);
+    }
+
+    bool is_valid = (cutoff * 2.0 <= min_dim);
+    return {is_valid, is_orthogonal};
+}
 
 static std::optional<cudaPointerAttributes> getPtrAttributes(const void* ptr) {
     if (!ptr) {
@@ -150,6 +239,12 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
     if (this->cell_check_ptr) {
         CUDART_INSTANCE.cudaFree(this->cell_check_ptr);
     }
+    if (this->box_diag) {
+        CUDART_INSTANCE.cudaFree(this->box_diag);
+    }
+    if (this->inv_box_brute) {
+        CUDART_INSTANCE.cudaFree(this->inv_box_brute);
+    }
     free_cell_list_buffers(this->cell_list);
 }
 
@@ -190,6 +285,16 @@ static void reset(VesinNeighborList& neighbors) {
     if (extras->pinned_length_ptr) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFreeHost(extras->pinned_length_ptr));
         extras->pinned_length_ptr = nullptr;
+    }
+
+    // Free brute force buffers
+    if (extras->box_diag) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->box_diag));
+        extras->box_diag = nullptr;
+    }
+    if (extras->inv_box_brute) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->inv_box_brute));
+        extras->inv_box_brute = nullptr;
     }
 
     free_cell_list_buffers(extras->cell_list);
@@ -324,8 +429,6 @@ void vesin::cuda::neighbors(
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
-    auto _function_start = std::chrono::high_resolution_clock::now();
-
     static const char* CUDA_CODE =
 #include "generated/mic_neighbourlist.cu"
         ;
@@ -351,10 +454,8 @@ void vesin::cuda::neighbors(
     assert((device == get_device_id(periodic)) && "`points` and `periodic` do not exist on the same device");
     assert((device == neighbors.device.device_id) && "`points`, `box` and `periodic` device differs from input neighbors device_id");
 
-    auto _alloc_start = std::chrono::high_resolution_clock::now();
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-    // if allocated_device is different from the input device, we need to reset
     if (extras->allocated_device != device) {
         // first switch to previous device
         if (extras->allocated_device >= 0) {
@@ -367,15 +468,13 @@ void vesin::cuda::neighbors(
         extras->allocated_device = device;
     }
 
-    // make sure the allocations can fit n_points
-    if (extras->capacity >= n_points &&
-        extras->length_ptr) {
-        // allocation fits, reset the counters
+    if (extras->capacity >= n_points && extras->length_ptr) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
     } else {
-        // need a new allocation, so reset and reallocate
+        int saved_device = extras->allocated_device;
         reset(neighbors);
+        extras->allocated_device = saved_device;
         auto max_pairs = static_cast<size_t>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
 
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
@@ -398,11 +497,10 @@ void vesin::cuda::neighbors(
             );
         }
 
-        // Allocate device memory for the length counter
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
 
-        // Allocate pinned host memory for fast D2H copy
+        // Pinned host memory for async D2H copy
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaHostAlloc(
             (void**)&extras->pinned_length_ptr,
             sizeof(size_t),
@@ -426,22 +524,14 @@ void vesin::cuda::neighbors(
     size_t* d_pair_counter = extras->length_ptr;
     int* d_cell_check = extras->cell_check_ptr;
 
-    // Get or create kernel factory
     auto& factory = KernelFactory::instance();
 
-    if (debug_timing_enabled()) {
-        // Time from function entry to here (allocation + setup)
-        // NOTE: Not syncing here - we want to measure CPU-side setup only
-        auto alloc_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                                 std::chrono::high_resolution_clock::now() - _alloc_start
-        )
-                                 .count();
-        fprintf(stderr, "[TIMING] allocation+setup (no sync): %ld us\n", alloc_elapsed);
-        fflush(stderr);
+    if (!extras->box_diag) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->box_diag, sizeof(double) * 3));
     }
-
-    // First check box dimensions with mic_box_check kernel
-    auto _box_check_start = std::chrono::high_resolution_clock::now();
+    if (!extras->inv_box_brute) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->inv_box_brute, sizeof(double) * 9));
+    }
 
     auto* box_check_kernel = factory.create(
         "mic_box_check",
@@ -450,58 +540,46 @@ void vesin::cuda::neighbors(
         {"-std=c++17"}
     );
 
-    // Prepare arguments for box check kernel
-    std::vector<void*> box_check_args = {&d_box, &d_periodic, &options.cutoff, &d_cell_check};
+    double* d_box_diag = extras->box_diag;
+    double* d_inv_box_brute = extras->inv_box_brute;
+    std::vector<void*> box_check_args = {&d_box, &d_periodic, &options.cutoff, &d_cell_check, &d_box_diag, &d_inv_box_brute};
 
-    // Launch box check kernel
-    box_check_kernel->launch(
-        dim3(1),        // grid size
-        dim3(32),       // block size
-        0,              // shared memory
-        nullptr,        // stream
-        box_check_args, // arguments
-        true            // synchronize
-    );
+    box_check_kernel->launch(dim3(1), dim3(32), 0, nullptr, box_check_args, false);
 
-    // Check box validity, assume fail
     int h_cell_check = 1;
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost));
 
-    if (debug_timing_enabled()) {
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                           std::chrono::high_resolution_clock::now() - _box_check_start
-        )
-                           .count();
-        fprintf(stderr, "[TIMING] box_check (NVRTC): %ld us\n", elapsed);
-        fflush(stderr);
-    }
+    bool box_check_error = (h_cell_check & 1) != 0;
+    bool is_orthogonal = (h_cell_check & 2) != 0;
 
-    if (h_cell_check != 0) {
+    if (box_check_error) {
         throw std::runtime_error("Invalid cutoff: too large for box dimensions");
     }
 
-    // Decide whether to use cell list or brute force
-    // Auto defaults to cell list since it's faster for most practical system sizes
+    // Get box dimensions for auto algorithm selection
+    double h_box_diag[3];
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(h_box_diag, d_box_diag, sizeof(double) * 3, cudaMemcpyDeviceToHost));
+    double min_box_dim = std::min({h_box_diag[0], h_box_diag[1], h_box_diag[2]});
+    bool cutoff_requires_cell_list = options.cutoff > min_box_dim / 2.0;
+
     bool use_cell_list;
     switch (options.algorithm) {
     case VesinBruteForce:
         use_cell_list = false;
         break;
     case VesinCellList:
+        use_cell_list = true;
+        break;
     case VesinAutoAlgorithm:
     default:
-        use_cell_list = true;
+        // Use cell list if cutoff > half box size, or for large/non-orthogonal systems
+        use_cell_list = cutoff_requires_cell_list || !(is_orthogonal && n_points < 5000);
         break;
     }
 
     if (use_cell_list) {
-        // =====================================================================
-        // Cell List Path
-        // =====================================================================
         NVTX_PUSH("cell_list_total");
 
-        // Ensure cell list buffers are allocated with fixed MAX_CELLS capacity
-        // This avoids D2H sync to read n_cells_total
         NVTX_PUSH("ensure_buffers");
         ensure_cell_list_buffers(extras->cell_list, n_points, MAX_CELLS);
         NVTX_POP();
@@ -510,11 +588,9 @@ void vesin::cuda::neighbors(
         int max_cells_int = static_cast<int>(MAX_CELLS);
         int min_particles_per_cell = MIN_PARTICLES_PER_CELL;
 
-        // NVRTC kernels (compiled at runtime)
         const int THREADS_PER_BLOCK = 256;
         int num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-        // Kernel 0: Compute cell grid parameters on device
         NVTX_PUSH("kernel0_grid_params");
         auto* grid_kernel = factory.create(
             "compute_cell_grid_params",
@@ -528,12 +604,10 @@ void vesin::cuda::neighbors(
         grid_kernel->launch(dim3(1), dim3(1), 0, nullptr, grid_args, false);
         NVTX_POP();
 
-        // Zero cell counts for MAX_CELLS (fixed size, no D2H sync needed)
         NVTX_PUSH("memset_cell_counts");
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_counts, 0, sizeof(int) * MAX_CELLS));
         NVTX_POP();
 
-        // Kernel 1: Assign cell indices
         NVTX_PUSH("kernel1_assign_cells");
         auto* assign_kernel = factory.create(
             "assign_cell_indices",
@@ -549,7 +623,6 @@ void vesin::cuda::neighbors(
         );
         NVTX_POP();
 
-        // Kernel 2: Count particles per cell
         NVTX_PUSH("kernel2_count_particles");
         auto* count_kernel = factory.create(
             "count_particles_per_cell",
@@ -565,7 +638,6 @@ void vesin::cuda::neighbors(
         );
         NVTX_POP();
 
-        // Kernel 3: Parallel prefix sum (reads n_cells_total from device)
         NVTX_PUSH("kernel3_prefix_sum");
         auto* prefix_kernel = factory.create(
             "prefix_sum_cells",
@@ -576,7 +648,6 @@ void vesin::cuda::neighbors(
         std::vector<void*> prefix_args = {
             &cl.cell_counts, &cl.cell_starts, &cl.n_cells_total
         };
-        // Use 256 threads, shared memory for thread chunk totals
         int prefix_threads = 256;
         size_t shared_mem = sizeof(int) * prefix_threads;
         prefix_kernel->launch(
@@ -584,14 +655,12 @@ void vesin::cuda::neighbors(
         );
         NVTX_POP();
 
-        // Copy cell_starts to cell_offsets (working copy for scatter)
         NVTX_PUSH("memcpy_cell_offsets");
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
             cl.cell_offsets, cl.cell_starts, sizeof(int) * MAX_CELLS, cudaMemcpyDeviceToDevice
         ));
         NVTX_POP();
 
-        // Kernel 4: Scatter particles
         NVTX_PUSH("kernel4_scatter");
         auto* scatter_kernel = factory.create(
             "scatter_particles",
@@ -607,7 +676,6 @@ void vesin::cuda::neighbors(
         );
         NVTX_POP();
 
-        // Kernel 5: Find neighbors using optimized multi-thread-per-particle approach
         NVTX_PUSH("kernel5_find_neighbors");
         auto* find_kernel = factory.create(
             "find_neighbors_optimized",
@@ -618,8 +686,6 @@ void vesin::cuda::neighbors(
         std::vector<void*> find_args = {
             &cl.sorted_positions, &cl.sorted_indices, &cl.sorted_shifts, &cl.sorted_cell_indices, &cl.cell_starts, &cl.cell_counts, &d_box, &d_periodic, &cl.n_cells, &cl.n_search, &n_points, &options.cutoff, &options.full, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
         };
-        // With THREADS_PER_PARTICLE=8, each warp handles 4 particles
-        // Each block of 256 threads handles 32 particles
         const int THREADS_PER_PARTICLE = 8;
         int particles_per_block = THREADS_PER_BLOCK / THREADS_PER_PARTICLE;
         int num_blocks_find = (n_points + particles_per_block - 1) / particles_per_block;
@@ -632,99 +698,107 @@ void vesin::cuda::neighbors(
     }
 
     if (!use_cell_list) {
-        // =====================================================================
-        // Brute Force Path
-        // =====================================================================
         NVTX_PUSH("brute_force_total");
 
-        // Prepare arguments for neighbor computation kernel
-        std::vector<void*> args = {
-            &d_positions, &d_box, &d_periodic, &n_points, &options.cutoff, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
-        };
+        const int THREADS_PER_BLOCK = 128;
+        double cutoff2 = options.cutoff * options.cutoff;
 
-        // Launch appropriate neighbor computation kernel
-        const int WARP_SIZE = 32;
-        const int NWARPS = 4;
-        dim3 blockDim(WARP_SIZE * NWARPS);
+        size_t num_half_pairs = n_points * (n_points - 1) / 2;
 
-        if (options.full) {
-            // Full neighbor list kernel
-            NVTX_PUSH("brute_force_full_kernel");
-            auto* full_kernel = factory.create(
-                "compute_mic_neighbours_full_impl",
-                CUDA_CODE,
-                "mic_neighbourlist.cu",
-                {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
-            );
+        if (is_orthogonal) {
+            if (options.full) {
+                NVTX_PUSH("brute_force_full_orthogonal");
+                auto* kernel = factory.create(
+                    "brute_force_full_orthogonal",
+                    CUDA_CODE,
+                    "mic_neighbourlist.cu",
+                    {"-std=c++17"}
+                );
 
-            dim3 gridDim(std::max((int)(n_points + NWARPS - 1) / NWARPS, 1));
+                std::vector<void*> args = {
+                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2,
+                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
+                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                };
 
-            full_kernel->launch(gridDim, blockDim, 0, nullptr, args, false);
-            NVTX_POP();
+                int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                kernel->launch(dim3(std::max(num_blocks, 1)), dim3(THREADS_PER_BLOCK), 0, nullptr, args, false);
+                NVTX_POP();
+            } else {
+                NVTX_PUSH("brute_force_half_orthogonal");
+                auto* kernel = factory.create(
+                    "brute_force_half_orthogonal",
+                    CUDA_CODE,
+                    "mic_neighbourlist.cu",
+                    {"-std=c++17"}
+                );
 
+                std::vector<void*> args = {
+                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2,
+                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
+                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                };
+
+                int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                kernel->launch(dim3(std::max(num_blocks, 1)), dim3(THREADS_PER_BLOCK), 0, nullptr, args, false);
+                NVTX_POP();
+            }
         } else {
-            // Half neighbor list kernel
-            NVTX_PUSH("brute_force_half_kernel");
-            auto* half_kernel = factory.create(
-                "compute_mic_neighbours_half_impl",
-                CUDA_CODE,
-                "mic_neighbourlist.cu",
-                {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
-            );
+            if (options.full) {
+                NVTX_PUSH("brute_force_full_general");
+                auto* kernel = factory.create(
+                    "brute_force_full_general",
+                    CUDA_CODE,
+                    "mic_neighbourlist.cu",
+                    {"-std=c++17"}
+                );
 
-            const size_t num_all_pairs = n_points * (n_points - 1) / 2;
-            int threads_per_block = WARP_SIZE * NWARPS;
-            int num_blocks = (num_all_pairs + threads_per_block - 1) / threads_per_block;
-            dim3 gridDim(std::max(num_blocks, 1));
+                std::vector<void*> args = {
+                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2,
+                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
+                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                };
 
-            half_kernel->launch(gridDim, blockDim, 0, nullptr, args, false);
-            NVTX_POP();
+                int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                kernel->launch(dim3(std::max(num_blocks, 1)), dim3(THREADS_PER_BLOCK), 0, nullptr, args, false);
+                NVTX_POP();
+            } else {
+                NVTX_PUSH("brute_force_half_general");
+                auto* kernel = factory.create(
+                    "brute_force_half_general",
+                    CUDA_CODE,
+                    "mic_neighbourlist.cu",
+                    {"-std=c++17"}
+                );
+
+                std::vector<void*> args = {
+                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2,
+                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
+                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                };
+
+                int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                kernel->launch(dim3(std::max(num_blocks, 1)), dim3(THREADS_PER_BLOCK), 0, nullptr, args, false);
+                NVTX_POP();
+            }
         }
 
         NVTX_POP(); // brute_force_total
     }
 
-    // Copy final pair count from device to pinned host memory using async copy
-    // Then synchronize and read from pinned memory
     NVTX_PUSH("async_copy_and_sync");
 
-    // Start timing for final sync
-    auto _final_sync_start = std::chrono::high_resolution_clock::now();
-    if (debug_timing_enabled()) {
-        // Don't sync here - we want to measure the actual async kernel completion time
-        _final_sync_start = std::chrono::high_resolution_clock::now();
-    }
-
-    // Async copy to pinned memory (faster than sync cudaMemcpy to regular memory)
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpyAsync(
         extras->pinned_length_ptr,
         d_pair_counter,
         sizeof(size_t),
         cudaMemcpyDeviceToHost,
-        nullptr // default stream
+        nullptr
     ));
 
-    // Synchronize to ensure the copy is complete
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaDeviceSynchronize());
 
-    if (debug_timing_enabled()) {
-        auto now = std::chrono::high_resolution_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - _final_sync_start).count();
-        fprintf(stderr, "[TIMING] final_sync: %ld us\n", elapsed);
-        fflush(stderr);
-    }
-
-    // Read from pinned memory
     neighbors.length = *extras->pinned_length_ptr;
-
-    if (debug_timing_enabled()) {
-        auto total_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                                 std::chrono::high_resolution_clock::now() - _function_start
-        )
-                                 .count();
-        fprintf(stderr, "[TIMING] total_c++ function: %ld us\n", total_elapsed);
-        fflush(stderr);
-    }
 
     NVTX_POP();
 }

@@ -1,5 +1,4 @@
-// Type definitions for NVRTC compilation (no system headers available)
-// Note: size_t is already defined by NVRTC builtin headers as unsigned long
+// Type definitions for NVRTC compilation
 #if defined(__CUDACC_RTC__)
 typedef int int32_t;
 typedef unsigned int uint32_t;
@@ -8,23 +7,13 @@ typedef unsigned int uint32_t;
 #define NWARPS 4
 #define WARP_SIZE 32
 
-__device__ inline size_t atomicAdd(size_t* address, size_t val) {
-    unsigned long long* address_as_ull = reinterpret_cast<unsigned long long*>(address);
-    unsigned long long old = *address_as_ull, assumed;
-
-    do {
-        assumed = old;
-        old = atomicCAS(
-            address_as_ull,
-            assumed,
-            static_cast<unsigned long long>(val + static_cast<size_t>(assumed))
-        );
-    } while (assumed != old);
-
-    return static_cast<size_t>(old);
+__device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
+    return static_cast<size_t>(
+        atomicAdd(reinterpret_cast<unsigned long long*>(address),
+                  static_cast<unsigned long long>(val))
+    );
 }
 
-// Vector math helpers using flat array indexing
 __device__ inline double dot3(const double* a, const double* b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -66,9 +55,6 @@ __device__ void invert_matrix(const double* matrix, double* inverse) {
     inverse[8] = (a * e - b * d) * invdet;
 }
 
-// Helper to compute Cartesian vector from fractional coordinates
-// Using row convention: cart = frac @ box (frac as row vector times box matrix)
-// cart[j] = sum_i(frac[i] * box[i*3+j])
 __device__ inline void frac_to_cart(
     const double* frac,
     const double* box,
@@ -87,23 +73,18 @@ __device__ void apply_periodic_boundary(
     const bool* periodic,
     bool is_orthogonal
 ) {
-    // Compute fractional coordinates using row convention: frac = vector @ inv_box
-    // frac[i] = sum_j(vector[j] * inv_box[j*3+i])
     double fractional[3];
     fractional[0] = vector[0] * inv_box[0] + vector[1] * inv_box[3] + vector[2] * inv_box[6];
     fractional[1] = vector[0] * inv_box[1] + vector[1] * inv_box[4] + vector[2] * inv_box[7];
     fractional[2] = vector[0] * inv_box[2] + vector[1] * inv_box[5] + vector[2] * inv_box[8];
 
-    // Compute the initial wrapping to bring fractional coords into [-0.5, 0.5]
-    // The multiplication by `periodic` sets the wrap to zero for non-periodic directions
     int32_t wrap[3];
     wrap[0] = static_cast<int32_t>(periodic[0]) * static_cast<int32_t>(round(fractional[0]));
     wrap[1] = static_cast<int32_t>(periodic[1]) * static_cast<int32_t>(round(fractional[1]));
     wrap[2] = static_cast<int32_t>(periodic[2]) * static_cast<int32_t>(round(fractional[2]));
 
     if (!is_orthogonal) {
-        // For non-orthogonal cells, simple rounding may not find the true minimum image.
-        // Search all 27 neighboring images to find the one with minimum distance.
+        // Search 27 neighboring images to find true minimum image
         double min_dist2 = 1e30;
         int32_t best_wrap[3] = {wrap[0], wrap[1], wrap[2]};
 
@@ -177,7 +158,6 @@ __global__ void compute_mic_neighbours_full_impl(
     const size_t point_i = blockIdx.x * NWARPS + warp_id;
     const double cutoff2 = cutoff * cutoff;
 
-    // Load current box to shared memory
     if (threadIdx.x < 9) {
         shared_box[threadIdx.x] = box[threadIdx.x];
     }
@@ -251,7 +231,6 @@ __global__ void compute_mic_neighbours_full_impl(
 
         invert_matrix(shared_box, shared_inv_box);
 
-        // Check orthogonality: all off-diagonal dot products should be ~0
         double tol = 1e-10;
         double row0[3] = {shared_box[0], shared_box[1], shared_box[2]};
         double row1[3] = {shared_box[3], shared_box[4], shared_box[5]};
@@ -262,7 +241,6 @@ __global__ void compute_mic_neighbours_full_impl(
         shared_is_orthogonal = (ab < tol) && (ac < tol) && (bc < tol);
     }
 
-    // Ensure inv_box and is_orthogonal are ready
     __syncthreads();
 
     if (point_i >= n_points) {
@@ -283,7 +261,7 @@ __global__ void compute_mic_neighbours_full_impl(
         auto is_valid = (distance2 < cutoff2 && distance2 > 0.0);
 
         if (is_valid) {
-            size_t current_pair = atomicAdd(&length[0], 1);
+            size_t current_pair = atomicAdd_size_t(&length[0], 1);
             pair_indices[current_pair * 2] = point_i;
             pair_indices[current_pair * 2 + 1] = j;
 
@@ -327,7 +305,6 @@ __global__ void compute_mic_neighbours_half_impl(
     __shared__ double shared_inv_box[9];
     __shared__ bool shared_is_orthogonal;
 
-    // Load current box to shared memory
     if (threadIdx.x < 9) {
         shared_box[threadIdx.x] = box[threadIdx.x];
     }
@@ -431,7 +408,7 @@ __global__ void compute_mic_neighbours_half_impl(
     bool is_valid = (distance2 < cutoff2 && distance2 > 0.0);
 
     if (is_valid) {
-        size_t pair_index = atomicAdd(&length[0], 1);
+        size_t pair_index = atomicAdd_size_t(&length[0], 1);
         pair_indices[pair_index * 2] = point_i;
         pair_indices[pair_index * 2 + 1] = point_j;
 
@@ -451,14 +428,337 @@ __global__ void compute_mic_neighbours_half_impl(
     }
 }
 
-// possible error for mic_box_check
-#define CUTOFF_TOO_LARGE 1
+// ============================================================================
+// Optimized brute force kernels with precomputed box parameters
+// These avoid per-block initialization by having inv_box, is_orthogonal passed in
+// ============================================================================
+
+// Simple PBC for orthogonal boxes (most common case)
+// For non-periodic directions, no wrapping is applied
+__device__ inline void apply_pbc_orthogonal(
+    double* vector,
+    int32_t* shift,
+    const double* box_diag,  // [Lx, Ly, Lz]
+    const bool* periodic
+) {
+    // Only wrap if periodic - non-periodic directions have shift=0 by default
+    if (periodic[0] && box_diag[0] > 0) {
+        double Lx = box_diag[0];
+        int32_t s = static_cast<int32_t>(round(vector[0] / Lx));
+        vector[0] -= s * Lx;
+        shift[0] = -s;
+    }
+    if (periodic[1] && box_diag[1] > 0) {
+        double Ly = box_diag[1];
+        int32_t s = static_cast<int32_t>(round(vector[1] / Ly));
+        vector[1] -= s * Ly;
+        shift[1] = -s;
+    }
+    if (periodic[2] && box_diag[2] > 0) {
+        double Lz = box_diag[2];
+        int32_t s = static_cast<int32_t>(round(vector[2] / Lz));
+        vector[2] -= s * Lz;
+        shift[2] = -s;
+    }
+}
+
+// General PBC using precomputed inverse box
+__device__ inline void apply_pbc_general(
+    double* vector,
+    int32_t* shift,
+    const double* box,
+    const double* inv_box,
+    const bool* periodic
+) {
+    double frac[3];
+    frac[0] = vector[0] * inv_box[0] + vector[1] * inv_box[3] + vector[2] * inv_box[6];
+    frac[1] = vector[0] * inv_box[1] + vector[1] * inv_box[4] + vector[2] * inv_box[7];
+    frac[2] = vector[0] * inv_box[2] + vector[1] * inv_box[5] + vector[2] * inv_box[8];
+
+    int32_t wrap[3];
+    wrap[0] = periodic[0] ? static_cast<int32_t>(round(frac[0])) : 0;
+    wrap[1] = periodic[1] ? static_cast<int32_t>(round(frac[1])) : 0;
+    wrap[2] = periodic[2] ? static_cast<int32_t>(round(frac[2])) : 0;
+
+    frac[0] -= wrap[0];
+    frac[1] -= wrap[1];
+    frac[2] -= wrap[2];
+
+    vector[0] = frac[0] * box[0] + frac[1] * box[3] + frac[2] * box[6];
+    vector[1] = frac[0] * box[1] + frac[1] * box[4] + frac[2] * box[7];
+    vector[2] = frac[0] * box[2] + frac[1] * box[5] + frac[2] * box[8];
+
+    shift[0] = -wrap[0];
+    shift[1] = -wrap[1];
+    shift[2] = -wrap[2];
+}
+
+__global__ void brute_force_half_orthogonal(
+    const double* __restrict__ positions,
+    const double* __restrict__ box_diag,
+    const bool* __restrict__ periodic,
+    size_t n_points,
+    double cutoff2,
+    size_t* length,
+    size_t* pair_indices,
+    int32_t* shifts,
+    double* distances,
+    double* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+
+    if (index >= num_all_pairs) return;
+
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    if (j * (j - 1) > 2 * index) j--;
+    const size_t i = index - j * (j - 1) / 2;
+
+    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    double3 pi = pos3[i];
+    double3 pj = pos3[j];
+    double3 d = make_double3(pj.x - pi.x, pj.y - pi.y, pj.z - pi.z);
+    double3 L = make_double3(box_diag[0], box_diag[1], box_diag[2]);
+
+    int3 s = make_int3(0, 0, 0);
+    if (periodic[0] && L.x > 0) { s.x = static_cast<int>(round(d.x / L.x)); d.x -= s.x * L.x; }
+    if (periodic[1] && L.y > 0) { s.y = static_cast<int>(round(d.y / L.y)); d.y -= s.y * L.y; }
+    if (periodic[2] && L.z > 0) { s.z = static_cast<int>(round(d.z / L.z)); d.z -= s.z * L.z; }
+
+    double dist2 = d.x*d.x + d.y*d.y + d.z*d.z;
+
+    if (dist2 < cutoff2 && dist2 > 0.0) {
+        size_t idx = atomicAdd_size_t(length, 1UL);
+        pair_indices[idx * 2] = i;
+        pair_indices[idx * 2 + 1] = j;
+        if (return_shifts) {
+            shifts[idx * 3] = -s.x;
+            shifts[idx * 3 + 1] = -s.y;
+            shifts[idx * 3 + 2] = -s.z;
+        }
+        if (return_vectors) {
+            vectors[idx * 3] = d.x;
+            vectors[idx * 3 + 1] = d.y;
+            vectors[idx * 3 + 2] = d.z;
+        }
+        if (return_distances) {
+            distances[idx] = sqrt(dist2);
+        }
+    }
+}
+
+// Triangular indexing: one thread per unordered pair, outputs both (i,j) and (j,i)
+__global__ void brute_force_full_orthogonal(
+    const double* __restrict__ positions,
+    const double* __restrict__ box_diag,
+    const bool* __restrict__ periodic,
+    size_t n_points,
+    double cutoff2,
+    size_t* length,
+    size_t* pair_indices,
+    int32_t* shifts,
+    double* distances,
+    double* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_half_pairs = n_points * (n_points - 1) / 2;
+
+    if (index >= num_half_pairs) return;
+
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    if (j * (j - 1) > 2 * index) j--;
+    const size_t i = index - j * (j - 1) / 2;
+
+    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    double3 pi = pos3[i];
+    double3 pj = pos3[j];
+    double3 d = make_double3(pj.x - pi.x, pj.y - pi.y, pj.z - pi.z);
+    double3 L = make_double3(box_diag[0], box_diag[1], box_diag[2]);
+
+    int3 s = make_int3(0, 0, 0);
+    if (periodic[0] && L.x > 0) { s.x = static_cast<int>(round(d.x / L.x)); d.x -= s.x * L.x; }
+    if (periodic[1] && L.y > 0) { s.y = static_cast<int>(round(d.y / L.y)); d.y -= s.y * L.y; }
+    if (periodic[2] && L.z > 0) { s.z = static_cast<int>(round(d.z / L.z)); d.z -= s.z * L.z; }
+
+    double dist2 = d.x*d.x + d.y*d.y + d.z*d.z;
+
+    if (dist2 < cutoff2) {
+        size_t idx = atomicAdd_size_t(length, 2UL);
+
+        pair_indices[idx * 2] = i;
+        pair_indices[idx * 2 + 1] = j;
+        pair_indices[(idx + 1) * 2] = j;
+        pair_indices[(idx + 1) * 2 + 1] = i;
+
+        if (return_shifts) {
+            shifts[idx * 3] = -s.x;
+            shifts[idx * 3 + 1] = -s.y;
+            shifts[idx * 3 + 2] = -s.z;
+            shifts[(idx + 1) * 3] = s.x;
+            shifts[(idx + 1) * 3 + 1] = s.y;
+            shifts[(idx + 1) * 3 + 2] = s.z;
+        }
+        if (return_vectors) {
+            vectors[idx * 3] = d.x;
+            vectors[idx * 3 + 1] = d.y;
+            vectors[idx * 3 + 2] = d.z;
+            vectors[(idx + 1) * 3] = -d.x;
+            vectors[(idx + 1) * 3 + 1] = -d.y;
+            vectors[(idx + 1) * 3 + 2] = -d.z;
+        }
+        if (return_distances) {
+            double dist = sqrt(dist2);
+            distances[idx] = dist;
+            distances[idx + 1] = dist;
+        }
+    }
+}
+
+__global__ void brute_force_half_general(
+    const double* __restrict__ positions,
+    const double* __restrict__ box,
+    const double* __restrict__ inv_box,
+    const bool* __restrict__ periodic,
+    size_t n_points,
+    double cutoff2,
+    size_t* length,
+    size_t* pair_indices,
+    int32_t* shifts,
+    double* distances,
+    double* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+
+    if (index >= num_all_pairs) return;
+
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    if (j * (j - 1) > 2 * index) j--;
+    const size_t i = index - j * (j - 1) / 2;
+
+    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    double3 pi = pos3[i];
+    double3 pj = pos3[j];
+    double vector[3] = {pj.x - pi.x, pj.y - pi.y, pj.z - pi.z};
+    int32_t shift[3] = {0, 0, 0};
+
+    apply_pbc_general(vector, shift, box, inv_box, periodic);
+
+    double dist2 = vector[0]*vector[0] + vector[1]*vector[1] + vector[2]*vector[2];
+
+    if (dist2 < cutoff2 && dist2 > 0.0) {
+        size_t idx = atomicAdd_size_t(length, 1UL);
+        pair_indices[idx * 2] = i;
+        pair_indices[idx * 2 + 1] = j;
+        if (return_shifts) {
+            shifts[idx * 3] = shift[0];
+            shifts[idx * 3 + 1] = shift[1];
+            shifts[idx * 3 + 2] = shift[2];
+        }
+        if (return_vectors) {
+            vectors[idx * 3] = vector[0];
+            vectors[idx * 3 + 1] = vector[1];
+            vectors[idx * 3 + 2] = vector[2];
+        }
+        if (return_distances) {
+            distances[idx] = sqrt(dist2);
+        }
+    }
+}
+
+// Optimized full-list kernel for GENERAL boxes
+// NNPOps-style triangular indexing: one thread per unordered pair, outputs both (i,j) and (j,i)
+// Uses double3 for vectorized position loads
+__global__ void brute_force_full_general(
+    const double* __restrict__ positions,
+    const double* __restrict__ box,
+    const double* __restrict__ inv_box,
+    const bool* __restrict__ periodic,
+    size_t n_points,
+    double cutoff2,
+    size_t* length,
+    size_t* pair_indices,
+    int32_t* shifts,
+    double* distances,
+    double* vectors,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t num_half_pairs = n_points * (n_points - 1) / 2;
+
+    if (index >= num_half_pairs) return;
+
+    // NNPOps-style triangular indexing for half-list
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    if (j * (j - 1) > 2 * index) j--;
+    const size_t i = index - j * (j - 1) / 2;
+
+    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    double3 pi = pos3[i];
+    double3 pj = pos3[j];
+    double vector[3] = {pj.x - pi.x, pj.y - pi.y, pj.z - pi.z};
+    int32_t shift[3] = {0, 0, 0};
+
+    apply_pbc_general(vector, shift, box, inv_box, periodic);
+
+    double dist2 = vector[0]*vector[0] + vector[1]*vector[1] + vector[2]*vector[2];
+
+    if (dist2 < cutoff2) {
+        size_t idx = atomicAdd_size_t(length, 2UL);
+
+        pair_indices[idx * 2] = i;
+        pair_indices[idx * 2 + 1] = j;
+        pair_indices[(idx + 1) * 2] = j;
+        pair_indices[(idx + 1) * 2 + 1] = i;
+
+        if (return_shifts) {
+            shifts[idx * 3] = shift[0];
+            shifts[idx * 3 + 1] = shift[1];
+            shifts[idx * 3 + 2] = shift[2];
+            shifts[(idx + 1) * 3] = -shift[0];
+            shifts[(idx + 1) * 3 + 1] = -shift[1];
+            shifts[(idx + 1) * 3 + 2] = -shift[2];
+        }
+        if (return_vectors) {
+            vectors[idx * 3] = vector[0];
+            vectors[idx * 3 + 1] = vector[1];
+            vectors[idx * 3 + 2] = vector[2];
+            vectors[(idx + 1) * 3] = -vector[0];
+            vectors[(idx + 1) * 3 + 1] = -vector[1];
+            vectors[(idx + 1) * 3 + 2] = -vector[2];
+        }
+        if (return_distances) {
+            double dist = sqrt(dist2);
+            distances[idx] = dist;
+            distances[idx + 1] = dist;
+        }
+    }
+}
+
+// Status flags for mic_box_check
+// bit 0: error (cutoff too large)
+// bit 1: is_orthogonal
+#define BOX_STATUS_ERROR 1
+#define BOX_STATUS_ORTHOGONAL 2
 
 __global__ void mic_box_check(
     const double* box,
     const bool* periodic,
     const double cutoff,
-    int32_t* status
+    int32_t* status,
+    double* box_diag,    // Output: [Lx, Ly, Lz] for orthogonal boxes (can be nullptr)
+    double* inv_box_out  // Output: 9-element inverse box matrix (can be nullptr)
 ) {
     __shared__ double shared_box[9];
 
@@ -477,14 +777,38 @@ __global__ void mic_box_check(
         double b_norm = norm3(b);
         double c_norm = norm3(c);
 
+        // Count periodic directions
+        int n_periodic = 0;
+        if (periodic[0]) n_periodic++;
+        if (periodic[1]) n_periodic++;
+        if (periodic[2]) n_periodic++;
+
         double ab_dot = dot3(a, b);
         double ac_dot = dot3(a, c);
         double bc_dot = dot3(b, c);
 
         double tol = 1e-6;
-        bool is_orthogonal = (fabs(ab_dot) < tol * a_norm * b_norm) &&
-                             (fabs(ac_dot) < tol * a_norm * c_norm) &&
-                             (fabs(bc_dot) < tol * b_norm * c_norm);
+        // Treat fully non-periodic systems as orthogonal (no PBC needed)
+        // Also treat systems with zero-norm vectors as orthogonal (degenerate case)
+        bool is_orthogonal = (n_periodic == 0) ||
+                             (a_norm < tol || b_norm < tol || c_norm < tol) ||
+                             ((fabs(ab_dot) < tol * a_norm * b_norm) &&
+                              (fabs(ac_dot) < tol * a_norm * c_norm) &&
+                              (fabs(bc_dot) < tol * b_norm * c_norm));
+
+        if (box_diag != nullptr) {
+            box_diag[0] = a_norm;
+            box_diag[1] = b_norm;
+            box_diag[2] = c_norm;
+        }
+
+        if (inv_box_out != nullptr && !is_orthogonal) {
+            double inv_box[9];
+            invert_matrix(shared_box, inv_box);
+            for (int i = 0; i < 9; i++) {
+                inv_box_out[i] = inv_box[i];
+            }
+        }
 
         double min_dim = 1e30;
         if (is_orthogonal) {
@@ -500,7 +824,6 @@ __global__ void mic_box_check(
                 min_dim = fmin(min_dim, c_norm);
             }
         } else {
-            // General case
             double bc_cross[3], ac_cross[3], ab_cross[3];
             cross3(b, c, bc_cross);
             cross3(a, c, ac_cross);
@@ -529,12 +852,13 @@ __global__ void mic_box_check(
             }
         }
 
+        int32_t result = 0;
         if (cutoff * 2.0 > min_dim) {
-            status[0] = CUTOFF_TOO_LARGE;
-            return;
+            result |= BOX_STATUS_ERROR;
         }
-
-        // everything is fine!
-        status[0] = 0;
+        if (is_orthogonal) {
+            result |= BOX_STATUS_ORTHOGONAL;
+        }
+        status[0] = result;
     }
 }

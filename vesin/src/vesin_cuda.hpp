@@ -51,6 +51,10 @@ struct CudaNeighborListExtras {
     // Cell list buffers (allocated on demand for large systems)
     CellListBuffers cell_list;
 
+    // Buffers for optimized brute force kernels
+    double* box_diag = nullptr;         // [3] diagonal elements for orthogonal boxes
+    double* inv_box_brute = nullptr;    // [9] inverse box matrix for general boxes
+
     ~CudaNeighborListExtras();
 };
 

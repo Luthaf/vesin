@@ -41,13 +41,30 @@ def profile(algorithm, n_atoms, density, cutoff, n_warmup=5, n_runs=20):
         nl.compute(positions_gpu, box_gpu, periodic=True, quantities="ij")
     cp.cuda.Stream.null.synchronize()
 
-    # Profile runs
+    # Profile runs with CUDA events for timing (works in WSL where nsys GPU tracing doesn't)
     print(f"Running {n_runs} iterations for profiling...")
+
+    start_event = cp.cuda.Event()
+    end_event = cp.cuda.Event()
+    times = []
+
+    cp.cuda.profiler.start()
     for _ in range(n_runs):
+        start_event.record()
         i, j = nl.compute(positions_gpu, box_gpu, periodic=True, quantities="ij")
-    cp.cuda.Stream.null.synchronize()
+        end_event.record()
+        end_event.synchronize()
+        times.append(cp.cuda.get_elapsed_time(start_event, end_event))
+    cp.cuda.profiler.stop()
 
     print(f"Found {len(i)} pairs")
+    print()
+    print(f"Timing results ({n_runs} runs):")
+    print(f"  Mean:   {np.mean(times):.3f} ms")
+    print(f"  Std:    {np.std(times):.3f} ms")
+    print(f"  Min:    {np.min(times):.3f} ms")
+    print(f"  Max:    {np.max(times):.3f} ms")
+    print(f"  Median: {np.median(times):.3f} ms")
 
 
 if __name__ == "__main__":

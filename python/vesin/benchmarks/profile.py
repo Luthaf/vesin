@@ -41,7 +41,7 @@ def profile(algorithm, n_atoms, density, cutoff, n_warmup=5, n_runs=20):
         nl.compute(positions_gpu, box_gpu, periodic=True, quantities="ij")
     cp.cuda.Stream.null.synchronize()
 
-    # Profile runs with CUDA events for timing (works in WSL where nsys GPU tracing doesn't)
+    # Profile runs with CUDA events for timing
     print(f"Running {n_runs} iterations for profiling...")
 
     start_event = cp.cuda.Event()

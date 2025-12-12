@@ -87,7 +87,8 @@ def run_benchmarks(n_atoms_list, cutoffs, density=0.05, n_warmup=25, n_runs=50):
             # Check if cutoff is valid for this box size
             if cutoff > box_size / 2:
                 print(
-                    f"  {n_atoms:6d} atoms: cutoff too large for box size {box_size:.1f}"
+                    f"  {n_atoms:6d} atoms: cutoff too \
+                    large for box size {box_size:.1f}"
                 )
                 results[cutoff]["brute_force"].append((n_atoms, np.nan, np.nan))
                 results[cutoff]["cell_list"].append((n_atoms, np.nan, np.nan))

@@ -9,8 +9,7 @@ typedef unsigned int uint32_t;
 
 __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
     return static_cast<size_t>(
-        atomicAdd(reinterpret_cast<unsigned long long*>(address),
-                  static_cast<unsigned long long>(val))
+        atomicAdd(reinterpret_cast<unsigned long long*>(address), static_cast<unsigned long long>(val))
     );
 }
 
@@ -438,7 +437,7 @@ __global__ void compute_mic_neighbours_half_impl(
 __device__ inline void apply_pbc_orthogonal(
     double* vector,
     int32_t* shift,
-    const double* box_diag,  // [Lx, Ly, Lz]
+    const double* box_diag, // [Lx, Ly, Lz]
     const bool* periodic
 ) {
     // Only wrap if periodic - non-periodic directions have shift=0 by default
@@ -511,10 +510,14 @@ __global__ void brute_force_half_orthogonal(
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_all_pairs = n_points * (n_points - 1) / 2;
 
-    if (index >= num_all_pairs) return;
+    if (index >= num_all_pairs) {
+        return;
+    }
 
     size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
-    if (j * (j - 1) > 2 * index) j--;
+    if (j * (j - 1) > 2 * index) {
+        j--;
+    }
     const size_t i = index - j * (j - 1) / 2;
 
     const double3* pos3 = reinterpret_cast<const double3*>(positions);
@@ -524,11 +527,20 @@ __global__ void brute_force_half_orthogonal(
     double3 L = make_double3(box_diag[0], box_diag[1], box_diag[2]);
 
     int3 s = make_int3(0, 0, 0);
-    if (periodic[0] && L.x > 0) { s.x = static_cast<int>(round(d.x / L.x)); d.x -= s.x * L.x; }
-    if (periodic[1] && L.y > 0) { s.y = static_cast<int>(round(d.y / L.y)); d.y -= s.y * L.y; }
-    if (periodic[2] && L.z > 0) { s.z = static_cast<int>(round(d.z / L.z)); d.z -= s.z * L.z; }
+    if (periodic[0] && L.x > 0) {
+        s.x = static_cast<int>(round(d.x / L.x));
+        d.x -= s.x * L.x;
+    }
+    if (periodic[1] && L.y > 0) {
+        s.y = static_cast<int>(round(d.y / L.y));
+        d.y -= s.y * L.y;
+    }
+    if (periodic[2] && L.z > 0) {
+        s.z = static_cast<int>(round(d.z / L.z));
+        d.z -= s.z * L.z;
+    }
 
-    double dist2 = d.x*d.x + d.y*d.y + d.z*d.z;
+    double dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
 
     if (dist2 < cutoff2 && dist2 > 0.0) {
         size_t idx = atomicAdd_size_t(length, 1UL);
@@ -569,10 +581,14 @@ __global__ void brute_force_full_orthogonal(
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_half_pairs = n_points * (n_points - 1) / 2;
 
-    if (index >= num_half_pairs) return;
+    if (index >= num_half_pairs) {
+        return;
+    }
 
     size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
-    if (j * (j - 1) > 2 * index) j--;
+    if (j * (j - 1) > 2 * index) {
+        j--;
+    }
     const size_t i = index - j * (j - 1) / 2;
 
     const double3* pos3 = reinterpret_cast<const double3*>(positions);
@@ -582,11 +598,20 @@ __global__ void brute_force_full_orthogonal(
     double3 L = make_double3(box_diag[0], box_diag[1], box_diag[2]);
 
     int3 s = make_int3(0, 0, 0);
-    if (periodic[0] && L.x > 0) { s.x = static_cast<int>(round(d.x / L.x)); d.x -= s.x * L.x; }
-    if (periodic[1] && L.y > 0) { s.y = static_cast<int>(round(d.y / L.y)); d.y -= s.y * L.y; }
-    if (periodic[2] && L.z > 0) { s.z = static_cast<int>(round(d.z / L.z)); d.z -= s.z * L.z; }
+    if (periodic[0] && L.x > 0) {
+        s.x = static_cast<int>(round(d.x / L.x));
+        d.x -= s.x * L.x;
+    }
+    if (periodic[1] && L.y > 0) {
+        s.y = static_cast<int>(round(d.y / L.y));
+        d.y -= s.y * L.y;
+    }
+    if (periodic[2] && L.z > 0) {
+        s.z = static_cast<int>(round(d.z / L.z));
+        d.z -= s.z * L.z;
+    }
 
-    double dist2 = d.x*d.x + d.y*d.y + d.z*d.z;
+    double dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
 
     if (dist2 < cutoff2) {
         size_t idx = atomicAdd_size_t(length, 2UL);
@@ -639,10 +664,14 @@ __global__ void brute_force_half_general(
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_all_pairs = n_points * (n_points - 1) / 2;
 
-    if (index >= num_all_pairs) return;
+    if (index >= num_all_pairs) {
+        return;
+    }
 
     size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
-    if (j * (j - 1) > 2 * index) j--;
+    if (j * (j - 1) > 2 * index) {
+        j--;
+    }
     const size_t i = index - j * (j - 1) / 2;
 
     const double3* pos3 = reinterpret_cast<const double3*>(positions);
@@ -653,7 +682,7 @@ __global__ void brute_force_half_general(
 
     apply_pbc_general(vector, shift, box, inv_box, periodic);
 
-    double dist2 = vector[0]*vector[0] + vector[1]*vector[1] + vector[2]*vector[2];
+    double dist2 = vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2];
 
     if (dist2 < cutoff2 && dist2 > 0.0) {
         size_t idx = atomicAdd_size_t(length, 1UL);
@@ -697,11 +726,15 @@ __global__ void brute_force_full_general(
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_half_pairs = n_points * (n_points - 1) / 2;
 
-    if (index >= num_half_pairs) return;
+    if (index >= num_half_pairs) {
+        return;
+    }
 
     // NNPOps-style triangular indexing for half-list
     size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
-    if (j * (j - 1) > 2 * index) j--;
+    if (j * (j - 1) > 2 * index) {
+        j--;
+    }
     const size_t i = index - j * (j - 1) / 2;
 
     const double3* pos3 = reinterpret_cast<const double3*>(positions);
@@ -712,7 +745,7 @@ __global__ void brute_force_full_general(
 
     apply_pbc_general(vector, shift, box, inv_box, periodic);
 
-    double dist2 = vector[0]*vector[0] + vector[1]*vector[1] + vector[2]*vector[2];
+    double dist2 = vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2];
 
     if (dist2 < cutoff2) {
         size_t idx = atomicAdd_size_t(length, 2UL);
@@ -757,8 +790,8 @@ __global__ void mic_box_check(
     const bool* periodic,
     const double cutoff,
     int32_t* status,
-    double* box_diag,    // Output: [Lx, Ly, Lz] for orthogonal boxes (can be nullptr)
-    double* inv_box_out  // Output: 9-element inverse box matrix (can be nullptr)
+    double* box_diag,   // Output: [Lx, Ly, Lz] for orthogonal boxes (can be nullptr)
+    double* inv_box_out // Output: 9-element inverse box matrix (can be nullptr)
 ) {
     __shared__ double shared_box[9];
 
@@ -779,9 +812,15 @@ __global__ void mic_box_check(
 
         // Count periodic directions
         int n_periodic = 0;
-        if (periodic[0]) n_periodic++;
-        if (periodic[1]) n_periodic++;
-        if (periodic[2]) n_periodic++;
+        if (periodic[0]) {
+            n_periodic++;
+        }
+        if (periodic[1]) {
+            n_periodic++;
+        }
+        if (periodic[2]) {
+            n_periodic++;
+        }
 
         double ab_dot = dot3(a, b);
         double ac_dot = dot3(a, c);

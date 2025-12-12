@@ -4,8 +4,9 @@
 Generates a plot with 3 subplots for different cutoffs.
 """
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+
 
 try:
     import cupy as cp
@@ -72,7 +73,9 @@ def benchmark_cpu(positions, box, cutoff, n_warmup=5, n_runs=10):
 
 def run_benchmarks(n_atoms_list, cutoffs, density=0.05, n_warmup=25, n_runs=50):
     """Run benchmarks for all configurations."""
-    results = {cutoff: {"brute_force": [], "cell_list": [], "cpu": []} for cutoff in cutoffs}
+    results = {
+        cutoff: {"brute_force": [], "cell_list": [], "cpu": []} for cutoff in cutoffs
+    }
 
     for cutoff in cutoffs:
         print(f"\n=== Cutoff: {cutoff} Å ===")
@@ -83,7 +86,9 @@ def run_benchmarks(n_atoms_list, cutoffs, density=0.05, n_warmup=25, n_runs=50):
 
             # Check if cutoff is valid for this box size
             if cutoff > box_size / 2:
-                print(f"  {n_atoms:6d} atoms: cutoff too large for box size {box_size:.1f}")
+                print(
+                    f"  {n_atoms:6d} atoms: cutoff too large for box size {box_size:.1f}"
+                )
                 results[cutoff]["brute_force"].append((n_atoms, np.nan, np.nan))
                 results[cutoff]["cell_list"].append((n_atoms, np.nan, np.nan))
                 results[cutoff]["cpu"].append((n_atoms, np.nan, np.nan))
@@ -96,7 +101,9 @@ def run_benchmarks(n_atoms_list, cutoffs, density=0.05, n_warmup=25, n_runs=50):
 
             # Brute force GPU
             try:
-                mean, std = benchmark_gpu("brute_force", positions_gpu, box_gpu, cutoff, n_warmup, n_runs)
+                mean, std = benchmark_gpu(
+                    "brute_force", positions_gpu, box_gpu, cutoff, n_warmup, n_runs
+                )
                 results[cutoff]["brute_force"].append((n_atoms, mean, std))
                 print(f"BF={mean:.2f}ms ", end="", flush=True)
             except Exception as e:
@@ -105,7 +112,9 @@ def run_benchmarks(n_atoms_list, cutoffs, density=0.05, n_warmup=25, n_runs=50):
 
             # Cell list GPU
             try:
-                mean, std = benchmark_gpu("cell_list", positions_gpu, box_gpu, cutoff, n_warmup, n_runs)
+                mean, std = benchmark_gpu(
+                    "cell_list", positions_gpu, box_gpu, cutoff, n_warmup, n_runs
+                )
                 results[cutoff]["cell_list"].append((n_atoms, mean, std))
                 print(f"CL={mean:.2f}ms ", end="", flush=True)
             except Exception as e:
@@ -131,7 +140,11 @@ def plot_results(results, cutoffs, output_file="benchmark_comparison.png"):
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
 
     colors = {"brute_force": "C0", "cell_list": "C1", "cpu": "C2"}
-    labels = {"brute_force": "GPU Brute Force", "cell_list": "GPU Cell List", "cpu": "CPU"}
+    labels = {
+        "brute_force": "GPU Brute Force",
+        "cell_list": "GPU Cell List",
+        "cpu": "CPU",
+    }
     markers = {"brute_force": "o", "cell_list": "s", "cpu": "^"}
 
     for ax, cutoff in zip(axes, cutoffs):
@@ -142,7 +155,9 @@ def plot_results(results, cutoffs, output_file="benchmark_comparison.png"):
             stds = [d[2] for d in data]
 
             # Filter out NaN values
-            valid = [(n, m, s) for n, m, s in zip(n_atoms, means, stds) if not np.isnan(m)]
+            valid = [
+                (n, m, s) for n, m, s in zip(n_atoms, means, stds) if not np.isnan(m)
+            ]
             if valid:
                 n_atoms_valid, means_valid, stds_valid = zip(*valid)
                 ax.errorbar(
@@ -185,8 +200,8 @@ if __name__ == "__main__":
     print(f"  Atom counts: {n_atoms_list}")
     print(f"  Cutoffs: {cutoffs} Å")
     print(f"  Density: {density}")
-    print(f"  Warmup: 25 iterations")
-    print(f"  Measurement: 50 iterations")
+    print("  Warmup: 25 iterations")
+    print("  Measurement: 50 iterations")
 
     results = run_benchmarks(n_atoms_list, cutoffs, density, n_warmup=25, n_runs=50)
     plot_results(results, cutoffs)

@@ -37,35 +37,33 @@ static constexpr int MIN_PARTICLES_PER_CELL = 128;
 
 // Helper functions for CPU-side vector math
 static inline double cpu_dot3(const double* a, const double* b) {
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
 static inline double cpu_norm3(const double* v) {
-    return std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
 static inline void cpu_cross3(const double* a, const double* b, double* result) {
-    result[0] = a[1]*b[2] - a[2]*b[1];
-    result[1] = a[2]*b[0] - a[0]*b[2];
-    result[2] = a[0]*b[1] - a[1]*b[0];
+    result[0] = a[1] * b[2] - a[2] * b[1];
+    result[1] = a[2] * b[0] - a[0] * b[2];
+    result[2] = a[0] * b[1] - a[1] * b[0];
 }
 
 static inline void cpu_invert_matrix(const double* m, double* inv) {
-    double det = m[0]*(m[4]*m[8] - m[5]*m[7])
-               - m[1]*(m[3]*m[8] - m[5]*m[6])
-               + m[2]*(m[3]*m[7] - m[4]*m[6]);
+    double det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
 
     double inv_det = 1.0 / det;
 
-    inv[0] = (m[4]*m[8] - m[5]*m[7]) * inv_det;
-    inv[1] = (m[2]*m[7] - m[1]*m[8]) * inv_det;
-    inv[2] = (m[1]*m[5] - m[2]*m[4]) * inv_det;
-    inv[3] = (m[5]*m[6] - m[3]*m[8]) * inv_det;
-    inv[4] = (m[0]*m[8] - m[2]*m[6]) * inv_det;
-    inv[5] = (m[2]*m[3] - m[0]*m[5]) * inv_det;
-    inv[6] = (m[3]*m[7] - m[4]*m[6]) * inv_det;
-    inv[7] = (m[1]*m[6] - m[0]*m[7]) * inv_det;
-    inv[8] = (m[0]*m[4] - m[1]*m[3]) * inv_det;
+    inv[0] = (m[4] * m[8] - m[5] * m[7]) * inv_det;
+    inv[1] = (m[2] * m[7] - m[1] * m[8]) * inv_det;
+    inv[2] = (m[1] * m[5] - m[2] * m[4]) * inv_det;
+    inv[3] = (m[5] * m[6] - m[3] * m[8]) * inv_det;
+    inv[4] = (m[0] * m[8] - m[2] * m[6]) * inv_det;
+    inv[5] = (m[2] * m[3] - m[0] * m[5]) * inv_det;
+    inv[6] = (m[3] * m[7] - m[4] * m[6]) * inv_det;
+    inv[7] = (m[1] * m[6] - m[0] * m[7]) * inv_det;
+    inv[8] = (m[0] * m[4] - m[1] * m[3]) * inv_det;
 }
 
 /// CPU-side box check that avoids GPU kernel launch overhead
@@ -75,8 +73,8 @@ static std::pair<bool, bool> cpu_box_check(
     const double h_box[9],
     const bool h_periodic[3],
     double cutoff,
-    double* box_diag_out,    // [3] output, can be nullptr
-    double* inv_box_out      // [9] output, can be nullptr
+    double* box_diag_out, // [3] output, can be nullptr
+    double* inv_box_out   // [9] output, can be nullptr
 ) {
     const double* a = &h_box[0];
     const double* b = &h_box[3];
@@ -88,9 +86,15 @@ static std::pair<bool, bool> cpu_box_check(
 
     // Count periodic directions
     int n_periodic = 0;
-    if (h_periodic[0]) n_periodic++;
-    if (h_periodic[1]) n_periodic++;
-    if (h_periodic[2]) n_periodic++;
+    if (h_periodic[0]) {
+        n_periodic++;
+    }
+    if (h_periodic[1]) {
+        n_periodic++;
+    }
+    if (h_periodic[2]) {
+        n_periodic++;
+    }
 
     double ab_dot = cpu_dot3(a, b);
     double ac_dot = cpu_dot3(a, c);
@@ -120,9 +124,15 @@ static std::pair<bool, bool> cpu_box_check(
     // Compute minimum dimension for cutoff check
     double min_dim = 1e30;
     if (is_orthogonal) {
-        if (h_periodic[0]) min_dim = a_norm;
-        if (h_periodic[1]) min_dim = std::fmin(min_dim, b_norm);
-        if (h_periodic[2]) min_dim = std::fmin(min_dim, c_norm);
+        if (h_periodic[0]) {
+            min_dim = a_norm;
+        }
+        if (h_periodic[1]) {
+            min_dim = std::fmin(min_dim, b_norm);
+        }
+        if (h_periodic[2]) {
+            min_dim = std::fmin(min_dim, c_norm);
+        }
     } else {
         // General case: compute perpendicular distances
         double bc_cross[3], ac_cross[3], ab_cross[3];
@@ -140,9 +150,15 @@ static std::pair<bool, bool> cpu_box_check(
         double d_b = V / ac_norm;
         double d_c = V / ab_norm;
 
-        if (h_periodic[0]) min_dim = d_a;
-        if (h_periodic[1]) min_dim = std::fmin(min_dim, d_b);
-        if (h_periodic[2]) min_dim = std::fmin(min_dim, d_c);
+        if (h_periodic[0]) {
+            min_dim = d_a;
+        }
+        if (h_periodic[1]) {
+            min_dim = std::fmin(min_dim, d_b);
+        }
+        if (h_periodic[2]) {
+            min_dim = std::fmin(min_dim, d_c);
+        }
     }
 
     bool is_valid = (cutoff * 2.0 <= min_dim);
@@ -716,9 +732,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2,
-                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
-                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -734,9 +748,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2,
-                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
-                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -754,9 +766,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2,
-                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
-                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -772,9 +782,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2,
-                    &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors,
-                    &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;

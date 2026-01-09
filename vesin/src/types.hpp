@@ -10,7 +10,7 @@ namespace vesin {
 
 class BoundingBox {
 public:
-    BoundingBox(Matrix matrix, bool periodic[3]):
+    BoundingBox(Matrix matrix, const bool periodic[3]):
         matrix_(matrix),
         periodic_({periodic[0], periodic[1], periodic[2]}) {
 

@@ -10,6 +10,25 @@ string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
 project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
 
+#[[
+ This function wraps the input file with the appropriate string to allow us to
+ static-initialize string variables, for example:
+     static const char* CUDA_CODE =
+#include "generated/cuda_impl.cu"
+        ;
+]]
+function(make_includeable INPUT_FILE OUTPUT_FILE)
+    if(NOT EXISTS ${INPUT_FILE})
+        message(FATAL_ERROR "Error: The input file '${INPUT_FILE}' does not exist.")
+    endif()
+    file(READ ${INPUT_FILE} content)
+    # Format the content to be included as a raw string in C++
+    set(content "R\"======(\n${content}\n)======\"")
+    # Write the formatted content to the output file
+    file(WRITE ${OUTPUT_FILE} "${content}")
+endfunction()
+
+
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(VESIN_MAIN_PROJECT ON)
 else()
@@ -43,9 +62,8 @@ set(VESIN_SOURCES
 include(CheckLanguage)
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
-    find_package(CUDAToolkit REQUIRED)
-    set(CUDA_USE_STATIC_CUDA_RUNTIME OFF CACHE BOOL "" FORCE)
+    # gpuLite does not depend directly on the CUDAToolkit
+    # so we do not need to enable_language(CUDA) or find_package(CUDAToolkit)
 else()
     message(STATUS "Could not find a CUDA compiler")
 endif()
@@ -58,9 +76,9 @@ if (CMAKE_CUDA_COMPILER AND NOT VESIN_ENABLE_CUDA)
     message(STATUS "Found a CUDA compiler but VESIN_ENABLE_CUDA=OFF, set VESIN_ENABLE_CUDA=ON in order to compile with CUDA support.")
 endif()
 
-
 if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu)
+    # NOTE: for gpulite, we do NOT add mic_neighbourlist.cu to sources
+    # because it's embedded as a string for NVRTC runtime compilation
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp)
 else()
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_stub.cpp)
@@ -79,6 +97,27 @@ endif()
 target_include_directories(vesin_objects PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
+    include(FetchContent)
+    FetchContent_Declare(
+        gpulite
+        GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
+        GIT_TAG 78b4bad091e329b332def47ee9692e367a28ea85 # v1.0.0
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(gpulite)
+    target_link_libraries(vesin_objects PRIVATE gpulite)
+    target_link_libraries(vesin PRIVATE gpulite)
+
+    # Create generated directory
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+
+    # Generate the CUDA source file for NVRTC compilation
+    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/mic_neighbourlist.cu)
+    target_include_directories(vesin_objects PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+endif()
 
 target_include_directories(vesin PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

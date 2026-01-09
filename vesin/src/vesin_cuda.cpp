@@ -1,33 +1,22 @@
 #include "vesin_cuda.hpp"
-#include "mic_neighbourlist.cuh"
-
-#include <cuda_runtime.h>
 
 #include <cassert>
 #include <optional>
 #include <stdexcept>
 
+#include <gpulite/gpulite.hpp>
+
 using namespace vesin::cuda;
 using namespace std;
 
-#define CUDA_CHECK(expr)                                                                                                \
-    do {                                                                                                                \
-        cudaError_t err = (expr);                                                                                       \
-        if (err != cudaSuccess) {                                                                                       \
-            throw std::runtime_error(                                                                                   \
-                std::string("CUDA error at " __FILE__ ":") + std::to_string(__LINE__) + " - " + cudaGetErrorString(err) \
-            );                                                                                                          \
-        }                                                                                                               \
-    } while (0)
-
-static std::optional<cudaPointerAttributes> get_ptr_attributes(const void* ptr) {
+static std::optional<cudaPointerAttributes> getPtrAttributes(const void* ptr) {
     if (!ptr) {
         return std::nullopt;
     }
 
     try {
         cudaPointerAttributes attr;
-        CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaPointerGetAttributes(&attr, ptr));
         return attr;
     } catch (const std::runtime_error& e) {
         return std::nullopt;
@@ -49,7 +38,7 @@ static int get_device_id(const void* ptr) {
     if (!ptr) {
         return -1;
     }
-    auto maybe_attr = get_ptr_attributes(ptr);
+    auto maybe_attr = getPtrAttributes(ptr);
     if (maybe_attr) {
         const cudaPointerAttributes& attr = *maybe_attr;
         if (attr.type != cudaMemoryTypeDevice) {
@@ -62,10 +51,10 @@ static int get_device_id(const void* ptr) {
 
 CudaNeighborListExtras::~CudaNeighborListExtras() {
     if (this->length_ptr) {
-        cudaFree(this->length_ptr);
+        CUDART_INSTANCE.cudaFree(this->length_ptr);
     }
-    if (this->box_check_ptr) {
-        cudaFree(this->box_check_ptr);
+    if (this->cell_check_ptr) {
+        CUDART_INSTANCE.cudaFree(this->cell_check_ptr);
     }
 }
 
@@ -80,52 +69,79 @@ vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
 }
 
 static void reset(VesinNeighborList& neighbors) {
+
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-    if (neighbors.pairs && is_device_ptr(get_ptr_attributes(neighbors.pairs), "pairs")) {
-        CUDA_CHECK(cudaFree(neighbors.pairs));
+    if (neighbors.pairs && is_device_ptr(getPtrAttributes(neighbors.pairs), "pairs")) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.pairs));
     }
-    if (neighbors.shifts && is_device_ptr(get_ptr_attributes(neighbors.shifts), "shifts")) {
-        CUDA_CHECK(cudaFree(neighbors.shifts));
+    if (neighbors.shifts && is_device_ptr(getPtrAttributes(neighbors.shifts), "shifts")) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.shifts));
     }
-    if (neighbors.distances && is_device_ptr(get_ptr_attributes(neighbors.distances), "distances")) {
-        CUDA_CHECK(cudaFree(neighbors.distances));
+    if (neighbors.distances && is_device_ptr(getPtrAttributes(neighbors.distances), "distances")) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.distances));
     }
-    if (neighbors.vectors && is_device_ptr(get_ptr_attributes(neighbors.vectors), "vectors")) {
-        CUDA_CHECK(cudaFree(neighbors.vectors));
+    if (neighbors.vectors && is_device_ptr(getPtrAttributes(neighbors.vectors), "vectors")) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.vectors));
     }
 
     neighbors.pairs = nullptr;
     neighbors.shifts = nullptr;
     neighbors.distances = nullptr;
     neighbors.vectors = nullptr;
+    extras->length_ptr = nullptr;
+
     *extras = CudaNeighborListExtras();
 }
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
+
     assert(neighbors.device.type == VesinCUDA);
 
     int curr_device = -1;
     int device_id = -1;
 
     if (neighbors.pairs) {
-        CUDA_CHECK(cudaGetDevice(&curr_device));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaGetDevice(&curr_device));
         device_id = get_device_id(neighbors.pairs);
 
         if (device_id && curr_device != device_id) {
-            CUDA_CHECK(cudaSetDevice(device_id));
+            CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(device_id));
         }
     }
 
     reset(neighbors);
 
     if (device_id && curr_device != device_id) {
-        CUDA_CHECK(cudaSetDevice(curr_device));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(curr_device));
     }
 
     if (neighbors.opaque) {
         delete static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
         neighbors.opaque = nullptr;
+    }
+}
+
+void checkCuda() {
+    if (!CUDA_DRIVER_INSTANCE.loaded()) {
+        throw std::runtime_error(
+            "Failed to load libcuda.so. Try appending the directory containing this library to "
+            "your $LD_LIBRARY_PATH environment variable."
+        );
+    }
+
+    if (!CUDART_INSTANCE.loaded()) {
+        throw std::runtime_error(
+            "Failed to load libcudart.so. Try appending the directory containing this library to "
+            "your $LD_LIBRARY_PATH environment variable."
+        );
+    }
+
+    if (!NVRTC_INSTANCE.loaded()) {
+        throw std::runtime_error(
+            "Failed to load libnvrtc.so. Try appending the directory containing this library to "
+            "your $LD_LIBRARY_PATH environment variable."
+        );
     }
 }
 
@@ -137,13 +153,20 @@ void vesin::cuda::neighbors(
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
+    static const char* CUDA_CODE =
+#include "generated/mic_neighbourlist.cu"
+        ;
+
     assert(neighbors.device.type == VesinCUDA);
     assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
 
+    // Check if CUDA is available
+    checkCuda();
+
     // assert both points and box are device pointers
-    assert(is_device_ptr(get_ptr_attributes(points)) && "`points` is not allocated on a CUDA device");
-    assert(is_device_ptr(get_ptr_attributes(box)) && "`box` is not allocated on a CUDA device");
-    assert(is_device_ptr(get_ptr_attributes(periodic)) && "`periodic` is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(points)) && "points pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(box)) && "box pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(periodic)) && "periodic pointer is not allocated on a CUDA device");
 
     int device = get_device_id(points);
     // assert both points and box are on the same device
@@ -157,65 +180,140 @@ void vesin::cuda::neighbors(
     if (extras->allocated_device != device) {
         // first switch to previous device
         if (extras->allocated_device >= 0) {
-            CUDA_CHECK(cudaSetDevice(extras->allocated_device));
+            CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(extras->allocated_device));
         }
         // free any existing allocations
         reset(neighbors);
         // switch back to current device
-        CUDA_CHECK(cudaSetDevice(device));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(device));
         extras->allocated_device = device;
     }
 
     // make sure the allocations can fit n_points
-    if (extras->capacity >= n_points && extras->length_ptr) {
+    if (extras->capacity >= n_points &&
+        extras->length_ptr) {
         // allocation fits, so just memset set the length_ptr to 0
-        CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(extras->length_ptr)));
-        CUDA_CHECK(cudaMemset(extras->box_check_ptr, 0, sizeof(extras->box_check_ptr)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
     } else {
         // need a new allocation, so reset and reallocate
         reset(neighbors);
-        auto max_pairs = static_cast<size_t>(
-            1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT
-        );
+        auto max_pairs = static_cast<size_t>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
 
-        CUDA_CHECK(
-            cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2)
-        );
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
 
         if (options.return_shifts) {
-            CUDA_CHECK(
-                cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_pairs * 3)
+            CUDART_SAFE_CALL(
+                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_pairs * 3)
             );
         }
 
         if (options.return_distances) {
-            CUDA_CHECK(
-                cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_pairs)
+            CUDART_SAFE_CALL(
+                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_pairs)
             );
         }
 
         if (options.return_vectors) {
-            CUDA_CHECK(
-                cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_pairs * 3)
+            CUDART_SAFE_CALL(
+                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_pairs * 3)
             );
         }
 
-        CUDA_CHECK(cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
-        CUDA_CHECK(cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
+        CUDART_SAFE_CALL(
+            CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t))
+        );
 
-        CUDA_CHECK(cudaMalloc((void**)&extras->box_check_ptr, sizeof(int)));
-        CUDA_CHECK(cudaMemset(extras->box_check_ptr, 0, sizeof(int)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
 
         extras->capacity = static_cast<size_t>(1.2 * n_points);
     }
 
-    vesin::cuda::compute_mic_neighbourlist(
-        points,
-        n_points,
-        box,
-        periodic,
-        extras->box_check_ptr,
-        options,
-        neighbors
+    const double* d_positions = reinterpret_cast<const double*>(points);
+    const double* d_box = reinterpret_cast<const double*>(box);
+    const bool* d_periodic = periodic;
+
+    size_t* d_pair_indices = reinterpret_cast<size_t*>(neighbors.pairs);
+    int* d_shifts = reinterpret_cast<int*>(neighbors.shifts);
+    double* d_distances = reinterpret_cast<double*>(neighbors.distances);
+    double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
+    size_t* d_pair_counter = extras->length_ptr;
+    int* d_cell_check = extras->cell_check_ptr;
+
+    // Get or create kernel factory
+    auto& factory = KernelFactory::instance();
+
+    // First check box dimensions with mic_box_check kernel
+    auto* box_check_kernel = factory.create(
+        "mic_box_check",
+        CUDA_CODE,
+        "mic_neighbourlist.cu",
+        {"-std=c++17"}
     );
+
+    // Prepare arguments for box check kernel
+    std::vector<void*> box_check_args = {&d_box, &d_periodic, &options.cutoff, &d_cell_check};
+
+    // Launch box check kernel
+    box_check_kernel->launch(
+        dim3(1),        // grid size
+        dim3(32),       // block size
+        0,              // shared memory
+        nullptr,        // stream
+        box_check_args, // arguments
+        true            // synchronize
+    );
+
+    // Check box validity, assume fail
+    int h_cell_check = 1;
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int), cudaMemcpyDeviceToHost));
+
+    if (h_cell_check != 0) {
+        throw std::runtime_error("Invalid cutoff: too large for box dimensions");
+    }
+
+    // Prepare arguments for neighbor computation kernel
+    std::vector<void*> args = {
+        &d_positions, &d_box, &d_periodic, &n_points, &options.cutoff, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+    };
+
+    // Launch appropriate neighbor computation kernel
+    const int WARP_SIZE = 32;
+    const int NWARPS = 4;
+    dim3 blockDim(WARP_SIZE * NWARPS);
+
+    if (options.full) {
+        // Full neighbor list kernel
+        auto* full_kernel = factory.create(
+            "compute_mic_neighbours_full_impl",
+            CUDA_CODE,
+            "mic_neighbourlist.cu",
+            {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
+        );
+
+        dim3 gridDim(std::max((int)(n_points + NWARPS - 1) / NWARPS, 1));
+
+        full_kernel->launch(gridDim, blockDim, 0, nullptr, args, false);
+
+    } else {
+        // Half neighbor list kernel
+        auto* half_kernel = factory.create(
+            "compute_mic_neighbours_half_impl",
+            CUDA_CODE,
+            "mic_neighbourlist.cu",
+            {"-std=c++17", "-DNWARPS=" + std::to_string(NWARPS), "-DWARP_SIZE=" + std::to_string(WARP_SIZE)}
+        );
+
+        const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+        int threads_per_block = WARP_SIZE * NWARPS;
+        int num_blocks = (num_all_pairs + threads_per_block - 1) / threads_per_block;
+        dim3 gridDim(std::max(num_blocks, 1));
+
+        half_kernel->launch(gridDim, blockDim, 0, nullptr, args, false);
+    }
+
+    // Copy final pair count back to host
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&neighbors.length, d_pair_counter, sizeof(size_t), cudaMemcpyDeviceToHost));
 }

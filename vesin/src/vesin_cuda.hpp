@@ -13,10 +13,10 @@ namespace cuda {
 #endif
 
 struct CudaNeighborListExtras {
-    unsigned long* length_ptr = nullptr; // GPU-side counter
-    unsigned long capacity = 0;          // Current capacity per device
-    int* box_check_ptr = nullptr;        // GPU-side status code for checking box
-    int allocated_device = -1;           // which device are we currently allocated on
+    size_t* length_ptr = nullptr;  // GPU-side counter
+    size_t capacity = 0;           // Current capacity per device
+    int* cell_check_ptr = nullptr; // GPU-side status code for checking cell
+    int allocated_device = -1;     // which device are we currently allocated on
 
     ~CudaNeighborListExtras();
 };

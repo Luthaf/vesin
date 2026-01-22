@@ -56,6 +56,9 @@ module vesin_c
         !! sorted using lexicographic order.
         logical(c_bool) :: sorted = .false.
 
+        !> Which algorithm to use for the calculation
+        integer(c_int) :: algorithm = VesinAutoAlgorithm
+
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical(c_bool) :: return_shifts = .false.
 
@@ -64,9 +67,6 @@ module vesin_c
 
         !> Should the returned `VesinNeighborList` contain `vector`?
         logical(c_bool) :: return_vectors = .false.
-
-        !> Algorithm selection (CUDA only, ignored for CPU)
-        integer(c_int) :: algorithm = VesinAutoAlgorithm
 
     end type VesinOptions
 

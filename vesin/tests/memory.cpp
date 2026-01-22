@@ -36,6 +36,8 @@ TEST_CASE("Re-use allocations") {
     auto options = VesinOptions();
     options.cutoff = 3.4;
     options.full = false;
+    options.sorted = false;
+    options.algorithm = VesinAutoAlgorithm;
     options.return_shifts = false;
     options.return_distances = true;
     options.return_vectors = false;

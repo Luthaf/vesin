@@ -83,31 +83,43 @@ class NeighborList:
             only once
         :param sorted: Should vesin sort the returned pairs in lexicographic order
             (sorting both ``i`` and then ``j`` at constant ``i``)?
-        :param algorithm: algorithm to use for CUDA computation. One of "auto",
-            "brute_force", or "cell_list". Ignored for CPU computation.
+        :param algorithm: algorithm to use when computing the neighbor list. One of
+            ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         """
         self._lib = _get_library()
         self.cutoff = float(cutoff)
         self.full_list = bool(full_list)
         self.sorted = bool(sorted)
 
-        if algorithm == "auto":
-            self.algorithm = VesinAutoAlgorithm
-        elif algorithm == "brute_force":
-            self.algorithm = VesinBruteForce
-        elif algorithm == "cell_list":
-            self.algorithm = VesinCellList
-        else:
-            raise ValueError(
-                f"Unknown algorithm '{algorithm}'. "
-                "Must be one of 'auto', 'brute_force', or 'cell_list'."
-            )
+        self.algorithm = algorithm
 
         self._neighbors = VesinNeighborList()
 
     def __del__(self):
         if hasattr(self, "_lib") and hasattr(self, "_neighbors"):
             self._lib.vesin_free(self._neighbors)
+
+    @property
+    def algorithm(self) -> str:
+        """Get the current algorithm used for NL computation."""
+        return self._algorithm
+
+    @algorithm.setter
+    def algorithm(self, value: str):
+        """Set the algorithm to use for NL computation."""
+        algorithm = value.lower()
+        self._algorithm = algorithm
+        if algorithm == "auto":
+            self._c_algorithm = VesinAutoAlgorithm
+        elif algorithm == "brute_force":
+            self._c_algorithm = VesinBruteForce
+        elif algorithm == "cell_list":
+            self._c_algorithm = VesinCellList
+        else:
+            raise ValueError(
+                f"Unknown algorithm '{algorithm}'. "
+                "Must be one of 'auto', 'brute_force', or 'cell_list'."
+            )
 
     def compute(
         self,
@@ -162,7 +174,7 @@ class NeighborList:
         options.return_shifts = "S" in quantities
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities
-        options.algorithm = self.algorithm
+        options.algorithm = self._c_algorithm
 
         if isinstance(periodic, bool):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)

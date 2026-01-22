@@ -32,11 +32,14 @@
 extern "C" {
 #endif
 
-/// Algorithm to use for neighbor list construction (CUDA only)
+/// Algorithm to use for neighbor list construction
 enum VesinAlgorithm {
-    /// Automatically select algorithm based on system size
+    /// Automatically select algorithm based on system characteristics (number
+    /// of points, size of the box, …), this is the default and recommended
+    /// option.
     VesinAutoAlgorithm = 0,
-    /// Brute-force O(n^2) algorithm with minimum image convention
+    /// Brute-force O(n^2) algorithm, this requires minimum image convention in
+    /// CUDA, and is not available on CPU.
     VesinBruteForce = 1,
     /// Cell list algorithm with O(n) scaling
     VesinCellList = 2,
@@ -52,6 +55,8 @@ struct VesinOptions {
     /// Should the neighbor list be sorted? If yes, the returned pairs will be
     /// sorted using lexicographic order.
     bool sorted;
+    /// Which algorithm to use for the calculation
+    VesinAlgorithm algorithm;
 
     /// Should the returned `VesinNeighborList` contain `shifts`?
     bool return_shifts;
@@ -59,9 +64,6 @@ struct VesinOptions {
     bool return_distances;
     /// Should the returned `VesinNeighborList` contain `vector`?
     bool return_vectors;
-
-    /// Algorithm selection (CUDA only, ignored for CPU)
-    VesinAlgorithm algorithm;
 };
 
 /// Device on which the data can be

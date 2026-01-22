@@ -41,7 +41,9 @@ public:
     /// @param full_list whether pairs should be included twice in the output
     ///                  (both as `i-j` and `j-i`) or only once
     /// @param sorted whether pairs should be sorted in the output
-    NeighborListHolder(double cutoff, bool full_list, bool sorted = false);
+    /// @param algorithm the algorithm to use for neighbor list calculation. One
+    ///                  of `"auto"`, `"brute_force"`, or `"cell_list"`.
+    NeighborListHolder(double cutoff, bool full_list, bool sorted = false, std::string algorithm = "auto");
     ~NeighborListHolder();
 
     /// Compute the neighbor list for the system defined by `positions`, `box`,
@@ -79,6 +81,7 @@ private:
     double cutoff_;
     bool full_list_;
     bool sorted_;
+    std::string algorithm_;
     VesinNeighborList* data_;
 };
 

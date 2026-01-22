@@ -49,10 +49,16 @@ public:
     );
 };
 
-NeighborListHolder::NeighborListHolder(double cutoff, bool full_list, bool sorted):
+NeighborListHolder::NeighborListHolder(
+    double cutoff,
+    bool full_list,
+    bool sorted,
+    std::string algorithm
+):
     cutoff_(cutoff),
     full_list_(full_list),
     sorted_(sorted),
+    algorithm_(std::move(algorithm)),
     data_(nullptr) {
     data_ = new VesinNeighborList();
 }
@@ -143,10 +149,25 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         return_vectors = true;
     }
 
+    VesinAlgorithm algorithm = VesinAutoAlgorithm;
+    if (algorithm_ == "auto") {
+        algorithm = VesinAutoAlgorithm;
+    } else if (algorithm_ == "brute_force") {
+        algorithm = VesinBruteForce;
+    } else if (algorithm_ == "cell_list") {
+        algorithm = VesinCellList;
+    } else {
+        throw std::runtime_error(
+            "unknown algorithm '" + algorithm_ + "', expected one of "
+                                                 "'auto', 'brute_force', or 'cell_list'"
+        );
+    }
+
     auto options = VesinOptions{
         /*cutoff=*/this->cutoff_,
         /*full=*/this->full_list_,
         /*sorted=*/this->sorted_,
+        /*algorithm=*/algorithm,
         /*return_shifts=*/return_shifts,
         /*return_distances=*/return_distances,
         /*return_vectors=*/return_vectors,
@@ -288,12 +309,20 @@ TORCH_LIBRARY(vesin, m) {
     // clang-format off
     m.class_<NeighborListHolder>("_NeighborList")
         .def(
-            torch::init<double, bool, bool>(), DOCSTRING,
-            {torch::arg("cutoff"), torch::arg("full_list"), torch::arg("sorted") = false}
+            torch::init<double, bool, bool, std::string>(), DOCSTRING, {
+                torch::arg("cutoff"),
+                torch::arg("full_list"),
+                torch::arg("sorted") = false,
+                torch::arg("algorithm") = "auto",
+            }
         )
-        .def("compute", &NeighborListHolder::compute, DOCSTRING,
-            {torch::arg("points"), torch::arg("box"), torch::arg("periodic"), torch::arg("quantities"), torch::arg("copy") = true}
-        )
+        .def("compute", &NeighborListHolder::compute, DOCSTRING, {
+            torch::arg("points"),
+            torch::arg("box"),
+            torch::arg("periodic"),
+            torch::arg("quantities"),
+            torch::arg("copy") = true
+        })
         ;
     // clang-format on
 }

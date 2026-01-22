@@ -3,8 +3,36 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
-#include <optional>
 #include <stdexcept>
+
+using namespace vesin::cuda;
+
+#ifndef VESIN_ENABLE_CUDA
+
+void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
+    assert(neighbors.device.type == VesinCUDA);
+    // nothing to do, no data was allocated
+}
+
+void vesin::cuda::neighbors(
+    const double (*points)[3],
+    size_t n_points,
+    const double box[3][3],
+    const bool periodic[3],
+    VesinOptions options,
+    VesinNeighborList& neighbors
+) {
+    throw std::runtime_error("vesin was not compiled with CUDA support");
+}
+
+CudaNeighborListExtras*
+vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
+    return nullptr;
+}
+
+#else
+
+#include <optional>
 
 #include <gpulite/gpulite.hpp>
 
@@ -29,9 +57,6 @@ static const char* CUDA_BRUTEFORCE_CODE =
 static const char* CUDA_CELL_LIST_CODE =
 #include "generated/cuda_cell_list.cu"
     ;
-
-using namespace vesin::cuda;
-using namespace std;
 
 // Maximum number of cells (limited by single-block prefix sum)
 static constexpr size_t MAX_CELLS = 8192;
@@ -806,3 +831,5 @@ void vesin::cuda::neighbors(
 
     NVTX_POP();
 }
+
+#endif

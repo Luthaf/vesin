@@ -56,10 +56,16 @@ class cmake_ext(build_ext):
         ]
 
         CUDA_HOME = os.environ.get("CUDA_HOME")
+        VESIN_ENABLE_NVTX = os.environ.get("VESIN_ENABLE_NVTX", "OFF")
+        VESIN_NATIVE_CUDA = os.environ.get("VESIN_NATIVE_CUDA", "OFF")
 
         if CUDA_HOME is not None:
             cmake_options.append(f"-DCUDA_TOOLKIT_ROOT_DIR={CUDA_HOME}")
             cmake_options.append("-DVESIN_ENABLE_CUDA=ON")
+            if VESIN_ENABLE_NVTX.upper() in ["ON", "1", "TRUE", "YES"]:
+                cmake_options.append("-DVESIN_ENABLE_NVTX=ON")
+            if VESIN_NATIVE_CUDA.upper() in ["ON", "1", "TRUE", "YES"]:
+                cmake_options.append("-DVESIN_NATIVE_CUDA=ON")
 
         subprocess.run(
             ["cmake", source_dir, *cmake_options],

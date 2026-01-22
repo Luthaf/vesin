@@ -5,7 +5,16 @@ from typing import List, Sequence, Union
 import numpy as np
 import numpy.typing as npt
 
-from ._c_api import VesinCPU, VesinCUDA, VesinDevice, VesinNeighborList, VesinOptions
+from ._c_api import (
+    VesinAutoAlgorithm,
+    VesinBruteForce,
+    VesinCellList,
+    VesinCPU,
+    VesinCUDA,
+    VesinDevice,
+    VesinNeighborList,
+    VesinOptions,
+)
 from ._c_lib import _get_library
 
 
@@ -61,18 +70,38 @@ class NeighborList:
     A neighbor list calculator.
     """
 
-    def __init__(self, cutoff: float, full_list: bool, sorted: bool = False):
+    def __init__(
+        self,
+        cutoff: float,
+        full_list: bool,
+        sorted: bool = False,
+        algorithm: str = "auto",
+    ):
         """
         :param cutoff: spherical cutoff for this neighbor list
         :param full_list: should we return each pair twice (as ``i-j`` and ``j-i``) or
             only once
         :param sorted: Should vesin sort the returned pairs in lexicographic order
             (sorting both ``i`` and then ``j`` at constant ``i``)?
+        :param algorithm: algorithm to use for CUDA computation. One of "auto",
+            "brute_force", or "cell_list". Ignored for CPU computation.
         """
         self._lib = _get_library()
         self.cutoff = float(cutoff)
         self.full_list = bool(full_list)
         self.sorted = bool(sorted)
+
+        if algorithm == "auto":
+            self.algorithm = VesinAutoAlgorithm
+        elif algorithm == "brute_force":
+            self.algorithm = VesinBruteForce
+        elif algorithm == "cell_list":
+            self.algorithm = VesinCellList
+        else:
+            raise ValueError(
+                f"Unknown algorithm '{algorithm}'. "
+                "Must be one of 'auto', 'brute_force', or 'cell_list'."
+            )
 
         self._neighbors = VesinNeighborList()
 
@@ -133,6 +162,7 @@ class NeighborList:
         options.return_shifts = "S" in quantities
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities
+        options.algorithm = self.algorithm
 
         if isinstance(periodic, bool):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)

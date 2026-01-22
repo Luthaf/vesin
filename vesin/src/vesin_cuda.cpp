@@ -459,9 +459,9 @@ void vesin::cuda::neighbors(
     checkCuda();
 
     // assert both points and box are device pointers
-    assert(is_device_ptr(getPtrAttributes(points)) && "points pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(getPtrAttributes(box)) && "box pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(getPtrAttributes(periodic)) && "periodic pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(points), "points") && "points pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(box), "box") && "box pointer is not allocated on a CUDA device");
+    assert(is_device_ptr(getPtrAttributes(periodic), "periodic") && "periodic pointer is not allocated on a CUDA device");
 
     int device = get_device_id(points);
     // assert both points and box are on the same device

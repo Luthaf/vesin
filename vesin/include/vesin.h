@@ -84,11 +84,15 @@ enum VesinDeviceKind {
 /// allocations, `device_id` specifies which GPU to use (e.g., 0, 1, 2).
 ///
 /// Example usage:
-///   VesinDevice cpu { VesinCPU, 0 };
-///   VesinDevice gpu0 { VesinCUDA, 0 };
-///   VesinDevice gpu1 { VesinCUDA, 1 };
+/// ```c
+/// VesinDevice cpu { VesinCPU, 0 };
+/// VesinDevice gpu0 { VesinCUDA, 0 };
+/// VesinDevice gpu1 { VesinCUDA, 1 };
+/// ```
 struct VesinDevice {
+    /// Type of the device
     VesinDeviceKind type;
+    /// Device index (0 for CPU, GPU index for CUDA)
     int device_id = 0;
 };
 
@@ -141,7 +145,7 @@ struct VESIN_API VesinNeighborList {
     /// during the calculation.
     double (*vectors)[3];
 
-    // private pointer used to hold additional internal data
+    /// Private pointer used to hold additional internal data
     void* opaque = nullptr;
 
     // TODO: custom memory allocators?

@@ -31,6 +31,10 @@ def include_path(line):
 
 
 def merge_files(path, output):
+    if path.startswith("generated/"):
+        # FIXME: create a single build that can handle CUDA as well
+        return
+
     path = find_file(path)
 
     if path in ALREADY_SEEN:
@@ -69,7 +73,7 @@ if __name__ == "__main__":
     with open("vesin-single-build.cpp", "w") as output:
         add_version(output)
         merge_files("cpu_cell_list.cpp", output)
-        merge_files("cuda_stub.cpp", output)
+        merge_files("vesin_cuda.cpp", output)
         merge_files("vesin.cpp", output)
 
     with tarfile.open(f"vesin-single-build-v{version}.tar.gz", "w:gz") as tar:

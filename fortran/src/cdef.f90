@@ -4,7 +4,7 @@ module vesin_c
     implicit none
 
     private
-    public :: VesinUnknownDevice, VesinCPU
+    public :: VesinUnknownDevice, VesinCPU, VesinCUDA
     public :: VesinAutoAlgorithm, VesinBruteForce, VesinCellList
     public :: VesinDevice
     public :: VesinOptions
@@ -20,9 +20,12 @@ module vesin_c
 
         !> CPU device
         enumerator :: VesinCPU = 1
+
+        !> CPU device
+        enumerator :: VesinCUDA = 2
     end enum
 
-    !> Algorithm to use for neighbor list construction (CUDA only)
+    !> Algorithm to use for neighbor list construction
     enum, bind(c)
         !> Automatically select algorithm based on system size
         enumerator :: VesinAutoAlgorithm = 0

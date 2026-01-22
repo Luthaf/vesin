@@ -10,6 +10,22 @@ import vesin
 from vesin import NeighborList
 
 
+try:
+    import cupy as cp
+
+    HAS_CUPY = True
+    # Check if CUDA is available
+    try:
+        cp.cuda.Device(0).compute_capability
+        CUDA_AVAILABLE = True
+    except cp.cuda.runtime.CUDARuntimeError:
+        CUDA_AVAILABLE = False
+except ImportError:
+    HAS_CUPY = False
+    CUDA_AVAILABLE = False
+    cp = None
+
+
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
@@ -169,3 +185,114 @@ def test_mixed_periodic(periodic):
     assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
     assert np.allclose(ase_d[ase_sort_indices], vesin_d[vesin_sort_indices])
+
+
+@pytest.mark.skipif(
+    not (HAS_CUPY and CUDA_AVAILABLE), reason="CuPy not available or CUDA not available"
+)
+@pytest.mark.parametrize("full_list", [False, True])
+def test_cupy_large_box_small_cutoff(full_list):
+    """Test CuPy with synthetic data - large box and small cutoff"""
+    # Use synthetic data with large box to avoid CUDA cutoff <= cell/2 limitation
+    points_np = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=np.float64,
+    )
+
+    box_np = np.array(
+        [
+            [54.0, 0.0, 0.0],
+            [0.0, 54.0, 0.0],
+            [0.0, 0.0, 54.0],
+        ],
+        dtype=np.float64,
+    )
+
+    # NumPy computation
+    calculator_cpu = vesin.NeighborList(cutoff=2.1, full_list=full_list, sorted=True)
+    i_np, j_np, d_np, S_np = calculator_cpu.compute(
+        points=points_np,
+        box=box_np,
+        periodic=True,
+        quantities="ijdS",
+    )
+
+    # CuPy computation
+    calculator_gpu = vesin.NeighborList(cutoff=2.1, full_list=full_list, sorted=True)
+    points_cp = cp.asarray(points_np, dtype=cp.float64)
+    box_cp = cp.asarray(box_np, dtype=cp.float64)
+
+    i_cp, j_cp, d_cp, S_cp = calculator_gpu.compute(
+        points=points_cp,
+        box=box_cp,
+        periodic=True,
+        quantities="ijdS",
+    )
+
+    # Verify outputs are CuPy arrays
+    assert isinstance(i_cp, cp.ndarray)
+    assert isinstance(j_cp, cp.ndarray)
+    assert isinstance(d_cp, cp.ndarray)
+    assert isinstance(S_cp, cp.ndarray)
+
+    # Verify expected pairs based on full_list
+    pairs_np = list(zip(i_np.tolist(), j_np.tolist()))
+    if full_list:
+        expected_pairs = sorted(
+            [
+                (0, 1),
+                (0, 2),
+                (1, 0),
+                (2, 0),
+                (3, 4),
+                (3, 5),
+                (4, 3),
+                (5, 3),
+            ]
+        )
+    else:
+        expected_pairs = sorted(
+            [
+                (0, 1),
+                (0, 2),
+                (3, 4),
+                (3, 5),
+            ]
+        )
+    assert sorted(pairs_np) == expected_pairs
+
+
+@pytest.mark.skipif(
+    not (HAS_CUPY and CUDA_AVAILABLE), reason="CuPy not available or CUDA not available"
+)
+def test_cupy_no_neighbors():
+    """Test CuPy when there are no neighbors"""
+    points_np = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float64)
+    box_np = np.eye(3, dtype=np.float64)
+
+    calculator = vesin.NeighborList(cutoff=0.1, full_list=True)
+
+    # NumPy
+    i_np, j_np, S_np, D_np = calculator.compute(
+        points_np, box_np, True, quantities="ijSD"
+    )
+
+    # CuPy
+    calculator_gpu = vesin.NeighborList(cutoff=0.1, full_list=True)
+    points_cp = cp.asarray(points_np)
+    box_cp = cp.asarray(box_np)
+    i_cp, j_cp, S_cp, D_cp = calculator_gpu.compute(
+        points_cp, box_cp, True, quantities="ijSD"
+    )
+
+    # Both should have no neighbors
+    assert len(i_np) == 0
+    assert len(i_cp) == 0
+    assert isinstance(i_cp, cp.ndarray)

@@ -126,7 +126,8 @@ def test_large_box_small_cutoff(full_list):
 
 
 @pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
-def test_neighbors(system):
+@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list"])
+def test_neighbors(system, algorithm):
     atoms = ase.io.read(f"{CURRENT_DIR}/../../vesin/tests/data/{system}.xyz")
 
     # make the cell bigger for MIC
@@ -137,7 +138,7 @@ def test_neighbors(system):
 
     ase_i, ase_j, ase_S, ase_D = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
 
-    calculator = NeighborList(cutoff=cutoff, full_list=True)
+    calculator = NeighborList(cutoff=cutoff, full_list=True, algorithm=algorithm)
     vesin_i, vesin_j, vesin_S, vesin_D = calculator.compute(
         points=cp.array(atoms.positions),
         box=cp.array(atoms.cell[:]),
@@ -174,7 +175,8 @@ def test_neighbors(system):
     "periodic",
     list(itertools.product([False, True], repeat=3)),
 )
-def test_mixed_periodic(periodic):
+@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list"])
+def test_mixed_periodic(periodic, algorithm):
     cutoff = 0.35
     # Use a fixed seed for the box to ensure reproducibility
     rng = np.random.default_rng(42)
@@ -186,7 +188,7 @@ def test_mixed_periodic(periodic):
         "ijSDd", atoms, cutoff
     )
 
-    calculator = NeighborList(cutoff=cutoff, full_list=True)
+    calculator = NeighborList(cutoff=cutoff, full_list=True, algorithm=algorithm)
     vesin_i, vesin_j, vesin_S, vesin_D, vesin_d = calculator.compute(
         points=cp.array(points, dtype=cp.float64),
         box=cp.array(box, dtype=cp.float64),

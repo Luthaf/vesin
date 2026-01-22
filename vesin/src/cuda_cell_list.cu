@@ -498,9 +498,11 @@ __global__ void find_neighbors_optimized(
                 shifts_out[(base_idx + b) * 3 + 1] = buffered_shift[b * 3 + 1];
                 shifts_out[(base_idx + b) * 3 + 2] = buffered_shift[b * 3 + 2];
             }
+
             if (return_distances) {
                 distances[base_idx + b] = buffered_dist[b];
             }
+
             if (return_vectors) {
                 vectors[(base_idx + b) * 3 + 0] = buffered_vec[b * 3 + 0];
                 vectors[(base_idx + b) * 3 + 1] = buffered_vec[b * 3 + 1];

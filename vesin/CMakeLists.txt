@@ -115,8 +115,8 @@ if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
     # Generate the CUDA source files for NVRTC compilation
-    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/mic_neighbourlist.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/mic_neighbourlist.cu)
-    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cell_list.cu)
+    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_bruteforce.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_bruteforce.cu)
+    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_cell_list.cu)
     target_include_directories(vesin_objects PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

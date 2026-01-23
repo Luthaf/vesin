@@ -4,13 +4,20 @@
 !! from and to the C API for you.
 module vesin
     use, intrinsic :: iso_c_binding
-    use vesin_c, only: VesinOptions, VesinNeighborList, &
+    use vesin_c, only: VesinOptions, VesinNeighborList, VesinDevice, &
                        vesin_neighbors, vesin_free, &
-                       VesinUnknownDevice, VesinCPU
+                       VesinUnknownDevice, VesinCPU, VesinCUDA, &
+                       VesinAutoAlgorithm, VesinBruteForce, VesinCellList
     implicit none
 
     private
     public :: NeighborList
+    ! mark everything from vesin_c private
+    private :: VesinOptions, VesinNeighborList, vesin_neighbors, vesin_free
+
+    ! Except the things that a user could need
+    public :: VesinAutoAlgorithm, VesinBruteForce, VesinCellList
+    public :: VesinDevice, VesinUnknownDevice, VesinCPU, VesinCUDA
 
     !> A neighbor list calculator.
     !!
@@ -70,7 +77,7 @@ module vesin
     end interface NeighborList
 
 contains
-    function vesin_construct_c_double(cutoff, full, sorted, return_shifts, return_distances, return_vectors) result(self)
+    function vesin_construct_c_double(cutoff, full, sorted, algorithm, return_shifts, return_distances, return_vectors) result(self)
         !> Spherical cutoff, only pairs below this cutoff will be included
         real(c_double), intent(in) :: cutoff
 
@@ -81,6 +88,11 @@ contains
         !> Should the neighbor list be sorted? If yes, the returned pairs will be
         !! sorted using lexicographic order.
         logical, intent(in), optional :: sorted
+
+        !> Algorithm to use for the neighbor list calculation (one of
+        !! `VesinAutoAlgorithm`, ! `VesinBruteForceAlgorithm`, or
+        !! `VesinCellListAlgorithm`)
+        integer(c_int32_t), intent(in), optional :: algorithm
 
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
@@ -97,6 +109,7 @@ contains
         self%options%full = full
 
         if (present(sorted)) self%options%sorted = sorted
+        if (present(algorithm)) self%options%algorithm = algorithm
         if (present(return_shifts)) self%options%return_shifts = return_shifts
         if (present(return_distances)) self%options%return_distances = return_distances
         if (present(return_vectors)) self%options%return_vectors = return_vectors
@@ -104,7 +117,7 @@ contains
         self%initialized = .true.
     end function vesin_construct_c_double
 
-    function vesin_construct_c_float(cutoff, full, sorted, return_shifts, return_distances, return_vectors) result(self)
+    function vesin_construct_c_float(cutoff, full, sorted, algorithm, return_shifts, return_distances, return_vectors) result(self)
         !> Spherical cutoff, only pairs below this cutoff will be included
         real(c_float), intent(in) :: cutoff
 
@@ -115,6 +128,11 @@ contains
         !> Should the neighbor list be sorted? If yes, the returned pairs will be
         !! sorted using lexicographic order.
         logical, intent(in), optional :: sorted
+
+        !> Algorithm to use for the neighbor list calculation (one of
+        !! `VesinAutoAlgorithm`, ! `VesinBruteForceAlgorithm`, or
+        !! `VesinCellListAlgorithm`)
+        integer(c_int32_t), intent(in), optional :: algorithm
 
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
@@ -131,6 +149,7 @@ contains
             real(cutoff, c_double),             &
             full,                               &
             sorted,                             &
+            algorithm,                          &
             return_shifts,                      &
             return_distances,                   &
             return_vectors                      &
@@ -183,7 +202,7 @@ contains
             int(points_shape(2), c_size_t),     &
             box,                                &
             c_periodic,                         &
-            VesinCPU,                           &
+            VesinDevice(VesinCPU, 0),           &
             self%options,                       &
             self%c_neighbors,                   &
             c_errmsg                            &

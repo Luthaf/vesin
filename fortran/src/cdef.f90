@@ -4,13 +4,15 @@ module vesin_c
     implicit none
 
     private
-    public :: VesinUnknownDevice, VesinCPU
+    public :: VesinUnknownDevice, VesinCPU, VesinCUDA
+    public :: VesinAutoAlgorithm, VesinBruteForce, VesinCellList
+    public :: VesinDevice
     public :: VesinOptions
     public :: VesinNeighborList
     public :: vesin_neighbors
     public :: vesin_free
 
-    !> Device on which the data can be
+    !> Device type on which the data can be
     enum, bind(c)
         !> Unknown device, used for default initialization and to indicate no
         !! allocated data.
@@ -18,7 +20,31 @@ module vesin_c
 
         !> CPU device
         enumerator :: VesinCPU = 1
+
+        !> CPU device
+        enumerator :: VesinCUDA = 2
     end enum
+
+    !> Algorithm to use for neighbor list construction
+    enum, bind(c)
+        !> Automatically select algorithm based on system size
+        enumerator :: VesinAutoAlgorithm = 0
+
+        !> Brute-force O(n^2) algorithm with minimum image convention
+        enumerator :: VesinBruteForce = 1
+
+        !> Cell list algorithm with O(n) scaling
+        enumerator :: VesinCellList = 2
+    end enum
+
+    !> Device on which data can be allocated
+    type, bind(c) :: VesinDevice
+        !> Device type (VesinUnknownDevice, VesinCPU, etc.)
+        integer(c_int) :: type = VesinUnknownDevice
+
+        !> Device index (0 for CPU, GPU index for CUDA)
+        integer(c_int) :: device_id = 0
+    end type VesinDevice
 
     !> Used for storing Vesin options.
     type, bind(c) :: VesinOptions
@@ -32,6 +58,9 @@ module vesin_c
         !> Should the neighbor list be sorted? If yes, the returned pairs will be
         !! sorted using lexicographic order.
         logical(c_bool) :: sorted = .false.
+
+        !> Which algorithm to use for the calculation
+        integer(c_int) :: algorithm = VesinAutoAlgorithm
 
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical(c_bool) :: return_shifts = .false.
@@ -54,7 +83,7 @@ module vesin_c
         integer(c_size_t) :: length = 0_c_size_t
 
         !> Device used for the data allocations
-        integer(c_int) :: device = VesinUnknownDevice
+        type(VesinDevice) :: device
 
         !> Array of pairs (storing the indices of the first and second point in
         !! the pair), containing `length` elements.
@@ -73,6 +102,9 @@ module vesin_c
         !! each pair. This is only set if `options.return_vector` was `true`
         !! during the calculation.
         type(c_ptr) :: vectors = c_null_ptr
+
+        !> Private pointer used to hold additional internal data
+        type(c_ptr) :: opaque = c_null_ptr
     end type VesinNeighborList
 
     !> Compute a neighbor list.
@@ -93,7 +125,8 @@ module vesin_c
             neighbors,     &
             error_message  &
         ) result(status) bind(c, name="vesin_neighbors")
-            import:: c_double, c_size_t, c_bool, c_ptr, c_int, VesinOptions, VesinNeighborList
+            import:: c_double, c_size_t, c_bool, c_ptr, c_int
+            import:: VesinDevice, VesinOptions, VesinNeighborList
 
             !> Number of elements in the `points` array
             integer(c_size_t), value   :: n_points
@@ -111,7 +144,7 @@ module vesin_c
             logical(c_bool)            :: periodic(3)
 
             !> Device where the `points` and `box` data is allocated.
-            integer(c_int), value      :: device
+            type(VesinDevice), value   :: device
 
             !> Options for the calculation
             type(VesinOptions), value  :: options

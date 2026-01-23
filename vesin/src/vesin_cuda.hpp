@@ -12,11 +12,48 @@ namespace cuda {
 #define VESIN_CUDA_MAX_PAIRS_PER_POINT 512
 #endif
 
+/// @brief Buffers for cell list-based neighbor search
+struct CellListBuffers {
+    size_t max_points = 0; // Capacity for point-related arrays
+    size_t max_cells = 0;  // Capacity for cell-related arrays
+
+    // Per-particle arrays
+    int* cell_indices = nullptr;        // [max_points] linear cell index per particle
+    int32_t* particle_shifts = nullptr; // [max_points * 3] shift applied to wrap into cell
+
+    // Per-cell arrays
+    int* cell_counts = nullptr;  // [max_cells] number of particles in each cell
+    int* cell_starts = nullptr;  // [max_cells] starting index in sorted arrays
+    int* cell_offsets = nullptr; // [max_cells] working copy for scatter
+
+    // Sorted particle data (for coalesced memory access)
+    double* sorted_positions = nullptr; // [max_points * 3]
+    int* sorted_indices = nullptr;      // [max_points] original particle indices
+    int32_t* sorted_shifts = nullptr;   // [max_points * 3] shifts for sorted particles
+    int* sorted_cell_indices = nullptr; // [max_points] cell indices in sorted order
+
+    // Cell grid parameters (computed on device)
+    double* inv_box = nullptr;    // [9] inverse box matrix
+    int* n_cells = nullptr;       // [3] number of cells in each direction
+    int* n_search = nullptr;      // [3] search range in each direction
+    int* n_cells_total = nullptr; // [1] total number of cells
+};
+
 struct CudaNeighborListExtras {
     size_t* length_ptr = nullptr;  // GPU-side counter
     size_t capacity = 0;           // Current capacity per device
     int* cell_check_ptr = nullptr; // GPU-side status code for checking cell
     int allocated_device = -1;     // which device are we currently allocated on
+
+    // Pinned host memory for async D2H copy (Approach 2)
+    size_t* pinned_length_ptr = nullptr;
+
+    // Cell list buffers (allocated on demand for large systems)
+    CellListBuffers cell_list;
+
+    // Buffers for optimized brute force kernels
+    double* box_diag = nullptr;      // [3] diagonal elements for orthogonal boxes
+    double* inv_box_brute = nullptr; // [9] inverse box matrix for general boxes
 
     ~CudaNeighborListExtras();
 };

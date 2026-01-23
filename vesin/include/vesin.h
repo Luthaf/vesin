@@ -32,6 +32,19 @@
 extern "C" {
 #endif
 
+/// Algorithm to use for neighbor list construction
+enum VesinAlgorithm {
+    /// Automatically select algorithm based on system characteristics (number
+    /// of points, size of the box, …), this is the default and recommended
+    /// option.
+    VesinAutoAlgorithm = 0,
+    /// Brute-force O(n^2) algorithm, this requires minimum image convention in
+    /// CUDA, and is not available on CPU.
+    VesinBruteForce = 1,
+    /// Cell list algorithm with O(n) scaling
+    VesinCellList = 2,
+};
+
 /// Options for a neighbor list calculation
 struct VesinOptions {
     /// Spherical cutoff, only pairs below this cutoff will be included
@@ -42,6 +55,8 @@ struct VesinOptions {
     /// Should the neighbor list be sorted? If yes, the returned pairs will be
     /// sorted using lexicographic order.
     bool sorted;
+    /// Which algorithm to use for the calculation
+    VesinAlgorithm algorithm;
 
     /// Should the returned `VesinNeighborList` contain `shifts`?
     bool return_shifts;
@@ -69,11 +84,15 @@ enum VesinDeviceKind {
 /// allocations, `device_id` specifies which GPU to use (e.g., 0, 1, 2).
 ///
 /// Example usage:
-///   VesinDevice cpu { VesinCPU, 0 };
-///   VesinDevice gpu0 { VesinCUDA, 0 };
-///   VesinDevice gpu1 { VesinCUDA, 1 };
+/// ```c
+/// VesinDevice cpu { VesinCPU, 0 };
+/// VesinDevice gpu0 { VesinCUDA, 0 };
+/// VesinDevice gpu1 { VesinCUDA, 1 };
+/// ```
 struct VesinDevice {
+    /// Type of the device
     VesinDeviceKind type;
+    /// Device index (0 for CPU, GPU index for CUDA)
     int device_id = 0;
 };
 
@@ -126,7 +145,7 @@ struct VESIN_API VesinNeighborList {
     /// during the calculation.
     double (*vectors)[3];
 
-    // private pointer used to hold additional internal data
+    /// Private pointer used to hold additional internal data
     void* opaque = nullptr;
 
     // TODO: custom memory allocators?

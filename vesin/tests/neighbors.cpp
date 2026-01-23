@@ -25,6 +25,8 @@ static void check_neighbors(
     auto options = VesinOptions();
     options.cutoff = cutoff;
     options.full = full_list;
+    options.sorted = false;
+    options.algorithm = VesinAutoAlgorithm;
     options.return_shifts = !expected_shifts.empty();
     options.return_distances = !expected_distances.empty();
     options.return_vectors = !expected_vectors.empty();
@@ -277,6 +279,8 @@ TEST_CASE("Slanted box") {
     auto options = VesinOptions();
     options.cutoff = 6.4;
     options.full = false;
+    options.sorted = false;
+    options.algorithm = VesinAutoAlgorithm;
     options.return_shifts = true;
     options.return_distances = false;
     options.return_vectors = false;

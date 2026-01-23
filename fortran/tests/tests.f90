@@ -33,7 +33,7 @@ program vesin_test
     neighbor_list = NeighborList(cutoff=3.3, full=.true.)
 
     call neighbor_list%free()
-    neighbor_list = NeighborList(cutoff=real(3.3, c_double), full=.false.)
+    neighbor_list = NeighborList(cutoff=real(3.3, c_double), algorithm=VesinAutoAlgorithm, full=.false.)
 
     call neighbor_list%free()
     neighbor_list = NeighborList(       &

@@ -7,6 +7,11 @@ VesinUnknownDevice = 0
 VesinCPU = 1
 VesinCUDA = 2
 
+VesinAlgorithm = ctypes.c_int
+VesinAutoAlgorithm = 0
+VesinBruteForce = 1
+VesinCellList = 2
+
 
 class VesinDevice(ctypes.Structure):
     _fields_ = [
@@ -20,6 +25,7 @@ class VesinOptions(ctypes.Structure):
         ("cutoff", ctypes.c_double),
         ("full", ctypes.c_bool),
         ("sorted", ctypes.c_bool),
+        ("algorithm", VesinAlgorithm),
         ("return_shifts", ctypes.c_bool),
         ("return_distances", ctypes.c_bool),
         ("return_vectors", ctypes.c_bool),

@@ -18,6 +18,12 @@ void vesin::cpu::neighbors(
     VesinOptions options,
     VesinNeighborList& raw_neighbors
 ) {
+    if (options.algorithm == VesinAutoAlgorithm || options.algorithm == VesinCellList) {
+        // all good, this is the only thing we implement
+    } else {
+        throw std::runtime_error("only VesinAutoAlgorithm and VesinCellList are supported on CPU");
+    }
+
     auto cell_list = CellList(cell, options.cutoff);
 
     for (size_t i = 0; i < n_points; i++) {

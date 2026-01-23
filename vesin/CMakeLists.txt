@@ -87,16 +87,21 @@ target_include_directories(vesin_objects PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
-    include(FetchContent)
-    FetchContent_Declare(
-        gpulite
-        GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
-        GIT_TAG 78b4bad091e329b332def47ee9692e367a28ea85 # v1.0.0
-        EXCLUDE_FROM_ALL
-    )
-    FetchContent_MakeAvailable(gpulite)
+# Generate the CUDA source files for NVRTC compilation
+make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_bruteforce.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_bruteforce.cu)
 
+include(FetchContent)
+FetchContent_Declare(
+    gpulite
+    GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
+    GIT_TAG 78b4bad091e329b332def47ee9692e367a28ea85 # v1.0.0
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(gpulite)
+
+make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_cell_list.cu)
+
+if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
         PROPERTIES COMPILE_DEFINITIONS VESIN_ENABLE_CUDA
@@ -111,9 +116,6 @@ if (CMAKE_CUDA_COMPILER AND VESIN_ENABLE_CUDA)
     # Create generated directory
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
-    # Generate the CUDA source files for NVRTC compilation
-    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_bruteforce.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_bruteforce.cu)
-    make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_cell_list.cu)
     target_include_directories(vesin_objects PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     target_include_directories(vesin PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

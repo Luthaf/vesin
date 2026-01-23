@@ -15,22 +15,22 @@ Vesin: we are all neighbors
 
 
 .. |logo-c| image:: /static/images/logo-c.png
-    :height: 1.4em
+    :height: 1.2em
 
 .. |logo-cxx| image:: /static/images/logo-cxx.png
-    :height: 1.4em
+    :height: 1.2em
 
 .. |logo-fortran| image:: /static/images/logo-fortran.png
-    :height: 1.3em
+    :height: 1.1em
 
 .. |logo-python| image:: /static/images/logo-python.png
-    :height: 1.4em
+    :height: 1.2em
 
 .. |logo-cuda| image:: /static/images/logo-cuda.png
-    :height: 1.4em
+    :height: 1.2em
 
 .. |logo-torch| image:: /static/images/logo-torch.png
-    :height: 1.4em
+    :height: 1.2em
 
 .. list-table::
     :align: center
@@ -74,7 +74,7 @@ Installation
 
             pip install vesin
 
-        **TorchScript:**
+        |logo-torch| **TorchScript:**
 
         The TorchScript bindings can be installed with:
 
@@ -82,7 +82,7 @@ Installation
 
             pip install vesin[torch]
 
-    .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| CMake
+    .. tab-item:: |logo-c| |logo-cxx| |logo-cuda| |logo-fortran| CMake
         :sync: cxx
 
         If you use CMake as your build system, the simplest thing to do is to
@@ -165,14 +165,15 @@ Installation
             FetchContent_xxx(...)
 
 
-
-    .. tab-item:: |logo-c| |logo-cxx| Single file
+    .. tab-item:: |logo-c| |logo-cxx| |logo-cuda| Single file
 
         We support merging all files in the vesin library to a single one that
         can then be included in your own project and built with the same build
         system as the rest of your code.
 
-        You can generate this single file to build with the following commands:
+        You can download this single file from the `github releases
+        <https://github.com/Luthaf/vesin/releases>`_, or generate it yourself
+        with the following commands:
 
         .. code-block:: bash
 
@@ -184,14 +185,19 @@ Installation
         ``vesin-single-build.cpp`` in your project and configure your build
         system accordingly.
 
+        You should define ``VESIN_SHARED`` as a preprocessor constant
+        (``-DVESIN_SHARED``) when compiling the code if you want to build vesin
+        as a shared library. You can define ``VESIN_ENABLE_CUDA`` as well if you
+        want to enable the CUDA implementation.
+
         .. important::
 
-            Neither the **TorchScript** API or the **CUDA** implementation are
-            supported by the single file file build. If you need these features,
-            please use one of the CMake options instead.
+            The **TorchScript** API is not supported by the single file file
+            build. If you need this feature, please use one of the CMake
+            options instead.
 
 
-    .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| Global installation
+    .. tab-item:: |logo-c| |logo-cxx| |logo-cuda| |logo-fortran| Globally
 
         You can build and install vesin in some global location (referred to as
         ``$PREFIX`` below), and then use the right compiler flags to give this
@@ -298,6 +304,16 @@ Usage example
                 quantities="ijSd"
             )
 
+        :py:func:`NeighborList.compute` accepts any object that can be converted
+        to a numpy array for the ``points``, ``box`` and ``periodic`` arguments
+        (including lists or tuples). The output arrays are numpy arrays as well.
+
+        We also support `CuPy`_ arrays if you have CuPy installed, and will then
+        run the calculation on the GPU. In this case, the output arrays will be
+        CuPy arrays as well.
+
+        .. _CuPy: https://cupy.dev/
+
         Alternatively, you can use the :py:func:`ase_neighbor_list` function,
         which mimics the API of :py:func:`ase.neighborlist.neighbor_list`:
 
@@ -342,6 +358,8 @@ Usage example
                 VesinOptions options;
                 options.cutoff = 4.2;
                 options.full = true;
+                options.sorted = false;
+                options.algorithm = VesinAutoAlgorithm;
 
                 // decide what quantities should be computed
                 options.return_shifts = true;
@@ -353,8 +371,12 @@ Usage example
 
                 const char* error_message = NULL;
                 int status = vesin_neighbors(
-                    points, n_points, box, periodic,
-                    VesinCPU, options,
+                    points,
+                    n_points,
+                    box,
+                    periodic,
+                    {VesinCPU, 0},
+                    options,
                     &neighbors,
                     &error_message,
                 );
@@ -371,6 +393,30 @@ Usage example
 
                 return 0;
             }
+
+        |logo-cuda| **CUDA:**
+
+        To use the CUDA version of vesin, you'll need to allocate the data for
+        ``points``, ``box`` and ``periodic`` as device pointers, and then call
+
+        .. code-block:: c++
+
+            int device_id = 0; // choose your GPU device id
+            VesinDevice cuda_device = {VesinCUDA, device_id};
+
+            int status = vesin_neighbors(
+                d_points,    // device pointer
+                n_points,
+                d_box,       // device pointer
+                d_periodic,  // device pointer
+                cuda_device,
+                options,
+                &neighbors,
+                &error_message,
+            );
+
+        The data in the ``neighbors`` structure will be directly allocated on
+        the device.
 
     .. tab-item:: |logo-fortran| Fortran
 

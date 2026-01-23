@@ -1,7 +1,6 @@
 #include "vesin_cuda.hpp"
 
 #include <cassert>
-#include <cmath>
 #include <cstdlib>
 #include <stdexcept>
 
@@ -22,7 +21,9 @@ void vesin::cuda::neighbors(
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
-    throw std::runtime_error("vesin was not compiled with CUDA support");
+    throw std::runtime_error(
+        "vesin was not compiled with CUDA support, recompile with -DVESIN_ENABLE_CUDA=ON"
+    );
 }
 
 CudaNeighborListExtras*
@@ -32,6 +33,7 @@ vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
 
 #else
 
+#include <cmath>
 #include <optional>
 
 #include <gpulite/gpulite.hpp>

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import os
+import subprocess
 import tarfile
+import tempfile
 
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -11,6 +13,8 @@ def find_file(path):
     candidates = [
         os.path.join(HERE, "vesin", "src", path),
         os.path.join(HERE, "vesin", "include", path),
+        os.path.join(os.getcwd(), path),
+        os.path.join(os.getcwd(), "_deps", "gpulite-src", path),
     ]
     for candidate in candidates:
         if os.path.exists(candidate):
@@ -26,14 +30,15 @@ def include_path(line):
     path = path.strip()
     if path.startswith('"'):
         return path[1:-1]
+    elif path == "<gpulite/gpulite.hpp>":
+        return "gpulite/gpulite.hpp"
     else:
         return ""
 
 
 def merge_files(path, output):
     if path.startswith("generated/"):
-        # FIXME: create a single build that can handle CUDA as well
-        return
+        pass
 
     path = find_file(path)
 
@@ -70,15 +75,29 @@ if __name__ == "__main__":
     with open(os.path.join(HERE, "vesin", "VERSION")) as fd:
         version = fd.read().strip()
 
-    with open("vesin-single-build.cpp", "w") as output:
-        add_version(output)
-        merge_files("cpu_cell_list.cpp", output)
-        merge_files("vesin_cuda.cpp", output)
-        merge_files("vesin.cpp", output)
+    with tempfile.TemporaryDirectory() as tempdir:
+        os.chdir(tempdir)
+        subprocess.run(
+            ["cmake", os.path.join(HERE, "vesin")],
+            check=True,
+        )
 
-    with tarfile.open(f"vesin-single-build-v{version}.tar.gz", "w:gz") as tar:
-        tar.add("vesin-single-build.cpp")
-        tar.add(os.path.join(HERE, "vesin", "include", "vesin.h"), arcname="vesin.h")
+        with open(os.path.join(HERE, "vesin-single-build.cpp"), "w") as output:
+            add_version(output)
+            merge_files("cpu_cell_list.cpp", output)
+            merge_files("vesin_cuda.cpp", output)
+            merge_files("vesin.cpp", output)
+
+        tarpath = os.path.join(HERE, f"vesin-single-build-v{version}.tar.gz")
+        with tarfile.open(tarpath, "w:gz") as tar:
+            tar.add(
+                os.path.join(HERE, "vesin-single-build.cpp"),
+                arcname="vesin-single-build.cpp",
+            )
+            tar.add(
+                os.path.join(HERE, "vesin", "include", "vesin.h"),
+                arcname="vesin.h",
+            )
 
     print(
         f"created 'vesin-single-build.cpp' and 'vesin-single-build-v{version}.tar.gz'"

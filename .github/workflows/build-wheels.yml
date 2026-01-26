@@ -31,19 +31,19 @@ jobs:
         include:
           - name: x86_64 Linux
             os: ubuntu-24.04
-            cibw_arch: x86_64
+            cibw-arch: x86_64
           - name: arm64 Linux
             os: ubuntu-24.04-arm
-            cibw_arch: aarch64
+            cibw-arch: aarch64
           - name: x86_64 macOS
             os: macos-15-intel
-            cibw_arch: x86_64
+            cibw-arch: x86_64
           - name: M1 macOS
             os: macos-15
-            cibw_arch: arm64
+            cibw-arch: arm64
           - name: x86_64 Windows
             os: windows-2022
-            cibw_arch: AMD64
+            cibw-arch: AMD64
     steps:
       - uses: actions/checkout@v6
         with:
@@ -57,22 +57,27 @@ jobs:
       - name: install dependencies
         run: python -m pip install cibuildwheel twine
 
+      - name: Build custom manylinux Docker image with CUDA
+        if: matrix.os == 'ubuntu-24.04' || matrix.os == 'ubuntu-24.04-arm'
+        run: |
+          docker build --no-cache -t cuda_manylinux_2_28_${{ matrix.cibw-arch }} scripts/manylinux_2_28_${{ matrix.cibw-arch }}
+
       - name: build wheel
         run: python -m cibuildwheel python/vesin
         env:
           CIBW_BUILD: cp312-*
           CIBW_SKIP: "*musllinux*"
-          CIBW_ARCHS: ${{ matrix.cibw_arch }}
+          CIBW_ARCHS: ${{ matrix.cibw-arch }}
           CIBW_BUILD_FRONTEND: build
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux2014_x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux2014_aarch64
+          CIBW_MANYLINUX_X86_64_IMAGE: cuda_manylinux_2_28_x86_64
+          CIBW_MANYLINUX_AARCH64_IMAGE: cuda_manylinux_2_28_aarch64
 
       - name: check wheels with twine
         run: twine check wheelhouse/*
 
       - uses: actions/upload-artifact@v5
         with:
-          name: wheel-${{ matrix.os }}-${{ matrix.cibw_arch }}
+          name: wheel-${{ matrix.os }}-${{ matrix.cibw-arch }}
           path: ./wheelhouse/*.whl
 
   build-torch-wheels:
@@ -129,6 +134,11 @@ jobs:
       - name: install dependencies
         run: python -m pip install cibuildwheel
 
+      - name: Build custom manylinux Docker image with CUDA
+        if: matrix.os == 'ubuntu-24.04' || matrix.os == 'ubuntu-24.04-arm'
+        run: |
+          docker build --no-cache -t cuda_manylinux_2_28_${{ matrix.cibw-arch }} scripts/manylinux_2_28_${{ matrix.cibw-arch }}
+
       - name: build vesin-torch wheel
         run: python -m cibuildwheel python/vesin_torch
         env:
@@ -136,8 +146,8 @@ jobs:
           CIBW_SKIP: "*musllinux*"
           CIBW_ARCHS: ${{ matrix.cibw-arch }}
           CIBW_BUILD_VERBOSITY: 1
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
+          CIBW_MANYLINUX_X86_64_IMAGE: cuda_manylinux_2_28_x86_64
+          CIBW_MANYLINUX_AARCH64_IMAGE: cuda_manylinux_2_28_aarch64
           CIBW_ENVIRONMENT: >
             VESIN_TORCH_BUILD_WITH_TORCH_VERSION=${{ matrix.torch-version }}.*
             PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
@@ -150,7 +160,7 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: torch-single-version-wheel-${{ matrix.torch-version }}-${{ matrix.os }}-${{ matrix.arch }}
+          name: torch-single-version-wheel-${{ matrix.torch-version }}-${{ matrix.os }}-${{ matrix.cibw-arch }}
           path: ./wheelhouse/*.whl
 
   merge-torch-wheels:
@@ -162,23 +172,23 @@ jobs:
         include:
           - name: x86_64 Linux
             os: ubuntu-24.04
-            arch: x86_64
+            cibw-arch: x86_64
           - name: arm64 Linux
             os: ubuntu-24.04-arm
-            arch: arm64
+            cibw-arch: aarch64
           - name: arm64 macOS
             os: macos-15
-            arch: arm64
+            cibw-arch: arm64
           - name: x86_64 Windows
             os: windows-2022
-            arch: x86_64
+            cibw-arch: AMD64
     steps:
       - uses: actions/checkout@v6
 
       - name: Download wheels
         uses: actions/download-artifact@v6
         with:
-          pattern: torch-single-version-wheel-*-${{ matrix.os }}-${{ matrix.arch }}
+          pattern: torch-single-version-wheel-*-${{ matrix.os }}-${{ matrix.cibw-arch }}
           merge-multiple: false
           path: dist
 
@@ -261,7 +271,7 @@ jobs:
           pattern: wheel-*
           merge-multiple: true
 
-      - name: Download metatensor-torch wheels
+      - name: Download vesin-torch wheels
         uses: actions/download-artifact@v6
         with:
           path: dist

@@ -70,16 +70,25 @@ class cmake_ext(build_ext):
         ]
 
         CUDA_HOME = os.environ.get("CUDA_HOME")
+        VESIN_ENABLE_NVTX = os.environ.get("VESIN_ENABLE_NVTX", "OFF")
 
         if CUDA_HOME is not None:
             cmake_options.append(f"-DCUDA_TOOLKIT_ROOT_DIR={CUDA_HOME}")
             cmake_options.append("-DVESIN_ENABLE_CUDA=ON")
+            if VESIN_ENABLE_NVTX.upper() in ["ON", "1", "TRUE", "YES"]:
+                cmake_options.append("-DVESIN_ENABLE_NVTX=ON")
+
+            # fix for https://github.com/pytorch/pytorch/issues/113948, it does not
+            # matter which architecture we put here since we are not actually compiling
+            # any CUDA code, just linking against cudart
+            cmake_options.append("-DTORCH_CUDA_ARCH_LIST=9.0")
 
         subprocess.run(
             ["cmake", source_dir, *cmake_options],
             cwd=build_dir,
             check=True,
         )
+
         subprocess.run(
             [
                 "cmake",

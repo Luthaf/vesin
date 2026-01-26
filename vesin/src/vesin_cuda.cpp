@@ -1,5 +1,6 @@
 #include "vesin_cuda.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <stdexcept>

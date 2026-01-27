@@ -176,7 +176,7 @@ class NeighborList:
         options.return_vectors = "D" in quantities
         options.algorithm = self._c_algorithm
 
-        if isinstance(periodic, bool):
+        if isinstance(periodic, (bool, np.bool_)):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)
 
         if is_cupy:

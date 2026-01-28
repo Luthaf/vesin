@@ -14,6 +14,7 @@ from ._c_api import (
     VesinDevice,
     VesinNeighborList,
     VesinOptions,
+    VesinUnknownDevice,
 )
 from ._c_lib import _get_library
 
@@ -30,7 +31,13 @@ try:
     }
 except ImportError:
     HAS_CUPY = False
-    cp = None
+
+try:
+    import torch
+
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
 
 
 def _ptr_to_numpy(ptr, shape, dtype, owner, device_id):
@@ -159,7 +166,10 @@ class NeighborList:
         """
         # Detect if input is CuPy array and convert to numpy for CPU processing
         # The C library will handle GPU computation internally when device is CUDA
-        is_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
+        use_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
+
+        if HAS_TORCH and isinstance(points, torch.Tensor) and points.is_cuda:
+            use_cupy = True
 
         if box.shape != (3, 3):
             raise ValueError("`box` must be a 3x3 matrix")
@@ -179,7 +189,7 @@ class NeighborList:
         if isinstance(periodic, (bool, np.bool_)):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)
 
-        if is_cupy:
+        if use_cupy:
             periodic = cp.asarray(periodic, dtype=cp.bool_)
         else:
             periodic = np.asarray(periodic, dtype=np.bool_)
@@ -193,7 +203,7 @@ class NeighborList:
         # Get device and data pointer
         device = _device_from_array(points)
 
-        if is_cupy:
+        if use_cupy:
             points = cp.asarray(points, dtype=cp.float64)
             box = cp.asarray(box, dtype=cp.float64)
             # Ensure C-contiguous
@@ -228,6 +238,19 @@ class NeighborList:
             box_ptr = box.ctypes.data_as(POINTER(ctypes.c_double))
             periodic_ptr = periodic.ctypes.data_as(POINTER(ctypes.c_bool))
 
+        if self._neighbors.device.type != VesinUnknownDevice:
+            if (
+                self._neighbors.device.type != device.type
+                or self._neighbors.device.device_id != device.device_id
+            ):
+                # Free previous allocation and reset to zeroed state
+                self._lib.vesin_free(self._neighbors)
+                ctypes.memset(
+                    ctypes.byref(self._neighbors),
+                    0,
+                    ctypes.sizeof(self._neighbors),
+                )
+
         error_message = ctypes.c_char_p()
         status = self._lib.vesin_neighbors(
             points_ptr,
@@ -236,7 +259,7 @@ class NeighborList:
             periodic_ptr,
             device,
             options,
-            self._neighbors,
+            ctypes.byref(self._neighbors),
             error_message,
         )
 
@@ -246,7 +269,7 @@ class NeighborList:
         # Create arrays for the output data
         n_pairs = self._neighbors.length
 
-        if is_cupy:
+        if use_cupy:
             _empty_array = cp.empty
             _ptr_to_array = _ptr_to_cupy
         else:

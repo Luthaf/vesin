@@ -34,7 +34,7 @@ class NeighborList:
         points: torch.Tensor,
         box: torch.Tensor,
         periodic: Union[bool, torch.Tensor],
-        quantities: str,
+        quantities: str = "ij",
         copy: bool = True,
     ) -> List[torch.Tensor]:
         """

@@ -1,6 +1,5 @@
 #include "vesin_cuda.hpp"
 
-#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <stdexcept>
@@ -34,6 +33,7 @@ vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
 
 #else
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -351,7 +351,6 @@ static void reset(VesinNeighborList& neighbors) {
 }
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
-
     assert(neighbors.device.type == VesinCUDA);
 
     int curr_device = -1;
@@ -478,43 +477,61 @@ void vesin::cuda::neighbors(
     VesinNeighborList& neighbors
 ) {
     assert(neighbors.device.type == VesinCUDA);
-    assert(!options.sorted && "Sorting is not supported in CUDA version of Vesin");
+    if (options.sorted) {
+        throw std::runtime_error("CUDA implemented does not support sorted output yet");
+    }
 
     // Check if CUDA is available
     checkCuda();
 
-    // assert both points and box are device pointers
-    assert(is_device_ptr(getPtrAttributes(points), "points") && "points pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(getPtrAttributes(box), "box") && "box pointer is not allocated on a CUDA device");
-    assert(is_device_ptr(getPtrAttributes(periodic), "periodic") && "periodic pointer is not allocated on a CUDA device");
+    // check that all pointers are are device pointers
+    if (!is_device_ptr(getPtrAttributes(points), "points")) {
+        throw std::runtime_error("`points` pointer is not allocated on a CUDA device");
+    }
 
-    int device = get_device_id(points);
-    // assert both points and box are on the same device
-    assert((device == get_device_id(box)) && "`points` and `box` do not exist on the same device");
-    assert((device == get_device_id(periodic)) && "`points` and `periodic` do not exist on the same device");
-    assert((device == neighbors.device.device_id) && "`points`, `box` and `periodic` device differs from input neighbors device_id");
+    if (!is_device_ptr(getPtrAttributes(box), "box")) {
+        throw std::runtime_error("`box` pointer is not allocated on a CUDA device");
+    }
+
+    if (!is_device_ptr(getPtrAttributes(periodic), "periodic")) {
+        throw std::runtime_error("`periodic` pointer is not allocated on a CUDA device");
+    }
+
+    int device_id = get_device_id(points);
+
+    if (device_id != get_device_id(box)) {
+        throw std::runtime_error("`points` and `box` do not exist on the same device");
+    }
+
+    if (device_id != get_device_id(periodic)) {
+        throw std::runtime_error("`points` and `periodic` do not exist on the same device");
+    }
+
+    if (device_id != neighbors.device.device_id) {
+        throw std::runtime_error("`points`, `box` and `periodic` device differs from input neighbors device_id");
+    }
 
     auto extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-    if (extras->allocated_device != device) {
+    if (extras->allocated_device_id != device_id) {
         // first switch to previous device
-        if (extras->allocated_device >= 0) {
-            CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(extras->allocated_device));
+        if (extras->allocated_device_id >= 0) {
+            CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(extras->allocated_device_id));
         }
         // free any existing allocations
         reset(neighbors);
         // switch back to current device
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(device));
-        extras->allocated_device = device;
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(device_id));
+        extras->allocated_device_id = device_id;
     }
 
     if (extras->capacity >= n_points && extras->length_ptr) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
     } else {
-        int saved_device = extras->allocated_device;
+        int saved_device = extras->allocated_device_id;
         reset(neighbors);
-        extras->allocated_device = saved_device;
+        extras->allocated_device_id = saved_device;
         auto max_pairs = static_cast<size_t>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
 
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));

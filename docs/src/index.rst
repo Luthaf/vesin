@@ -82,7 +82,7 @@ Installation
 
             pip install vesin[torch]
 
-    .. tab-item:: |logo-c| |logo-cxx| |logo-cuda| |logo-fortran| CMake
+    .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| CMake
         :sync: cxx
 
         If you use CMake as your build system, the simplest thing to do is to
@@ -151,21 +151,8 @@ Installation
             # or use fetch_content
             FetchContent_xxx(...)
 
-        |logo-cuda| **CUDA:**
 
-        To enable the CUDA implementation, set the ``VESIN_ENABLE_CUDA`` option
-        to ``ON``.
-
-        .. code-block:: cmake
-
-            set(VESIN_ENABLE_CUDA ON CACHE BOOL "Build the CUDA backend of vesin")
-
-            add_subdirectory(vesin)
-            # or use fetch_content
-            FetchContent_xxx(...)
-
-
-    .. tab-item:: |logo-c| |logo-cxx| |logo-cuda| Single file
+    .. tab-item:: |logo-c| |logo-cxx| Single file
 
         We support merging all files in the vesin library to a single one that
         can then be included in your own project and built with the same build
@@ -187,8 +174,7 @@ Installation
 
         You should define ``VESIN_SHARED`` as a preprocessor constant
         (``-DVESIN_SHARED``) when compiling the code if you want to build vesin
-        as a shared library. You can define ``VESIN_ENABLE_CUDA`` as well if you
-        want to enable the CUDA implementation.
+        as a shared library.
 
         .. important::
 
@@ -197,7 +183,7 @@ Installation
             options instead.
 
 
-    .. tab-item:: |logo-c| |logo-cxx| |logo-cuda| |logo-fortran| Globally
+    .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| Global Install
 
         You can build and install vesin in some global location (referred to as
         ``$PREFIX`` below), and then use the right compiler flags to give this
@@ -239,8 +225,6 @@ Installation
         | ``VESIN_FORTRAN``            | Build (and install if ``VESIN_INSTALL=ON``) the  | OFF                                            |
         |                              | vesin_fortran library                            |                                                |
         +------------------------------+--------------------------------------------------+------------------------------------------------+
-        | ``VESIN_ENABLE_CUDA``        | Build the CUDA implementation of vesin           | OFF                                            |
-        +------------------------------+--------------------------------------------------+------------------------------------------------+
 
 
         |logo-torch| **TorchScript:**
@@ -263,12 +247,6 @@ Installation
         You can then compile your code, adding ``$PREFIX/include`` to the
         compiler include path, ``$PREFIX/lib`` to the linker library path; and
         linking to ``vesin_fortran`` (typically with ``-lvesin_fortran``).
-
-        |logo-cuda| **CUDA:**
-
-        Set ``VESIN_ENABLE_CUDA`` to ``ON`` to build the CUDA implementation. It
-        will then be available from all language bindings (C, C++, Fortran,
-        TorchScript).
 
 
 Usage example

@@ -130,6 +130,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     // create calculation options
     auto n_points = static_cast<size_t>(points.size(0));
 
+    // reset vesin data if device changed
     if (data_->device.type != VesinUnknownDevice && data_->device.type != vesin_device.type) {
         vesin_free(data_);
         std::memset(data_, 0, sizeof(VesinNeighborList));

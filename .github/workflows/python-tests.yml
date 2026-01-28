@@ -41,7 +41,7 @@ jobs:
           python -m pip install tox
 
       - name: run tests
-        run: tox -e lint,tests,torch-tests
+        run: tox -e lint,numpy-tests,cupy-tests,torch-tests,torchscript-tests
         env:
           # Use the CPU only version of torch when building/running the code
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

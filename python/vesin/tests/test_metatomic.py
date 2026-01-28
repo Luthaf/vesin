@@ -1,9 +1,13 @@
 from typing import Dict, List, Optional
 
 import pytest
-import torch
-from metatensor.torch import Labels, TensorMap
-from metatomic.torch import (
+
+
+torch = pytest.importorskip("torch")
+metatomic = pytest.importorskip("metatomic")
+
+from metatensor.torch import Labels, TensorMap  # noqa: E402
+from metatomic.torch import (  # noqa: E402
     AtomisticModel,
     ModelCapabilities,
     ModelMetadata,
@@ -12,7 +16,7 @@ from metatomic.torch import (
     System,
 )
 
-from vesin.metatomic import NeighborList, compute_requested_neighbors
+from vesin.metatomic import NeighborList, compute_requested_neighbors  # noqa: E402
 
 
 def test_errors():

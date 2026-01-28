@@ -9,22 +9,21 @@ import pytest
 from vesin import NeighborList
 
 
-cp = pytest.importorskip("cupy")
+torch = pytest.importorskip("torch")
 
-# Check if CUDA is available
-try:
-    cp.cuda.Device(0).compute_capability
-    # all good
-except cp.cuda.runtime.CUDARuntimeError:
-    pytest.skip("CUDA is not available", allow_module_level=True)
+
+DEVICES = ["cpu"]
+if torch.cuda.is_available():
+    DEVICES.append("cuda")
 
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 @pytest.mark.parametrize("full_list", [False, True])
-def test_large_box_small_cutoff(full_list):
-    points = cp.array(
+@pytest.mark.parametrize("device", DEVICES)
+def test_large_box_small_cutoff(full_list, device):
+    points = torch.tensor(
         [
             [0.0, 0.0, 0.0],
             [0.0, 2.0, 0.0],
@@ -33,28 +32,33 @@ def test_large_box_small_cutoff(full_list):
             [-6.0, -2.0, 0.0],
             [-6.0, 0.0, -2.0],
         ],
-        dtype=cp.float64,
+        dtype=torch.float64,
+        device=device,
     )
 
-    box = cp.array(
+    box = torch.tensor(
         [
             [54.0, 0.0, 0.0],
             [0.0, 54.0, 0.0],
             [0.0, 0.0, 54.0],
         ],
-        dtype=cp.float64,
+        dtype=torch.float64,
+        device=device,
     )
 
     calculator = NeighborList(cutoff=2.1, full_list=full_list)
 
     i, j, S, d, D = calculator.compute(points, box, periodic=True, quantities="ijSdD")
 
-    # check all outputs are cupy arrays
-    assert isinstance(i, cp.ndarray)
-    assert isinstance(j, cp.ndarray)
-    assert isinstance(S, cp.ndarray)
-    assert isinstance(d, cp.ndarray)
-    assert isinstance(D, cp.ndarray)
+    i = i.to(dtype=torch.int64)
+    j = j.to(dtype=torch.int64)
+
+    # check all outputs are torch tensors
+    assert isinstance(i, torch.Tensor)
+    assert isinstance(j, torch.Tensor)
+    assert isinstance(S, torch.Tensor)
+    assert isinstance(d, torch.Tensor)
+    assert isinstance(D, torch.Tensor)
 
     assert len(i) == len(j)
     assert len(i) == len(d)
@@ -62,8 +66,8 @@ def test_large_box_small_cutoff(full_list):
     assert len(i) == len(S)
     assert len(i) == (8 if full_list else 4)
 
-    pairs = cp.stack((i, j), axis=1)
-    sort_idx = cp.argsort(pairs[:, 0] * (i.max() + 1) + pairs[:, 1])
+    pairs = torch.stack((i, j), axis=1)
+    sort_idx = torch.argsort(pairs[:, 0] * (i.max() + 1) + pairs[:, 1])
 
     # Apply sort
     i = i[sort_idx]
@@ -87,12 +91,17 @@ def test_large_box_small_cutoff(full_list):
             (5, 3),
         ]
 
-        expected_shifts = cp.zeros((8, 3), dtype=cp.int32)
-        expected_distances = cp.array(
-            [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
-            dtype=cp.float64,
+        expected_shifts = torch.zeros(
+            (8, 3),
+            dtype=torch.int32,
+            device=device,
         )
-        expected_vectors = cp.array(
+        expected_distances = torch.tensor(
+            [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+            dtype=torch.float64,
+            device=device,
+        )
+        expected_vectors = torch.tensor(
             [
                 [0.0, 2.0, 0.0],
                 [0.0, 0.0, 2.0],
@@ -103,31 +112,46 @@ def test_large_box_small_cutoff(full_list):
                 [0.0, 2.0, 0.0],
                 [0.0, 0.0, 2.0],
             ],
-            dtype=cp.float64,
+            dtype=torch.float64,
+            device=device,
         )
     else:
         expected_pairs = sorted([(0, 1), (0, 2), (3, 4), (3, 5)])
-        expected_shifts = cp.zeros((4, 3), dtype=cp.int32)
-        expected_distances = cp.array([2.0, 2.0, 2.0, 2.0], dtype=cp.float64)
-        expected_vectors = cp.array(
+        expected_shifts = torch.zeros(
+            (4, 3),
+            dtype=torch.int32,
+            device=device,
+        )
+        expected_distances = torch.tensor(
+            [2.0, 2.0, 2.0, 2.0],
+            dtype=torch.float64,
+            device=device,
+        )
+        expected_vectors = torch.tensor(
             [
                 [0.0, 2.0, 0.0],
                 [0.0, 0.0, 2.0],
                 [0.0, -2.0, 0.0],
                 [0.0, 0.0, -2.0],
             ],
-            dtype=cp.float64,
+            dtype=torch.float64,
+            device=device,
         )
 
     assert actual_pairs == expected_pairs
-    assert cp.all(S == expected_shifts)
-    assert cp.allclose(d, expected_distances)
-    assert cp.allclose(D, expected_vectors)
+    assert torch.all(S == expected_shifts)
+    assert torch.allclose(d, expected_distances)
+    assert torch.allclose(D, expected_vectors)
 
 
 @pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
-@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list"])
-def test_neighbors(system, algorithm):
+@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list", "auto"])
+@pytest.mark.parametrize("device", DEVICES)
+def test_neighbors(system, algorithm, device):
+    if algorithm == "brute_force" and device == "cpu":
+        # not implemented
+        return
+
     atoms = ase.io.read(f"{CURRENT_DIR}/../../vesin/tests/data/{system}.xyz")
 
     # make the cell bigger for MIC
@@ -140,17 +164,26 @@ def test_neighbors(system, algorithm):
 
     calculator = NeighborList(cutoff=cutoff, full_list=True, algorithm=algorithm)
     vesin_i, vesin_j, vesin_S, vesin_D = calculator.compute(
-        points=cp.array(atoms.positions),
-        box=cp.array(atoms.cell[:]),
-        periodic=cp.array(atoms.pbc),
+        points=torch.tensor(
+            atoms.positions,
+            device=device,
+        ),
+        box=torch.tensor(
+            atoms.cell[:],
+            device=device,
+        ),
+        periodic=torch.tensor(
+            atoms.pbc,
+            device=device,
+        ),
         quantities="ijSD",
     )
 
     # get as numpy arrays
-    vesin_i = cp.asnumpy(vesin_i)
-    vesin_j = cp.asnumpy(vesin_j)
-    vesin_S = cp.asnumpy(vesin_S)
-    vesin_D = cp.asnumpy(vesin_D)
+    vesin_i = vesin_i.cpu().numpy()
+    vesin_j = vesin_j.cpu().numpy()
+    vesin_S = vesin_S.cpu().numpy()
+    vesin_D = vesin_D.cpu().numpy()
 
     assert len(ase_i) == len(vesin_i)
     assert len(ase_j) == len(vesin_j)
@@ -175,8 +208,13 @@ def test_neighbors(system, algorithm):
     "periodic",
     list(itertools.product([False, True], repeat=3)),
 )
-@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list"])
-def test_mixed_periodic(periodic, algorithm):
+@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list", "auto"])
+@pytest.mark.parametrize("device", DEVICES)
+def test_mixed_periodic(periodic, algorithm, device):
+    if algorithm == "brute_force" and device == "cpu":
+        # not implemented
+        return
+
     cutoff = 0.35
     # Use a fixed seed for the box to ensure reproducibility
     rng = np.random.default_rng(42)
@@ -190,17 +228,17 @@ def test_mixed_periodic(periodic, algorithm):
 
     calculator = NeighborList(cutoff=cutoff, full_list=True, algorithm=algorithm)
     vesin_i, vesin_j, vesin_S, vesin_D, vesin_d = calculator.compute(
-        points=cp.array(points, dtype=cp.float64),
-        box=cp.array(box, dtype=cp.float64),
-        periodic=cp.array(periodic),
+        points=torch.tensor(points, dtype=torch.float64, device=device),
+        box=torch.tensor(box, dtype=torch.float64, device=device),
+        periodic=torch.tensor(periodic, device=device),
         quantities="ijSDd",
     )
 
-    vesin_i = cp.asnumpy(vesin_i)
-    vesin_j = cp.asnumpy(vesin_j)
-    vesin_S = cp.asnumpy(vesin_S)
-    vesin_D = cp.asnumpy(vesin_D)
-    vesin_d = cp.asnumpy(vesin_d)
+    vesin_i = vesin_i.cpu().numpy()
+    vesin_j = vesin_j.cpu().numpy()
+    vesin_S = vesin_S.cpu().numpy()
+    vesin_D = vesin_D.cpu().numpy()
+    vesin_d = vesin_d.cpu().numpy()
 
     assert len(ase_i) == len(vesin_i)
     assert len(ase_j) == len(vesin_j)
@@ -223,13 +261,16 @@ def test_mixed_periodic(periodic, algorithm):
     assert np.allclose(ase_d[ase_sort_indices], vesin_d[vesin_sort_indices])
 
 
-def test_no_neighbors():
-    """Test CUDA implementation when there are no neighbors"""
-    points = cp.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=cp.float64)
-    box = cp.eye(3, dtype=cp.float64)
+@pytest.mark.parametrize("device", DEVICES)
+def test_no_neighbors(device):
+    """Test implementation when there are no neighbors"""
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=torch.float64, device=device
+    )
+    box = torch.eye(3, dtype=torch.float64, device=device)
 
-    calculator_gpu = NeighborList(cutoff=0.1, full_list=True)
-    i, j = calculator_gpu.compute(points, box, True, quantities="ij")
+    calculator = NeighborList(cutoff=0.1, full_list=True)
+    i, j = calculator.compute(points, box, True, quantities="ij")
 
     assert len(i) == 0
     assert len(j) == 0

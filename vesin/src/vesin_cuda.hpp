@@ -18,32 +18,32 @@ struct CellListBuffers {
     size_t max_cells = 0;  // Capacity for cell-related arrays
 
     // Per-particle arrays
-    int* cell_indices = nullptr;        // [max_points] linear cell index per particle
+    int32_t* cell_indices = nullptr;    // [max_points] linear cell index per particle
     int32_t* particle_shifts = nullptr; // [max_points * 3] shift applied to wrap into cell
 
     // Per-cell arrays
-    int* cell_counts = nullptr;  // [max_cells] number of particles in each cell
-    int* cell_starts = nullptr;  // [max_cells] starting index in sorted arrays
-    int* cell_offsets = nullptr; // [max_cells] working copy for scatter
+    int32_t* cell_counts = nullptr;  // [max_cells] number of particles in each cell
+    int32_t* cell_starts = nullptr;  // [max_cells] starting index in sorted arrays
+    int32_t* cell_offsets = nullptr; // [max_cells] working copy for scatter
 
     // Sorted particle data (for coalesced memory access)
-    double* sorted_positions = nullptr; // [max_points * 3]
-    int* sorted_indices = nullptr;      // [max_points] original particle indices
-    int32_t* sorted_shifts = nullptr;   // [max_points * 3] shifts for sorted particles
-    int* sorted_cell_indices = nullptr; // [max_points] cell indices in sorted order
+    double* sorted_positions = nullptr;     // [max_points * 3]
+    int32_t* sorted_indices = nullptr;      // [max_points] original particle indices
+    int32_t* sorted_shifts = nullptr;       // [max_points * 3] shifts for sorted particles
+    int32_t* sorted_cell_indices = nullptr; // [max_points] cell indices in sorted order
 
     // Cell grid parameters (computed on device)
-    double* inv_box = nullptr;    // [9] inverse box matrix
-    int* n_cells = nullptr;       // [3] number of cells in each direction
-    int* n_search = nullptr;      // [3] search range in each direction
-    int* n_cells_total = nullptr; // [1] total number of cells
+    double* inv_box = nullptr;        // [9] inverse box matrix
+    int32_t* n_cells = nullptr;       // [3] number of cells in each direction
+    int32_t* n_search = nullptr;      // [3] search range in each direction
+    int32_t* n_cells_total = nullptr; // [1] total number of cells
 };
 
 struct CudaNeighborListExtras {
-    size_t* length_ptr = nullptr;  // GPU-side counter
-    size_t capacity = 0;           // Current capacity per device
-    int* cell_check_ptr = nullptr; // GPU-side status code for checking cell
-    int allocated_device_id = -1;  // which device are we currently allocated on
+    size_t* length_ptr = nullptr;      // GPU-side counter
+    size_t capacity = 0;               // Current capacity per device
+    int32_t* cell_check_ptr = nullptr; // GPU-side status code for checking cell
+    int32_t allocated_device_id = -1;  // which device are we currently allocated on
 
     // Pinned host memory for async D2H copy (Approach 2)
     size_t* pinned_length_ptr = nullptr;

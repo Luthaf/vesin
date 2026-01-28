@@ -31,7 +31,13 @@ try:
     }
 except ImportError:
     HAS_CUPY = False
-    cp = None
+
+try:
+    import torch
+
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
 
 
 def _ptr_to_numpy(ptr, shape, dtype, owner, device_id):
@@ -160,7 +166,10 @@ class NeighborList:
         """
         # Detect if input is CuPy array and convert to numpy for CPU processing
         # The C library will handle GPU computation internally when device is CUDA
-        is_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
+        use_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
+
+        if HAS_TORCH and isinstance(points, torch.Tensor) and points.is_cuda:
+            use_cupy = True
 
         if box.shape != (3, 3):
             raise ValueError("`box` must be a 3x3 matrix")
@@ -180,7 +189,7 @@ class NeighborList:
         if isinstance(periodic, bool):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)
 
-        if is_cupy:
+        if use_cupy:
             periodic = cp.asarray(periodic, dtype=cp.bool_)
         else:
             periodic = np.asarray(periodic, dtype=np.bool_)
@@ -194,7 +203,7 @@ class NeighborList:
         # Get device and data pointer
         device = _device_from_array(points)
 
-        if is_cupy:
+        if use_cupy:
             points = cp.asarray(points, dtype=cp.float64)
             box = cp.asarray(box, dtype=cp.float64)
             # Ensure C-contiguous
@@ -260,7 +269,7 @@ class NeighborList:
         # Create arrays for the output data
         n_pairs = self._neighbors.length
 
-        if is_cupy:
+        if use_cupy:
             _empty_array = cp.empty
             _ptr_to_array = _ptr_to_cupy
         else:

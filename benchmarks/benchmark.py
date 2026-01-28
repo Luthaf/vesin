@@ -51,10 +51,36 @@ def benchmark(setup, function, atoms, cutoff):
     return (end - start) / n_iter
 
 
-def vesin_run(quantities, atoms, cutoff):
+def setup_vesin_cpu(atoms, cutoff):
+    points = np.asarray(atoms.positions)
+    box = np.asarray(atoms.cell[:])
+    periodic = np.asarray(atoms.pbc)
+
+    return cutoff, points, box, periodic, "ijSd"
+
+
+def setup_vesin_cuda(atoms, cutoff):
+    import cupy as cp
+
+    points = cp.asarray(atoms.positions)
+    box = cp.asarray(atoms.cell[:])
+    periodic = cp.asarray(atoms.pbc)
+
+    return cutoff, points, box, periodic, "ijSd"
+
+
+def vesin_run(cutoff, points, box, periodic, quantities):
     import vesin
 
-    return vesin.ase_neighbor_list(quantities, atoms, cutoff)
+    nl = vesin.NeighborList(cutoff, full_list=True, algorithm="auto")
+
+    return nl.compute(
+        points=points,
+        box=box,
+        periodic=periodic,
+        quantities=quantities,
+        copy=False,
+    )
 
 
 def matscipy_run(quantities, atoms, cutoff):
@@ -205,7 +231,8 @@ torch_nl_cuda_time = {}
 nnpops_cpu_time = {}
 nnpops_cuda_time = {}
 pymatgen_time = {}
-vesin_time = {}
+vesin_cpu_time = {}
+vesin_cuda_time = {}
 
 if len(sys.argv) > 1:
     CUTOFFS = list(map(int, sys.argv[1:]))
@@ -224,7 +251,8 @@ for cutoff in CUTOFFS:
     nnpops_cpu_time[cutoff] = []
     nnpops_cuda_time[cutoff] = []
     pymatgen_time[cutoff] = []
-    vesin_time[cutoff] = []
+    vesin_cpu_time[cutoff] = []
+    vesin_cuda_time[cutoff] = []
 
     for kx, ky, kz in repeats:
         super_cell = atoms.repeat((kx, ky, kz))
@@ -316,15 +344,25 @@ for cutoff in CUTOFFS:
         pymatgen_time[cutoff].append(timing * 1e3)
         print(f"   pymatgen took {timing * 1e3:.3f} ms")
 
-        # VESIN
+        # VESIN CPU
         timing = benchmark(
-            setup_ase_like,
+            setup_vesin_cpu,
             vesin_run,
             super_cell,
             cutoff,
         )
-        vesin_time[cutoff].append(timing * 1e3)
-        print(f"   vesin took {timing * 1e3:.3f} ms")
+        vesin_cpu_time[cutoff].append(timing * 1e3)
+        print(f"   vesin (cpu) took {timing * 1e3:.3f} ms")
+
+        # VESIN CUDA
+        timing = benchmark(
+            setup_vesin_cuda,
+            vesin_run,
+            super_cell,
+            cutoff,
+        )
+        vesin_cuda_time[cutoff].append(timing * 1e3)
+        print(f"   vesin (cuda) took {timing * 1e3:.3f} ms")
         print()
 
 
@@ -339,7 +377,8 @@ for cutoff in CUTOFFS:
         "nnpops_cuda": nnpops_cuda_time[cutoff],
         "pymatgen": pymatgen_time[cutoff],
         "sisl": sisl_time[cutoff],
-        "vesin": vesin_time[cutoff],
+        "vesin_cpu": vesin_cpu_time[cutoff],
+        "vesin_cuda": vesin_cuda_time[cutoff],
     }
     with open(f"cutoff-{cutoff}.json", "w") as fd:
         json.dump(data, fd)

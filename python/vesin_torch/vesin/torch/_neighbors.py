@@ -34,7 +34,7 @@ class NeighborList:
         points: torch.Tensor,
         box: torch.Tensor,
         periodic: Union[bool, torch.Tensor],
-        quantities: str,
+        quantities: str = "ij",
         copy: bool = True,
     ) -> List[torch.Tensor]:
         """
@@ -65,6 +65,10 @@ class NeighborList:
         """
         if isinstance(periodic, bool):
             periodic = torch.as_tensor(periodic)
+
+        points = torch.as_tensor(points, dtype=torch.float64)
+        box = torch.as_tensor(box, dtype=torch.float64)
+        periodic = torch.as_tensor(periodic, dtype=torch.bool)
 
         return self._c.compute(
             points=points,

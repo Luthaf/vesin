@@ -12,24 +12,6 @@ def test_errors():
 
     calculator = NeighborList(cutoff=2.8, full_list=True)
 
-    message = "only float64 is supported for `points` and `box"
-    with pytest.raises(ValueError, match=message):
-        calculator.compute(
-            points.to(torch.float32),
-            box.to(torch.float32),
-            periodic=False,
-            quantities="ij",
-        )
-
-    message = "expected `points` and `box` to have the same dtype, got Double and Float"
-    with pytest.raises(ValueError, match=message):
-        calculator.compute(
-            points,
-            box.to(torch.float32),
-            periodic=False,
-            quantities="ij",
-        )
-
     message = "expected `points` and `box` to have the same device, got cpu and meta"
     with pytest.raises(ValueError, match=message):
         calculator.compute(
@@ -59,9 +41,10 @@ def test_errors():
 
 
 @pytest.mark.parametrize("quantities", ["ijS", "D", "d", "ijSDd"])
-def test_all_alone_no_neighbors(quantities):
-    points = torch.tensor([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=torch.float64)
-    box = torch.eye(3, dtype=torch.float64)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_all_alone_no_neighbors(quantities, dtype):
+    points = torch.tensor([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=dtype)
+    box = torch.eye(3, dtype=dtype)
 
     calculator = NeighborList(cutoff=0.1, full_list=True)
     outputs = calculator.compute(points, box, True, quantities)

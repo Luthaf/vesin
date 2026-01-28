@@ -14,6 +14,7 @@ from ._c_api import (
     VesinDevice,
     VesinNeighborList,
     VesinOptions,
+    VesinUnknownDevice,
 )
 from ._c_lib import _get_library
 
@@ -228,6 +229,19 @@ class NeighborList:
             box_ptr = box.ctypes.data_as(POINTER(ctypes.c_double))
             periodic_ptr = periodic.ctypes.data_as(POINTER(ctypes.c_bool))
 
+        if self._neighbors.device.type != VesinUnknownDevice:
+            if (
+                self._neighbors.device.type != device.type
+                or self._neighbors.device.device_id != device.device_id
+            ):
+                # Free previous allocation and reset to zeroed state
+                self._lib.vesin_free(self._neighbors)
+                ctypes.memset(
+                    ctypes.byref(self._neighbors),
+                    0,
+                    ctypes.sizeof(self._neighbors),
+                )
+
         error_message = ctypes.c_char_p()
         status = self._lib.vesin_neighbors(
             points_ptr,
@@ -236,7 +250,7 @@ class NeighborList:
             periodic_ptr,
             device,
             options,
-            self._neighbors,
+            ctypes.byref(self._neighbors),
             error_message,
         )
 

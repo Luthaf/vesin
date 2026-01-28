@@ -31,26 +31,19 @@ try:
     }
 except ImportError:
     HAS_CUPY = False
-    cp = None
 
+try:
+    import torch
 
-def _ptr_to_numpy(ptr, shape, dtype, owner, device_id):
-    """
-    Helper to convert a ctypes pointer to a NumPy array.
-    """
-    return np.ctypeslib.as_array(ctypes.cast(ptr, POINTER(dtype)), shape=shape)
+    HAS_TORCH = True
 
-
-def _ptr_to_cupy(ptr, shape, dtype, owner, device_id):
-    """
-    Helper to convert a ctypes pointer to a CuPy array.
-    """
-    ptr_val = ctypes.cast(ptr, ctypes.c_void_p).value
-    size = np.prod(shape) * ctypes.sizeof(dtype)
-    mem = cp.cuda.memory.UnownedMemory(ptr_val, size, owner, device_id)
-    return cp.ndarray(
-        shape, dtype=CUPY_DTYPES[dtype], memptr=cp.cuda.MemoryPointer(mem, 0)
-    )
+    TORCH_DTYPES = {
+        ctypes.c_size_t: torch.uint64,
+        ctypes.c_int32: torch.int32,
+        ctypes.c_double: torch.float64,
+    }
+except ImportError:
+    HAS_TORCH = False
 
 
 def _device_from_array(array):
@@ -62,6 +55,11 @@ def _device_from_array(array):
     """
     if HAS_CUPY and isinstance(array, cp.ndarray):
         return VesinDevice(VesinCUDA, array.device.id)
+    elif HAS_TORCH and isinstance(array, torch.Tensor):
+        if array.device.type == "cuda":
+            return VesinDevice(VesinCUDA, array.device.index or 0)
+        else:
+            return VesinDevice(VesinCPU, 0)
     else:
         return VesinDevice(VesinCPU, 0)
 
@@ -158,9 +156,37 @@ class NeighborList:
 
         :return: tuple of arrays as indicated by ``quantities``.
         """
-        # Detect if input is CuPy array and convert to numpy for CPU processing
-        # The C library will handle GPU computation internally when device is CUDA
-        is_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
+        use_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
+        use_torch = HAS_TORCH and isinstance(points, torch.Tensor)
+
+        if use_cupy:
+            get_ptr_fn = _cupy_get_ptr
+            as_array_fn = _cupy_asarray
+            to_dtype_fn = _cupy_to_dtype
+            float64_dtype = cp.float64
+            bool_dtype = cp.bool_
+            empty_array_fn = _cupy_empty
+            ptr_to_array_fn = _ptr_to_cupy
+            copy_array_fn = lambda arr: arr.copy()  # noqa: E731
+        elif use_torch:
+            get_ptr_fn = _torch_get_ptr
+            as_array_fn = _torch_asarray
+            to_dtype_fn = _torch_to_dtype
+            float64_dtype = torch.float64
+            bool_dtype = torch.bool
+            empty_array_fn = _torch_empty
+            ptr_to_array_fn = _ptr_to_torch
+            copy_array_fn = lambda arr: arr.clone()  # noqa: E731
+        else:
+            # use numpy by default
+            get_ptr_fn = _numpy_get_ptr
+            as_array_fn = _numpy_asarray
+            to_dtype_fn = _numpy_to_dtype
+            float64_dtype = np.float64
+            bool_dtype = np.bool_
+            empty_array_fn = _numpy_empty
+            ptr_to_array_fn = _ptr_to_numpy
+            copy_array_fn = lambda arr: arr.copy()  # noqa: E731
 
         if box.shape != (3, 3):
             raise ValueError("`box` must be a 3x3 matrix")
@@ -180,10 +206,13 @@ class NeighborList:
         if isinstance(periodic, (bool, np.bool_)):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)
 
-        if is_cupy:
-            periodic = cp.asarray(periodic, dtype=cp.bool_)
-        else:
-            periodic = np.asarray(periodic, dtype=np.bool_)
+        # Get device and data pointer
+        device = _device_from_array(points)
+
+        points = as_array_fn(points, device_like=None)
+        box = as_array_fn(box, device_like=None)
+        periodic = as_array_fn(periodic, device_like=points)
+        periodic = to_dtype_fn(periodic, bool_dtype)
 
         if periodic.shape != (3,):
             raise ValueError(
@@ -191,43 +220,24 @@ class NeighborList:
                 f"booleans, got {periodic} of type {type(periodic)}"
             )
 
-        # Get device and data pointer
-        device = _device_from_array(points)
-
-        if is_cupy:
-            points = cp.asarray(points, dtype=cp.float64)
-            box = cp.asarray(box, dtype=cp.float64)
-            # Ensure C-contiguous
-            if not points.flags.c_contiguous:
-                points = cp.ascontiguousarray(points)
-            if not box.flags.c_contiguous:
-                box = cp.ascontiguousarray(box)
-            if not periodic.flags.c_contiguous:
-                periodic = cp.ascontiguousarray(periodic)
-
-            points_ptr = ctypes.cast(
-                ctypes.c_void_p(points.data.ptr), POINTER(ctypes.c_double)
+        if box.dtype != points.dtype:
+            raise RuntimeError(
+                "`points` and `box` must have the same dtype, "
+                f"got {points.dtype} and {box.dtype}"
             )
-            box_ptr = ctypes.cast(
-                ctypes.c_void_p(box.data.ptr), POINTER(ctypes.c_double)
-            )
-            periodic_ptr = ctypes.cast(
-                ctypes.c_void_p(periodic.data.ptr), POINTER(ctypes.c_bool)
-            )
-        else:
-            points = np.asarray(points, dtype=np.float64)
-            box = np.asarray(box, dtype=np.float64)
-            # Ensure C-contiguous
-            if not points.flags.c_contiguous:
-                points = np.ascontiguousarray(points)
-            if not box.flags.c_contiguous:
-                box = np.ascontiguousarray(box)
-            if not periodic.flags.c_contiguous:
-                periodic = np.ascontiguousarray(periodic)
 
-            points_ptr = points.ctypes.data_as(POINTER(ctypes.c_double))
-            box_ptr = box.ctypes.data_as(POINTER(ctypes.c_double))
-            periodic_ptr = periodic.ctypes.data_as(POINTER(ctypes.c_bool))
+        points = to_dtype_fn(points, float64_dtype)
+        box = to_dtype_fn(box, float64_dtype)
+
+        if use_torch:
+            if points.requires_grad or box.requires_grad:
+                raise RuntimeError(
+                    "NeighborList.compute does not support autograd for torch tensors"
+                )
+
+        points, points_ptr = get_ptr_fn(points, ctypes.c_double)
+        box, box_ptr = get_ptr_fn(box, ctypes.c_double)
+        periodic, periodic_ptr = get_ptr_fn(periodic, ctypes.c_bool)
 
         if self._neighbors.device.type != VesinUnknownDevice:
             if (
@@ -260,50 +270,43 @@ class NeighborList:
         # Create arrays for the output data
         n_pairs = self._neighbors.length
 
-        if is_cupy:
-            _empty_array = cp.empty
-            _ptr_to_array = _ptr_to_cupy
-        else:
-            _empty_array = np.empty
-            _ptr_to_array = _ptr_to_numpy
-
         if n_pairs == 0:
             # Empty results
-            pairs = _empty_array((0, 2), dtype=ctypes.c_size_t)
-            shifts = _empty_array((0, 3), dtype=ctypes.c_int32)
-            distances = _empty_array((0,), dtype=ctypes.c_double)
-            vectors = _empty_array((0, 3), dtype=ctypes.c_double)
+            pairs = empty_array_fn((0, 2), dtype=ctypes.c_size_t, device_like=points)
+            shifts = empty_array_fn((0, 3), dtype=ctypes.c_int32, device_like=points)
+            distances = empty_array_fn((0,), dtype=ctypes.c_double, device_like=points)
+            vectors = empty_array_fn((0, 3), dtype=ctypes.c_double, device_like=points)
         else:
-            pairs = _ptr_to_array(
+            pairs = ptr_to_array_fn(
                 self._neighbors.pairs,
                 shape=(n_pairs, 2),
                 dtype=ctypes.c_size_t,
                 owner=self._neighbors,
-                device_id=self._neighbors.device.device_id,
+                device=self._neighbors.device,
             )
             if "S" in quantities:
-                shifts = _ptr_to_array(
+                shifts = ptr_to_array_fn(
                     self._neighbors.shifts,
                     shape=(n_pairs, 3),
                     dtype=ctypes.c_int32,
                     owner=self._neighbors,
-                    device_id=self._neighbors.device.device_id,
+                    device=self._neighbors.device,
                 )
             if "d" in quantities:
-                distances = _ptr_to_array(
+                distances = ptr_to_array_fn(
                     self._neighbors.distances,
                     shape=(n_pairs,),
                     dtype=ctypes.c_double,
                     owner=self._neighbors,
-                    device_id=self._neighbors.device.device_id,
+                    device=self._neighbors.device,
                 )
             if "D" in quantities:
-                vectors = _ptr_to_array(
+                vectors = ptr_to_array_fn(
                     self._neighbors.vectors,
                     shape=(n_pairs, 3),
                     dtype=ctypes.c_double,
                     owner=self._neighbors,
-                    device_id=self._neighbors.device.device_id,
+                    device=self._neighbors.device,
                 )
 
         # assemble output
@@ -312,38 +315,183 @@ class NeighborList:
         for quantity in quantities:
             if quantity == "P":
                 if copy:
-                    data.append(pairs.copy())
+                    data.append(copy_array_fn(pairs))
                 else:
                     data.append(pairs)
 
             if quantity == "i":
                 if copy:
-                    data.append(pairs[:, 0].copy())
+                    data.append(copy_array_fn(pairs[:, 0]))
                 else:
                     data.append(pairs[:, 0])
 
             elif quantity == "j":
                 if copy:
-                    data.append(pairs[:, 1].copy())
+                    data.append(copy_array_fn(pairs[:, 1]))
                 else:
                     data.append(pairs[:, 1])
 
             elif quantity == "S":
                 if copy:
-                    data.append(shifts.copy())
+                    data.append(copy_array_fn(shifts))
                 else:
                     data.append(shifts)
 
             elif quantity == "d":
                 if copy:
-                    data.append(distances.copy())
+                    data.append(copy_array_fn(distances))
                 else:
                     data.append(distances)
 
             elif quantity == "D":
                 if copy:
-                    data.append(vectors.copy())
+                    data.append(copy_array_fn(vectors))
                 else:
                     data.append(vectors)
 
         return tuple(data)
+
+
+########################################################################################
+
+
+def _numpy_asarray(array, device_like) -> np.ndarray:
+    return np.asarray(array)
+
+
+def _numpy_to_dtype(array: np.ndarray, dtype) -> np.ndarray:
+    return array.astype(dtype)
+
+
+def _numpy_empty(shape, dtype, device_like) -> np.ndarray:
+    return np.empty(shape, dtype=dtype)
+
+
+def _numpy_get_ptr(array: np.ndarray, dtype) -> (np.ndarray, POINTER):
+    array = np.ascontiguousarray(array)
+    return array, array.ctypes.data_as(POINTER(dtype))
+
+
+def _ptr_to_numpy(ptr, shape, dtype, owner, device):
+    """
+    Helper to convert a ctypes pointer to a NumPy array.
+    """
+    assert device.type == VesinCPU, "Array is not on CPU"
+    return np.ctypeslib.as_array(ctypes.cast(ptr, POINTER(dtype)), shape=shape)
+
+
+########################################################################################
+
+
+def _cupy_asarray(array, device_like) -> "cp.ndarray":
+    return cp.asarray(array)
+
+
+def _cupy_to_dtype(array: "cp.ndarray", dtype) -> "cp.ndarray":
+    return array.astype(dtype)
+
+
+def _cupy_empty(shape, dtype, device_like) -> "cp.ndarray":
+    return cp.empty(shape, dtype=dtype)
+
+
+def _cupy_get_ptr(array: "cp.ndarray", dtype) -> ("cp.ndarray", POINTER):
+    array = cp.ascontiguousarray(array)
+    ptr = ctypes.cast(ctypes.c_void_p(array.data.ptr), POINTER(dtype))
+    return array, ptr
+
+
+def _ptr_to_cupy(ptr, shape, dtype, owner, device):
+    """
+    Helper to convert a ctypes pointer to a CuPy array.
+    """
+    assert device.type == VesinCUDA, "Array is not on CUDA device"
+    ptr_val = ctypes.cast(ptr, ctypes.c_void_p).value
+    size = np.prod(shape) * ctypes.sizeof(dtype)
+    mem = cp.cuda.memory.UnownedMemory(ptr_val, size, owner, device.device_id)
+    return cp.ndarray(
+        shape, dtype=CUPY_DTYPES[dtype], memptr=cp.cuda.MemoryPointer(mem, 0)
+    )
+
+
+########################################################################################
+
+
+def _torch_asarray(array, device_like) -> "torch.Tensor":
+    tensor = torch.as_tensor(array)
+    if device_like is not None:
+        return tensor.to(device=device_like.device)
+    else:
+        return tensor
+
+
+def _torch_to_dtype(array: "torch.Tensor", dtype) -> "torch.Tensor":
+    return array.to(dtype)
+
+
+def _torch_empty(shape, dtype, device_like) -> "torch.Tensor":
+    return torch.empty(size=shape, dtype=TORCH_DTYPES[dtype], device=device_like.device)
+
+
+def _torch_get_ptr(array: "torch.Tensor", dtype) -> ("torch.Tensor", POINTER):
+    array = array.contiguous()
+    return array, ctypes.cast(ctypes.c_void_p(array.data_ptr()), POINTER(dtype))
+
+
+CUDART = None
+
+
+def _get_cudart():
+    global CUDART
+    if CUDART is None:
+        import ctypes.util
+
+        cudart_path = ctypes.util.find_library("cudart")
+        if cudart_path is None:
+            raise RuntimeError(
+                "Could not find cudart library, please make sure it is "
+                "available or install cupy"
+            )
+        CUDART = ctypes.CDLL(cudart_path)
+        CUDART.cudaMemcpy.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_int,
+        ]
+        CUDART.cudaMemcpy.restype = ctypes.c_int
+    return CUDART
+
+
+def _ptr_to_torch(ptr, shape, dtype, owner, device):
+    """
+    Helper to convert a ctypes pointer to a Torch tensor.
+    """
+
+    if device.type == VesinCPU:
+        array = _ptr_to_numpy(ptr, shape, dtype, owner, device)
+        return torch.from_numpy(array)
+    elif device.type == VesinCUDA:
+        if HAS_CUPY:
+            cupy_array = _ptr_to_cupy(ptr, shape, dtype, owner, device)
+            return torch.as_tensor(cupy_array)
+        else:
+            cudart = _get_cudart()
+
+            # TODO: we could try using from_dlpack to avoid a copy
+            device = torch.device(f"cuda:{device.device_id}")
+            tensor = torch.empty(size=shape, dtype=TORCH_DTYPES[dtype], device=device)
+            tensor_ptr = ctypes.c_void_p(tensor.data_ptr())
+            status = cudart.cudaMemcpy(
+                tensor_ptr,
+                ptr,
+                tensor.nbytes,
+                2,  # cudaMemcpyDeviceToDevice
+            )
+            if status != 0:
+                raise RuntimeError(
+                    f"cudaMemcpy failed when creating torch tensor (code {status})"
+                )
+            return tensor
+    else:
+        raise RuntimeError("Unknown device for torch tensor")

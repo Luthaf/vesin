@@ -43,7 +43,7 @@ struct CudaNeighborListExtras {
     size_t* length_ptr = nullptr;  // GPU-side counter
     size_t capacity = 0;           // Current capacity per device
     int* cell_check_ptr = nullptr; // GPU-side status code for checking cell
-    int allocated_device = -1;     // which device are we currently allocated on
+    int allocated_device_id = -1;  // which device are we currently allocated on
 
     // Pinned host memory for async D2H copy (Approach 2)
     size_t* pinned_length_ptr = nullptr;

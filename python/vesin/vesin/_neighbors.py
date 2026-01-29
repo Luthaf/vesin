@@ -220,7 +220,8 @@ class NeighborList:
                 f"booleans, got {periodic} of type {type(periodic)}"
             )
 
-        if box.dtype != points.dtype:
+        initial_dtype = points.dtype
+        if box.dtype != initial_dtype:
             raise RuntimeError(
                 "`points` and `box` must have the same dtype, "
                 f"got {points.dtype} and {box.dtype}"
@@ -300,6 +301,7 @@ class NeighborList:
                     owner=self._neighbors,
                     device=self._neighbors.device,
                 )
+                distances = to_dtype_fn(distances, initial_dtype)
             if "D" in quantities:
                 vectors = ptr_to_array_fn(
                     self._neighbors.vectors,
@@ -308,6 +310,7 @@ class NeighborList:
                     owner=self._neighbors,
                     device=self._neighbors.device,
                 )
+                vectors = to_dtype_fn(vectors, initial_dtype)
 
         # assemble output
 

@@ -169,3 +169,18 @@ def test_mixed_periodic(periodic):
     assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
     assert np.allclose(ase_d[ase_sort_indices], vesin_d[vesin_sort_indices])
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_dtype(dtype):
+    box = np.eye(3, dtype=dtype) * 3.0
+    points = np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0
+
+    calculator = NeighborList(cutoff=4, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert i.dtype == np.uint64
+    assert j.dtype == np.uint64
+    assert s.dtype == np.int32
+    assert D.dtype == dtype
+    assert d.dtype == dtype

@@ -233,3 +233,19 @@ def test_no_neighbors():
 
     assert len(i) == 0
     assert len(j) == 0
+
+
+@pytest.mark.parametrize("dtype", [cp.float32, cp.float64])
+def test_dtype(dtype):
+    box = cp.eye(3, dtype=dtype) * 3.0
+    points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
+
+    # FIXME: this should work with cutoff=4, but crashes
+    calculator = NeighborList(cutoff=1, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert i.dtype == cp.uint64
+    assert j.dtype == cp.uint64
+    assert s.dtype == cp.int32
+    assert D.dtype == dtype
+    assert d.dtype == dtype

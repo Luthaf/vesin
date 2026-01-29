@@ -66,14 +66,27 @@ class NeighborList:
         if isinstance(periodic, bool):
             periodic = torch.as_tensor(periodic)
 
-        points = torch.as_tensor(points, dtype=torch.float64)
-        box = torch.as_tensor(box, dtype=torch.float64)
-        periodic = torch.as_tensor(periodic, dtype=torch.bool)
+        initial_dtype = points.dtype
+        if box.dtype != initial_dtype:
+            raise RuntimeError(
+                "`points` and `box` must have the same dtype, "
+                f"got {points.dtype} and {box.dtype}"
+            )
 
-        return self._c.compute(
+        points = points.to(torch.float64)
+        box = box.to(torch.float64)
+
+        results = self._c.compute(
             points=points,
             box=box,
             periodic=periodic,
             quantities=quantities,
             copy=copy,
         )
+
+        updated_results = []
+        for q, result in zip(quantities, results, strict=True):
+            if q in ("d", "D"):
+                result = result.to(initial_dtype)
+            updated_results.append(result)
+        return updated_results

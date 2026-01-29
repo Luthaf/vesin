@@ -114,9 +114,8 @@ class NeighborList:
             :py:class:`NeighborList` calculator.
         """
 
-        # move to float64, as vesin only works in torch64
-        points = system.positions.to(torch.float64).detach()
-        box = system.cell.to(torch.float64).detach()
+        points = system.positions.detach()
+        box = system.cell.detach()
         if torch.all(system.pbc):
             periodic = True
         elif not torch.any(system.pbc):
@@ -133,11 +132,11 @@ class NeighborList:
         )
         P = torch.as_tensor(P, dtype=torch.int32)
         S = torch.as_tensor(S, dtype=torch.int32)
-        D = torch.as_tensor(D, dtype=system.positions.dtype)
+        D = torch.as_tensor(D)
 
         # converts to a suitable TensorBlock format
         neighbors = TensorBlock(
-            D.reshape(-1, 3, 1).to(system.positions.dtype),
+            D.reshape(-1, 3, 1),
             samples=Labels(
                 names=[
                     "first_atom",

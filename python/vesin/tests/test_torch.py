@@ -274,3 +274,24 @@ def test_no_neighbors(device):
 
     assert len(i) == 0
     assert len(j) == 0
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("device", DEVICES)
+def test_dtype(dtype, device):
+    box = torch.eye(3, dtype=dtype, device=device) * 3.0
+    points = torch.tensor(
+        np.random.default_rng(0).random((100, 3)) * 3.0,
+        dtype=dtype,
+        device=device,
+    )
+
+    # FIXME: this should work with cutoff=4, but crashes
+    calculator = NeighborList(cutoff=1, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert i.dtype == torch.uint64
+    assert j.dtype == torch.uint64
+    assert s.dtype == torch.int32
+    assert D.dtype == dtype
+    assert d.dtype == dtype

@@ -6,6 +6,11 @@ import torch
 from vesin.torch import NeighborList
 
 
+DEVICES = ["cpu"]
+if torch.cuda.is_available():
+    DEVICES.append("cuda")
+
+
 def test_errors():
     points = torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]], dtype=torch.float64)
     box = torch.zeros((3, 3), dtype=torch.float64)
@@ -112,3 +117,20 @@ def test_script():
 
     module = TestModule()
     module = torch.jit.script(module)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_dtype(dtype, device):
+    box = torch.eye(3, dtype=dtype, device=device) * 3.0
+    points = torch.rand((100, 3), dtype=dtype, device=device) * 3.0
+
+    # FIXME: this should work with cutoff=4, but crashes
+    calculator = NeighborList(cutoff=1, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert i.dtype == torch.int64
+    assert j.dtype == torch.int64
+    assert s.dtype == torch.int32
+    assert D.dtype == dtype
+    assert d.dtype == dtype

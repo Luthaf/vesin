@@ -574,3 +574,4 @@ API Reference
     :hidden:
 
     benchmarks
+    citation

@@ -607,6 +607,10 @@ void vesin::cuda::neighbors(
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * MAX_CELLS));
         NVTX_POP();
 
+        NVTX_PUSH("memset_cell_starts");
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_starts, 0, sizeof(int) * MAX_CELLS));
+        NVTX_POP();
+
         NVTX_PUSH("kernel1_assign_cells");
         auto* assign_kernel = factory.create(
             "assign_cell_indices",

@@ -287,6 +287,9 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
     if (this->cell_check_ptr) {
         CUDART_INSTANCE.cudaFree(this->cell_check_ptr);
     }
+    if (this->overflow_flag) {
+        CUDART_INSTANCE.cudaFree(this->overflow_flag);
+    }
     if (this->box_diag) {
         CUDART_INSTANCE.cudaFree(this->box_diag);
     }
@@ -343,6 +346,10 @@ static void reset(VesinNeighborList& neighbors) {
     if (extras->inv_box_brute) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->inv_box_brute));
         extras->inv_box_brute = nullptr;
+    }
+    if (extras->overflow_flag) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->overflow_flag));
+        extras->overflow_flag = nullptr;
     }
 
     free_cell_list_buffers(extras->cell_list);
@@ -528,11 +535,13 @@ void vesin::cuda::neighbors(
     if (extras->capacity >= n_points && extras->length_ptr) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->overflow_flag, 0, sizeof(int)));
     } else {
         int saved_device = extras->allocated_device_id;
         reset(neighbors);
         extras->allocated_device_id = saved_device;
         auto max_pairs = static_cast<size_t>(1.2 * n_points * VESIN_CUDA_MAX_PAIRS_PER_POINT);
+        extras->max_pairs = max_pairs;
 
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
 
@@ -567,6 +576,9 @@ void vesin::cuda::neighbors(
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int)));
 
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->overflow_flag, sizeof(int)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->overflow_flag, 0, sizeof(int)));
+
         extras->capacity = static_cast<size_t>(1.2 * n_points);
     }
 
@@ -580,6 +592,8 @@ void vesin::cuda::neighbors(
     double* d_vectors = reinterpret_cast<double*>(neighbors.vectors);
     size_t* d_pair_counter = extras->length_ptr;
     int* d_cell_check = extras->cell_check_ptr;
+    int* d_overflow_flag = extras->overflow_flag;
+    size_t max_pairs = extras->max_pairs;
 
     auto& factory = KernelFactory::instance();
 
@@ -744,7 +758,7 @@ void vesin::cuda::neighbors(
             {"-std=c++17"}
         );
         std::vector<void*> find_args = {
-            &cl.sorted_positions, &cl.sorted_indices, &cl.sorted_shifts, &cl.sorted_cell_indices, &cl.cell_starts, &cl.cell_counts, &d_box, &d_periodic, &cl.n_cells, &cl.n_search, &n_points, &options.cutoff, &options.full, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+            &cl.sorted_positions, &cl.sorted_indices, &cl.sorted_shifts, &cl.sorted_cell_indices, &cl.cell_starts, &cl.cell_counts, &d_box, &d_periodic, &cl.n_cells, &cl.n_search, &n_points, &options.cutoff, &options.full, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors, &max_pairs, &d_overflow_flag
         };
         const int THREADS_PER_PARTICLE = 8;
         int particles_per_block = THREADS_PER_BLOCK / THREADS_PER_PARTICLE;
@@ -776,7 +790,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors, &max_pairs, &d_overflow_flag
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -792,7 +806,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box_diag, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors, &max_pairs, &d_overflow_flag
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -810,7 +824,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors, &max_pairs, &d_overflow_flag
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -826,7 +840,7 @@ void vesin::cuda::neighbors(
                 );
 
                 std::vector<void*> args = {
-                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors
+                    &d_positions, &d_box, &d_inv_box_brute, &d_periodic, &n_points, &cutoff2, &d_pair_counter, &d_pair_indices, &d_shifts, &d_distances, &d_vectors, &options.return_shifts, &options.return_distances, &options.return_vectors, &max_pairs, &d_overflow_flag
                 };
 
                 int num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -849,6 +863,26 @@ void vesin::cuda::neighbors(
     ));
 
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaDeviceSynchronize());
+
+    // Check for overflow
+    int h_overflow_flag = 0;
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+        &h_overflow_flag,
+        d_overflow_flag,
+        sizeof(int),
+        cudaMemcpyDeviceToHost
+    ));
+
+    if (h_overflow_flag != 0) {
+        throw std::runtime_error(
+            "The number of neighbor pairs exceeds the maximum capacity of " +
+            std::to_string(max_pairs) + " (VESIN_CUDA_MAX_PAIRS_PER_POINT=" +
+            std::to_string(VESIN_CUDA_MAX_PAIRS_PER_POINT) + "; n_points=" +
+            std::to_string(n_points) + "). " +
+            "Consider reducing the cutoff distance, or recompile with a larger " +
+            "VESIN_CUDA_MAX_PAIRS_PER_POINT."
+        );
+    }
 
     neighbors.length = *extras->pinned_length_ptr;
 

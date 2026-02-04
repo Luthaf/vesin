@@ -272,7 +272,9 @@ __global__ void find_neighbors_optimized(
     double* vectors,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    size_t max_pairs,
+    int* overflow_flag
 ) {
     // Thread organization: 32 threads/warp, THREADS_PER_PARTICLE threads per particle
     // Example with THREADS_PER_PARTICLE=8: 4 particles per warp, each gets 8 threads
@@ -464,6 +466,13 @@ __global__ void find_neighbors_optimized(
                 // Flush buffer when full
                 if (buffered_count >= MAX_BUFFERED_PAIRS) {
                     size_t base_idx = atomicAdd_size_t(length, buffered_count);
+
+                    // Check if we are about to exceed max_pairs
+                    if (base_idx + buffered_count > max_pairs) {
+                        atomicExch(overflow_flag, 1);
+                        return;
+                    }
+
                     for (int b = 0; b < buffered_count; b++) {
                         pair_indices[(base_idx + b) * 2] = orig_i;
                         pair_indices[(base_idx + b) * 2 + 1] = buffered_j[b];
@@ -490,6 +499,13 @@ __global__ void find_neighbors_optimized(
     // Flush remaining buffered pairs
     if (buffered_count > 0) {
         size_t base_idx = atomicAdd_size_t(length, buffered_count);
+
+        // Check if we are about to exceed max_pairs
+        if (base_idx + buffered_count > max_pairs) {
+            atomicExch(overflow_flag, 1);
+            return;
+        }
+
         for (int b = 0; b < buffered_count; b++) {
             pair_indices[(base_idx + b) * 2] = orig_i;
             pair_indices[(base_idx + b) * 2 + 1] = buffered_j[b];

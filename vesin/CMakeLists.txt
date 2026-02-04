@@ -27,7 +27,7 @@ function(make_includeable INPUT_FILE OUTPUT_FILE)
     foreach(line IN LISTS content)
         # Write multiple raw string literals to workaound MSVC size limitations
         # on string literals. https://learn.microsoft.com/en-us/cpp/c-language/maximum-string-length
-        file(APPEND ${OUTPUT_FILE} "R\"======(${line})======\"\n")
+        file(APPEND ${OUTPUT_FILE} "R\"======(${line}\n)======\"\n")
     endforeach()
 endfunction()
 

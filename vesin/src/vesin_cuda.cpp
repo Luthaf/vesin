@@ -609,10 +609,6 @@ void vesin::cuda::neighbors(
     bool box_check_error = (h_cell_check & 1) != 0;
     bool is_orthogonal = (h_cell_check & 2) != 0;
 
-    if (box_check_error) {
-        throw std::runtime_error("Invalid cutoff: too large for box dimensions");
-    }
-
     // Get box dimensions for auto algorithm selection
     double h_box_diag[3];
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(h_box_diag, d_box_diag, sizeof(double) * 3, cudaMemcpyDeviceToHost));
@@ -622,6 +618,9 @@ void vesin::cuda::neighbors(
     bool use_cell_list;
     switch (options.algorithm) {
     case VesinBruteForce:
+        if (box_check_error) {
+            throw std::runtime_error("Invalid cutoff: too large for box dimensions");
+        }
         use_cell_list = false;
         break;
     case VesinCellList:

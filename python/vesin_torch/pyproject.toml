@@ -35,10 +35,7 @@ changelog = "https://github.com/Luthaf/vesin/blob/main/CHANEGELOG.md"
 ### ======================================================================== ###
 
 [build-system]
-requires = [
-    "setuptools >=77",
-    "wheel >=0.41",
-]
+requires = ["setuptools >=77"]
 # use a custom build backend to add a dependency on torch/cmake only when
 # building wheels
 build-backend = "backend"

@@ -44,7 +44,6 @@ changelog = "https://github.com/Luthaf/vesin/blob/main/CHANEGELOG.md"
 [build-system]
 requires = [
     "setuptools >=77",
-    "wheel >=0.41",
     "cmake",
 ]
 build-backend = "setuptools.build_meta"

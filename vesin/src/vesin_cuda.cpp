@@ -294,7 +294,7 @@ static void reset(VesinNeighborList& neighbors) {
 
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->inv_box_brute));
     extras->inv_box_brute = nullptr;
-        
+
     CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->overflow_flag));
     extras->overflow_flag = nullptr;
 

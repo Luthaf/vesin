@@ -44,7 +44,7 @@ struct CudaNeighborListExtras {
     size_t capacity = 0;               // Current capacity per device
     size_t max_pairs = 0;              // Maximum number of pairs that can be stored; depends on VESIN_CUDA_MAX_PAIRS_PER_POINT
     int32_t* cell_check_ptr = nullptr; // GPU-side status code for checking cell
-    int32_t* overflow_flag = nullptr;      // GPU-side flag to detect overflow of pair buffers
+    int32_t* overflow_flag = nullptr;  // GPU-side flag to detect overflow of pair buffers
     int32_t allocated_device_id = -1;  // which device are we currently allocated on
 
     // Pinned host memory for async D2H copy (Approach 2)

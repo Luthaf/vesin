@@ -489,7 +489,9 @@ __global__ void brute_force_half_orthogonal(
     double* vectors,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    size_t max_pairs,
+    int* overflow_flag
 ) {
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_all_pairs = n_points * (n_points - 1) / 2;
@@ -517,6 +519,12 @@ __global__ void brute_force_half_orthogonal(
 
     if (dist2 < cutoff2 && dist2 > 0.0) {
         size_t idx = atomicAdd_size_t(length, 1UL);
+
+        // Check if we are about to exceed max_pairs
+        if (idx + 1 > max_pairs) {
+            atomicExch(overflow_flag, 1);
+            return;
+        }
         pair_indices[idx * 2] = i;
         pair_indices[idx * 2 + 1] = j;
         if (return_shifts) {
@@ -549,7 +557,9 @@ __global__ void brute_force_full_orthogonal(
     double* vectors,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    size_t max_pairs,
+    int* overflow_flag
 ) {
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_half_pairs = n_points * (n_points - 1) / 2;
@@ -577,6 +587,12 @@ __global__ void brute_force_full_orthogonal(
 
     if (dist2 < cutoff2) {
         size_t idx = atomicAdd_size_t(length, 2UL);
+
+        // Check if we are about to exceed max_pairs
+        if (idx + 2 > max_pairs) {
+            atomicExch(overflow_flag, 1);
+            return;
+        }
 
         pair_indices[idx * 2] = i;
         pair_indices[idx * 2 + 1] = j;
@@ -621,7 +637,9 @@ __global__ void brute_force_half_general(
     double* vectors,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    size_t max_pairs,
+    int* overflow_flag
 ) {
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_all_pairs = n_points * (n_points - 1) / 2;
@@ -666,6 +684,12 @@ __global__ void brute_force_half_general(
 
     if (dist2 < cutoff2 && dist2 > 0.0) {
         size_t idx = atomicAdd_size_t(length, 1UL);
+
+        // Check if we are about to exceed max_pairs
+        if (idx + 1 > max_pairs) {
+            atomicExch(overflow_flag, 1);
+            return;
+        }
         pair_indices[idx * 2] = i;
         pair_indices[idx * 2 + 1] = j;
         if (return_shifts) {
@@ -701,7 +725,9 @@ __global__ void brute_force_full_general(
     double* vectors,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    size_t max_pairs,
+    int* overflow_flag
 ) {
     const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t num_half_pairs = n_points * (n_points - 1) / 2;
@@ -747,6 +773,12 @@ __global__ void brute_force_full_general(
 
     if (dist2 < cutoff2) {
         size_t idx = atomicAdd_size_t(length, 2UL);
+
+        // Check if we are about to exceed max_pairs
+        if (idx + 2 > max_pairs) {
+            atomicExch(overflow_flag, 1);
+            return;
+        }
 
         pair_indices[idx * 2] = i;
         pair_indices[idx * 2 + 1] = j;

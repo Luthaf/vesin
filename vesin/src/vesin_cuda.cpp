@@ -239,7 +239,7 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
     if (this->cell_check_ptr != nullptr) {
         CUDART_INSTANCE.cudaFree(this->cell_check_ptr);
     }
-    if (this->overflow_flag) {
+    if (this->overflow_flag != nullptr) {
         CUDART_INSTANCE.cudaFree(this->overflow_flag);
     }
     if (this->box_diag != nullptr) {

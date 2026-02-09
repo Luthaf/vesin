@@ -99,8 +99,8 @@ class NeighborList:
             )
 
         # cached Labels
-        self._components = [Labels("xyz", torch.tensor([[0], [1], [2]]))]
-        self._properties = Labels(["distance"], torch.tensor([[0]]))
+        self._components = Labels("xyz", torch.tensor([[0], [1], [2]]))
+        self._properties = Labels("distance", torch.tensor([[0]]))
 
     def compute(self, system: System) -> TensorBlock:
         """
@@ -134,6 +134,9 @@ class NeighborList:
         S = torch.as_tensor(S, dtype=torch.int32)
         D = torch.as_tensor(D)
 
+        self._components = self._components.to(device=D.device)
+        self._properties = self._properties.to(device=D.device)
+
         # converts to a suitable TensorBlock format
         neighbors = TensorBlock(
             D.reshape(-1, 3, 1),
@@ -147,7 +150,7 @@ class NeighborList:
                 ],
                 values=torch.hstack([P, S]),
             ),
-            components=self._components,
+            components=[self._components],
             properties=self._properties,
         )
 

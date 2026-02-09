@@ -240,7 +240,6 @@ def test_dtype(dtype):
     box = cp.eye(3, dtype=dtype) * 3.0
     points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
 
-    # FIXME: this should work with cutoff=4, but crashes
     calculator = NeighborList(cutoff=1, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 
@@ -249,3 +248,20 @@ def test_dtype(dtype):
     assert s.dtype == cp.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
+
+
+def test_max_pairs():
+    """
+    With the default VESIN_CUDA_MAX_PAIRS_PER_POINT=512 and 100 points,
+    a cutoff of 4.0 generates too many pairs and should raise an error.
+    """
+    dtype = cp.float64
+
+    box = cp.eye(3, dtype=dtype) * 3.0
+    points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
+
+    with pytest.raises(
+        RuntimeError, match="The number of neighbor pairs exceeds the maximum capacity"
+    ):
+        calculator = NeighborList(cutoff=4, full_list=True)
+        i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")

@@ -520,7 +520,7 @@ void vesin::cuda::neighbors(
     auto* d_overflow_flag = extras->overflow_flag;
     size_t max_pairs = extras->max_pairs;
 
-    auto& factory = KernelFactory::instance();
+    auto& factory = KernelFactory::instance(device_id);
 
     if (extras->box_diag == nullptr) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->box_diag, sizeof(double) * 3));

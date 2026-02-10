@@ -1,0 +1,35 @@
+include:
+  - remote: 'https://gitlab.com/cscs-ci/recipes/-/raw/master/templates/v2/.ci-ext.yml'
+
+stages:
+  - build
+  - test
+
+build base:
+  stage: build
+  extends: .container-builder-cscs-gh200
+  before_script:
+    - TAG_DOCKERFILE=`sha256sum $DOCKERFILE | head -c 16`
+    - TAG=${TAG_DOCKERFILE}
+    - export PERSIST_IMAGE_NAME=$CSCS_REGISTRY_PATH/base/vesin:$TAG
+    - echo "BASE_IMAGE=$PERSIST_IMAGE_NAME" > build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+  variables:
+    DOCKERFILE: ci/containers/Containerfile
+
+test tox:
+  stage: test
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - tox --workdir /tmp/tox/ -e check-cuda-available
+    - tox --workdir /tmp/tox/
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:15:00'
+    GIT_STRATEGY: fetch

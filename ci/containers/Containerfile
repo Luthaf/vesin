@@ -1,0 +1,29 @@
+FROM docker://nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
+
+ENV CUDA_HOME="/usr/local/cuda"
+
+# torch.jit.script not supported in Python 3.14+
+ENV UV_PYTHON_VERSION="3.13"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gfortran \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# https://docs.astral.sh/uv/guides/integration/docker/#installing-uv
+ADD https://astral.sh/uv/0.9.30/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+ENV PATH="/root/.local/bin:$PATH"
+
+ENV UV_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu129"
+ENV UV_INDEX_STRATEGY="unsafe-best-match"
+ENV PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu129"
+
+# https://docs.astral.sh/uv/guides/integration/docker/#installing-a-package
+ENV VIRTUAL_ENV="/opt/venv-vesin/"
+RUN uv venv ${VIRTUAL_ENV} --python ${UV_PYTHON_VERSION}
+ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
+
+RUN uv pip install tox

@@ -23,6 +23,8 @@ else()
     set(TEST_COMMAND "")
 endif()
 
+find_package(CUDAToolkit)
+
 
 file(GLOB ALL_TESTS *.cpp)
 foreach(_file_ ${ALL_TESTS})
@@ -34,4 +36,9 @@ foreach(_file_ ${ALL_TESTS})
         NAME ${_name_}
         COMMAND ${TEST_COMMAND} $<TARGET_FILE:${_name_}>
     )
+
+    if (CUDAToolkit_FOUND)
+        target_compile_definitions(${_name_} PRIVATE VESIN_TESTS_WITH_CUDA)
+        target_link_libraries(${_name_} CUDA::cudart)
+    endif()
 endforeach()

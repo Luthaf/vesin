@@ -81,7 +81,7 @@ FetchContent_Declare(
     # GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
     # GIT_TAG 78b4bad091e329b332def47ee9692e367a28ea85 # v1.0.0
     GIT_REPOSITORY https://github.com/Luthaf/gpu-lite.git
-    GIT_TAG f59550e6eafdf51a3fd266a50ec080f640c0991c
+    GIT_TAG 223a893176a12a639a72d8b9fcc53135a7f15782
     EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(gpulite)

@@ -78,10 +78,8 @@ make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_cell_list.cu ${CMAKE_CURRE
 include(FetchContent)
 FetchContent_Declare(
     gpulite
-    # GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
-    # GIT_TAG 78b4bad091e329b332def47ee9692e367a28ea85 # v1.0.0
-    GIT_REPOSITORY https://github.com/Luthaf/gpu-lite.git
-    GIT_TAG 223a893176a12a639a72d8b9fcc53135a7f15782
+    GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
+    GIT_TAG d2f59d3ff48a542487dc6af725638ddd86cf9ebe # v1.0.2
     EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(gpulite)

@@ -329,24 +329,45 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
 }
 
 void checkCuda() {
+    std::string cuda_libname;
+    std::string cudart_libname;
+    std::string nvrtc_libname;
+    std::string suggestion;
+#if defined(__linux__)
+    cuda_libname = "libcuda.so";
+    cudart_libname = "libcudart.so";
+    nvrtc_libname = "libnvrtc.so";
+    suggestion = ("Try appending the directory containing this library to "
+                  "your $LD_LIBRARY_PATH environment variable.");
+
+#elif defined(_WIN32)
+    cuda_libname = "nvcuda.dll";
+    cudart_libname = "cudart64_*.dll";
+    nvrtc_libname = "nvrtc64_*.dll";
+    suggestion = ("Try adding the directory containing this library to your "
+                  "system PATH, or making sure that CUDA_PATH is properly set "
+                  "to your CUDA installation directory.");
+#else
+    cuda_libname = "cuda";
+    cudart_libname = "cudart";
+    nvrtc_libname = "nvrtc";
+    suggestion = "Unsupported platform: unable to load CUDA libraries.";
+#endif
     if (!CUDA_DRIVER_INSTANCE.loaded()) {
         throw std::runtime_error(
-            "Failed to load libcuda.so. Try appending the directory containing this library to "
-            "your $LD_LIBRARY_PATH environment variable."
+            "Failed to load " + cuda_libname + ". " + suggestion
         );
     }
 
     if (!CUDART_INSTANCE.loaded()) {
         throw std::runtime_error(
-            "Failed to load libcudart.so. Try appending the directory containing this library to "
-            "your $LD_LIBRARY_PATH environment variable."
+            "Failed to load " + cudart_libname + ". " + suggestion
         );
     }
 
     if (!NVRTC_INSTANCE.loaded()) {
         throw std::runtime_error(
-            "Failed to load libnvrtc.so. Try appending the directory containing this library to "
-            "your $LD_LIBRARY_PATH environment variable."
+            "Failed to load " + nvrtc_libname + ". " + suggestion
         );
     }
 }

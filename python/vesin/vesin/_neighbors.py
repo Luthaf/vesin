@@ -1,4 +1,7 @@
 import ctypes
+import glob
+import os
+import sys
 from ctypes import POINTER
 from typing import List, Sequence, Union
 
@@ -446,23 +449,61 @@ CUDART = None
 
 def _get_cudart():
     global CUDART
-    if CUDART is None:
-        import ctypes.util
+    if CUDART is not None:
+        return CUDART
 
-        cudart_path = ctypes.util.find_library("cudart")
-        if cudart_path is None:
-            raise RuntimeError(
-                "Could not find cudart library, please make sure it is "
-                "available or install cupy"
-            )
-        CUDART = ctypes.CDLL(cudart_path)
-        CUDART.cudaMemcpy.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_size_t,
-            ctypes.c_int,
-        ]
-        CUDART.cudaMemcpy.restype = ctypes.c_int
+    import ctypes.util
+
+    # try ctypes.util.find_library first
+    cudart_path = ctypes.util.find_library("cudart")
+    candidates = [cudart_path] if cudart_path else []
+
+    # platform-specific fallbacks
+    if sys.platform.startswith("win"):
+        # common env vars and locations on Windows
+        cuda_paths = []
+        if "CUDA_PATH" in os.environ:
+            cuda_paths.append(os.environ["CUDA_PATH"])
+        if "CUDA_HOME" in os.environ:
+            cuda_paths.append(os.environ["CUDA_HOME"])
+        # look for typical cudart DLL names under bin/lib
+        for cp in cuda_paths:
+            candidates += glob.glob(os.path.join(cp, "bin", "cudart64_*.dll"))
+            candidates += glob.glob(os.path.join(cp, "lib", "x64", "cudart64_*.dll"))
+        # search directories on PATH
+        for p in os.environ.get("PATH", "").split(os.pathsep):
+            candidates += glob.glob(os.path.join(p, "cudart64_*.dll"))
+    else:
+        # linux: common install locations
+        candidates += glob.glob("/usr/local/cuda*/lib64/libcudart.so*")
+        candidates += glob.glob("/usr/lib*/cuda*/lib64/libcudart.so*")
+
+    # unique, non-empty
+    candidates = [c for c in set(candidates) if c and os.path.isfile(c)]
+
+    last_err = None
+    for path in candidates:
+        try:
+            CUDART = ctypes.CDLL(path)
+            break
+        except Exception as e:
+            last_err = e
+            continue
+
+    if CUDART is None:
+        raise RuntimeError(
+            "Could not find cudart library, please make sure it is available or "
+            "install cupy. On Windows ensure CUDA_PATH is set or cudart64_*.dll is "
+            "on PATH."
+        ) from last_err
+
+    CUDART.cudaMemcpy.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_int,
+    ]
+    CUDART.cudaMemcpy.restype = ctypes.c_int
     return CUDART
 
 

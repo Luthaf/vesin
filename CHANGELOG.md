@@ -17,11 +17,15 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.0](https://github.com/Luthaf/vesin/releases/tag/v0.5.0) - 2026-02-19
+
 ### Added
 
 - vesin can now compute neighbor lists on GPUs using CUDA. This is automatically
   integrated in vesin-torch, and can be used with CuPy in the `vesin` python
   package.
+- `vesin.NeighborList` now accepts either numpy arrays, cupy arrays or torch
+  tensor for the `points`, `box`, and `periodic` parameters.
 
 ## [Version 0.4.2](https://github.com/Luthaf/vesin/releases/tag/v0.4.2) - 2025-11-06
 

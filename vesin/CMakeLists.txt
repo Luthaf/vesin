@@ -8,6 +8,10 @@ endif()
 file(READ "VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
 
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
 project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
 
 #[[
@@ -76,12 +80,23 @@ make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_bruteforce.cu ${CMAKE_CURR
 make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_cell_list.cu)
 
 include(FetchContent)
-FetchContent_Declare(
-    gpulite
-    GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
-    GIT_TAG d2f59d3ff48a542487dc6af725638ddd86cf9ebe # v1.0.2
-    EXCLUDE_FROM_ALL
-)
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/gpulite.tar.gz)
+    FetchContent_Declare(
+        gpulite
+        URL ${CMAKE_CURRENT_SOURCE_DIR}/external/gpulite.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP
+        EXCLUDE_FROM_ALL
+    )
+else()
+    FetchContent_Declare(
+        gpulite
+        GIT_REPOSITORY https://github.com/rubber-duck-debug/gpu-lite.git
+        GIT_TAG d2f59d3ff48a542487dc6af725638ddd86cf9ebe # v1.0.2
+        EXCLUDE_FROM_ALL
+    )
+endif()
+
 FetchContent_MakeAvailable(gpulite)
 
 target_link_libraries(vesin_objects PRIVATE gpulite)

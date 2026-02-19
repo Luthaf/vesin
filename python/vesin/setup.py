@@ -1,7 +1,9 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 
 from setuptools import Extension, setup
 from setuptools.command.bdist_egg import bdist_egg
@@ -112,6 +114,33 @@ class sdist_with_lib(sdist):
     def run(self):
         # generate extra files
         shutil.copytree(os.path.join(ROOT, "..", "..", "vesin"), "lib")
+
+        # include gpulite in the sdist
+        gpulite_dir = os.path.join("lib", "external")
+        os.makedirs(gpulite_dir, exist_ok=True)
+        gpulite_archive = os.path.join(gpulite_dir, "gpulite.tar.gz")
+        assert not os.path.exists(gpulite_archive)
+
+        with open(os.path.join("lib", "CMakeLists.txt")) as fd:
+            content = fd.read()
+            # FetchContent_Declare(
+            #     gpulite
+            #     ...
+            #     GIT_TAG <hash>
+            match = re.search(
+                r"FetchContent_Declare\s*\(\s*gpulite.*?GIT_TAG\s+([a-f0-9]+)",
+                content,
+                re.DOTALL,
+            )
+            if match is None:
+                raise Exception("Could not find gpulite GIT_TAG in CMakeLists.txt")
+            commit = match.group(1)
+
+        print("downloading gpulite source code")
+        urllib.request.urlretrieve(
+            f"https://github.com/rubber-duck-debug/gpu-lite/archive/{commit}.tar.gz",
+            gpulite_archive,
+        )
 
         # run original sdist
         super().run()

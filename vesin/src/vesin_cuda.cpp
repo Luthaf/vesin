@@ -407,7 +407,7 @@ static void ensure_cell_list_buffers(
         CUDART_INSTANCE.cudaFree(cl.cell_offsets);
 
         auto new_max = static_cast<size_t>(1.2 * static_cast<double>(n_cells_total));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_counts, sizeof(size_t) * new_max));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_counts, sizeof(int32_t) * new_max));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_starts, sizeof(int32_t) * new_max));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_offsets, sizeof(int32_t) * new_max));
         cl.max_cells = new_max;
@@ -638,10 +638,6 @@ void vesin::cuda::neighbors(
 
         NVTX_PUSH("memset_cell_counts");
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * MAX_CELLS));
-        NVTX_POP();
-
-        NVTX_PUSH("memset_cell_starts");
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_starts, 0, sizeof(int32_t) * MAX_CELLS));
         NVTX_POP();
 
         NVTX_PUSH("memset_cell_starts");

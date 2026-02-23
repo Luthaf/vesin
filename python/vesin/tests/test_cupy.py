@@ -252,7 +252,7 @@ def test_dtype(dtype):
 
 def test_max_pairs():
     """
-    With the default VESIN_CUDA_MAX_PAIRS_PER_POINT=512 and 100 points,
+    With VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT=512 and 100 points,
     a cutoff of 4.0 generates too many pairs and should raise an error.
     """
     dtype = cp.float64
@@ -265,3 +265,19 @@ def test_max_pairs():
     ):
         calculator = NeighborList(cutoff=4, full_list=True)
         i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+def test_max_pairs_env():
+    """
+    With VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT=512 and 100 points,
+    a cutoff of 4.0 generates too many pairs and should raise an error.
+    Setting VESIN_CUDA_MAX_PAIRS_PER_POINT overrides the default.
+    """
+    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = 1024
+
+    dtype = cp.float64
+
+    box = cp.eye(3, dtype=dtype) * 3.0
+    points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
+
+    calculator = NeighborList(cutoff=4, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")

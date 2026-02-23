@@ -984,7 +984,7 @@ void vesin::cuda::neighbors(
             std::to_string(max_pairs) + " (VESIN_CUDA_MAX_PAIRS_PER_POINT=" +
             std::to_string(max_pairs_per_point) + "; n_points=" +
             std::to_string(n_points) + "). " +
-            "Consider reducing the cutoff distance, setting VESIN_CUDA_MAX_PAIRS_PER_POINR, "
+            "Consider reducing the cutoff distance, setting VESIN_CUDA_MAX_PAIRS_PER_POINT, "
             "or recompile with a larger VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT."
         );
     }

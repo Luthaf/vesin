@@ -528,6 +528,14 @@ Usage example
             }
 
 
+Usage
+-----
+
+When using the CUDA backend, you can control the maximum number of pairs per point with the
+``VESIN_CUDA_MAX_PAIRS_PER_POINT`` constant.
+By default, it is set to ``VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT=256``.
+
+
 API Reference
 -------------
 

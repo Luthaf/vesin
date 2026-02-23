@@ -19,28 +19,6 @@ from metatomic.torch import (  # noqa: E402
 from vesin.metatomic import NeighborList, compute_requested_neighbors  # noqa: E402
 
 
-def test_errors():
-    positions = torch.tensor([[0.0, 0.0, 0.0], [1.0, 1.0, 2.0]], dtype=torch.float64)
-    cell = 4 * torch.eye(3, dtype=torch.float64)
-    system = System(
-        positions=positions,
-        cell=cell,
-        pbc=torch.ones(3, dtype=bool),
-        types=torch.tensor([6, 8]),
-    )
-
-    options = NeighborListOptions(cutoff=3.5, full_list=True, strict=True)
-    calculator = NeighborList(options, length_unit="A")
-
-    system.pbc[0] = False
-    message = (
-        "vesin currently does not support mixed periodic and non-periodic "
-        "boundary conditions"
-    )
-    with pytest.raises(NotImplementedError, match=message):
-        calculator.compute(system)
-
-
 def test_backward():
     positions = torch.tensor(
         [[0.0, 0.0, 0.0], [1.0, 1.0, 2.0]], dtype=torch.float64, requires_grad=True

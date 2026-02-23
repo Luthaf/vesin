@@ -137,6 +137,22 @@ def nnpops_run(positions, cutoff, box_vectors):
     )
 
 
+def setup_nvalchemi(atoms, cutoff):
+    import torch
+
+    positions = torch.tensor(atoms.positions, dtype=torch.float32, device="cuda")
+    cell = torch.tensor(atoms.cell[:], dtype=torch.float32, device="cuda").unsqueeze(0)
+    pbc = torch.tensor(atoms.pbc, dtype=torch.bool, device="cuda").unsqueeze(0)
+
+    return positions, cutoff, cell, pbc
+
+
+def nvalchemi_run(positions, cutoff, cell, pbc):
+    from nvalchemiops.neighborlist import cell_list
+
+    return cell_list(positions, cutoff, cell, pbc)
+
+
 def setup_ase_like(atoms, cutoff):
     return "ijSd", atoms, float(cutoff)
 
@@ -231,6 +247,7 @@ torch_nl_cuda_time = {}
 nnpops_cpu_time = {}
 nnpops_cuda_time = {}
 pymatgen_time = {}
+nvalchemi_time = {}
 vesin_cpu_time = {}
 vesin_cuda_time = {}
 
@@ -251,6 +268,7 @@ for cutoff in CUTOFFS:
     nnpops_cpu_time[cutoff] = []
     nnpops_cuda_time[cutoff] = []
     pymatgen_time[cutoff] = []
+    nvalchemi_time[cutoff] = []
     vesin_cpu_time[cutoff] = []
     vesin_cuda_time[cutoff] = []
 
@@ -344,6 +362,16 @@ for cutoff in CUTOFFS:
         pymatgen_time[cutoff].append(timing * 1e3)
         print(f"   pymatgen took {timing * 1e3:.3f} ms")
 
+        # nvalchemi
+        timing = benchmark(
+            setup_nvalchemi,
+            nvalchemi_run,
+            super_cell,
+            cutoff,
+        )
+        nvalchemi_time[cutoff].append(timing * 1e3)
+        print(f"   nvalchemi took {timing * 1e3:.3f} ms")
+
         # VESIN CPU
         timing = benchmark(
             setup_vesin_cpu,
@@ -377,6 +405,7 @@ for cutoff in CUTOFFS:
         "nnpops_cuda": nnpops_cuda_time[cutoff],
         "pymatgen": pymatgen_time[cutoff],
         "sisl": sisl_time[cutoff],
+        "nvalchemi": nvalchemi_time[cutoff],
         "vesin_cpu": vesin_cpu_time[cutoff],
         "vesin_cuda": vesin_cuda_time[cutoff],
     }

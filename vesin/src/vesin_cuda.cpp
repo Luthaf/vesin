@@ -478,6 +478,19 @@ void vesin::cuda::neighbors(
         extras->allocated_device_id = device_id;
     }
 
+    auto max_pairs_per_point = []() {
+        const char* env = std::getenv("VESIN_CUDA_MAX_PAIRS_PER_POINT");
+        if (env != nullptr) {
+            try {
+                return std::stoi(env);
+            } catch (const std::exception& e) {
+                return VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT;
+            }
+        } else {
+            return VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT;
+        }
+    }();
+
     if (extras->capacity >= n_points && (extras->length_ptr != nullptr)) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int32_t)));
@@ -486,7 +499,7 @@ void vesin::cuda::neighbors(
         auto saved_device = extras->allocated_device_id;
         reset(neighbors);
         extras->allocated_device_id = saved_device;
-        auto max_pairs = static_cast<size_t>(1.2 * static_cast<double>(n_points) * VESIN_CUDA_MAX_PAIRS_PER_POINT);
+        auto max_pairs = static_cast<size_t>(1.2 * static_cast<double>(n_points) * max_pairs_per_point);
         extras->max_pairs = max_pairs;
 
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
@@ -969,10 +982,10 @@ void vesin::cuda::neighbors(
         throw std::runtime_error(
             "The number of neighbor pairs exceeds the maximum capacity of " +
             std::to_string(max_pairs) + " (VESIN_CUDA_MAX_PAIRS_PER_POINT=" +
-            std::to_string(VESIN_CUDA_MAX_PAIRS_PER_POINT) + "; n_points=" +
+            std::to_string(max_pairs_per_point) + "; n_points=" +
             std::to_string(n_points) + "). " +
-            "Consider reducing the cutoff distance, or recompile with a larger " +
-            "VESIN_CUDA_MAX_PAIRS_PER_POINT."
+            "Consider reducing the cutoff distance, setting VESIN_CUDA_MAX_PAIRS_PER_POINR, "
+            "or recompile with a larger VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT."
         );
     }
 

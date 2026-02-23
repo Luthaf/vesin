@@ -116,19 +116,10 @@ class NeighborList:
 
         points = system.positions.detach()
         box = system.cell.detach()
-        if torch.all(system.pbc):
-            periodic = True
-        elif not torch.any(system.pbc):
-            periodic = False
-        else:
-            raise NotImplementedError(
-                "vesin currently does not support mixed periodic and non-periodic "
-                "boundary conditions"
-            )
 
         # computes neighbor list
         (P, S, D) = self._nl.compute(
-            points=points, box=box, periodic=periodic, quantities="PSD", copy=True
+            points=points, box=box, periodic=system.pbc, quantities="PSD", copy=True
         )
         P = torch.as_tensor(P, dtype=torch.int32)
         S = torch.as_tensor(S, dtype=torch.int32)

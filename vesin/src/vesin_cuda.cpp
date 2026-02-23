@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 #include <algorithm>
 #include <optional>
@@ -465,6 +466,7 @@ void vesin::cuda::neighbors(
     }
 
     auto* extras = vesin::cuda::get_cuda_extras(&neighbors);
+    size_t max_pairs_per_point = VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT;
 
     if (extras->allocated_device_id != device_id) {
         // first switch to previous device
@@ -486,7 +488,23 @@ void vesin::cuda::neighbors(
         auto saved_device = extras->allocated_device_id;
         reset(neighbors);
         extras->allocated_device_id = saved_device;
-        auto max_pairs = static_cast<size_t>(1.2 * static_cast<double>(n_points) * VESIN_CUDA_MAX_PAIRS_PER_POINT);
+
+        auto* env_max_pairs = std::getenv("VESIN_CUDA_MAX_PAIRS_PER_POINT");
+        if (env_max_pairs != nullptr) {
+            auto length = std::strlen(env_max_pairs);
+            char* end = nullptr;
+            errno = 0;
+            auto parsed_max_pairs_per_point = std::strtoll(env_max_pairs, &end, 10);
+            if (errno != 0 || end != env_max_pairs + length || parsed_max_pairs_per_point <= 0) {
+                throw std::runtime_error(
+                    "Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '" +
+                    std::string(env_max_pairs) + "'"
+                );
+            }
+            max_pairs_per_point = static_cast<size_t>(parsed_max_pairs_per_point);
+        }
+
+        auto max_pairs = static_cast<size_t>(1.2 * static_cast<double>(n_points * max_pairs_per_point));
         extras->max_pairs = max_pairs;
 
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
@@ -964,11 +982,11 @@ void vesin::cuda::neighbors(
     if (h_overflow_flag != 0) {
         throw std::runtime_error(
             "The number of neighbor pairs exceeds the maximum capacity of " +
-            std::to_string(max_pairs) + " (VESIN_CUDA_MAX_PAIRS_PER_POINT=" +
-            std::to_string(VESIN_CUDA_MAX_PAIRS_PER_POINT) + "; n_points=" +
+            std::to_string(max_pairs) + " (max_pairs_per_point=" +
+            std::to_string(max_pairs_per_point) + "; n_points=" +
             std::to_string(n_points) + "). " +
-            "Consider reducing the cutoff distance, or recompile with a larger " +
-            "VESIN_CUDA_MAX_PAIRS_PER_POINT."
+            "Consider reducing the cutoff distance, or explicitly setting " +
+            "VESIN_CUDA_MAX_PAIRS_PER_POINT as an environment variable."
         );
     }
 

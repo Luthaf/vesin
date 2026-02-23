@@ -6,10 +6,10 @@
 namespace vesin {
 namespace cuda {
 
-#ifndef VESIN_CUDA_MAX_PAIRS_PER_POINT
+#ifndef VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT
 /// @brief Default maximum number of pairs per point on the GPU (can be
 /// overridden).
-#define VESIN_CUDA_MAX_PAIRS_PER_POINT 512
+#define VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT 256
 #endif
 
 /// @brief Buffers for cell list-based neighbor search

@@ -183,6 +183,12 @@ Installation
             options instead.
 
 
+        |logo-cuda| **CUDA:**
+
+        You can define ``VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT`` to set the
+        default maximum number of pairs per point for the CUDA version of vesin.
+        If this is not defined, it will default to 256.
+
     .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| Global Install
 
         You can build and install vesin in some global location (referred to as

@@ -266,18 +266,34 @@ def test_max_pairs():
         calculator = NeighborList(cutoff=4, full_list=True)
         i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 
+
 def test_max_pairs_env():
     """
     With VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT=512 and 100 points,
     a cutoff of 4.0 generates too many pairs and should raise an error.
     Setting VESIN_CUDA_MAX_PAIRS_PER_POINT overrides the default.
     """
-    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = 1024
+
+    # Store current environment
+    env = dict(os.environ)
 
     dtype = cp.float64
 
     box = cp.eye(3, dtype=dtype) * 3.0
     points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
 
+    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = str(1024)
+
     calculator = NeighborList(cutoff=4, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    with pytest.raises(
+        RuntimeError, match="The number of neighbor pairs exceeds the maximum capacity"
+    ):
+        os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = str(64)
+
+        calculator = NeighborList(cutoff=4, full_list=True)
+        i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    os.environ.clear()
+    os.environ.update(env)

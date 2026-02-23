@@ -260,8 +260,38 @@ def test_max_pairs():
     box = cp.eye(3, dtype=dtype) * 3.0
     points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
 
-    with pytest.raises(
-        RuntimeError, match="The number of neighbor pairs exceeds the maximum capacity"
-    ):
+    message = (
+        "The number of neighbor pairs exceeds the maximum capacity of 30720 "
+        "\\(max_pairs_per_point=256; n_points=100\\). Consider reducing the "
+        "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
+        "an environment variable."
+    )
+    calculator = NeighborList(cutoff=4, full_list=True)
+    with pytest.raises(RuntimeError, match=message):
+        _ = calculator.compute(points, box, True, "ijSDd")
+
+    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "1000"
+    # This should now work without error
+    calculator = NeighborList(cutoff=4, full_list=True)
+    _ = calculator.compute(points, box, True, "ijSDd")
+
+    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "10"
+    message = (
+        "The number of neighbor pairs exceeds the maximum capacity of 1200 "
+        "\\(max_pairs_per_point=10; n_points=100\\). Consider reducing the "
+        "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
+        "an environment variable."
+    )
+    # error message should show the new value of VESIN_CUDA_MAX_PAIRS_PER_POINT
+    calculator = NeighborList(cutoff=4, full_list=True)
+    with pytest.raises(RuntimeError, match=message):
+        _ = calculator.compute(points, box, True, "ijSDd")
+
+    for invalid in ["-3", "44 ABC", "0", "-1", "1.5", ""]:
+        os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = invalid
+        message = f"Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '{invalid}'"
         calculator = NeighborList(cutoff=4, full_list=True)
-        i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
+        with pytest.raises(RuntimeError, match=message):
+            _ = calculator.compute(points, box, True, "ijSDd")
+
+    del os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"]

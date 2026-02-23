@@ -286,7 +286,6 @@ def test_dtype(dtype, device):
         device=device,
     )
 
-    # FIXME: this should work with cutoff=4, but crashes
     calculator = NeighborList(cutoff=1, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 

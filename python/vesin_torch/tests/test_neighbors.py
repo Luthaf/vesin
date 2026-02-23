@@ -125,7 +125,6 @@ def test_dtype(dtype, device):
     box = torch.eye(3, dtype=dtype, device=device) * 3.0
     points = torch.rand((100, 3), dtype=dtype, device=device) * 3.0
 
-    # FIXME: this should work with cutoff=4, but crashes
     calculator = NeighborList(cutoff=1, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 

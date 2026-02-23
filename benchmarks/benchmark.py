@@ -89,30 +89,6 @@ def matscipy_run(quantities, atoms, cutoff):
     return matscipy.neighbours.neighbour_list(quantities, atoms, cutoff)
 
 
-def setup_torch_nl_cpu(atoms, cutoff):
-    import torch
-    import torch_nl
-
-    pos, cell, pbc, batch, _ = torch_nl.ase2data([atoms], device=torch.device("cpu"))
-    return cutoff, pos, cell, pbc, batch
-
-
-def setup_torch_nl_cuda(atoms, cutoff):
-    import torch
-    import torch_nl
-
-    pos, cell, pbc, batch, _ = torch_nl.ase2data([atoms], device=torch.device("cuda"))
-    return cutoff, pos, cell, pbc, batch
-
-
-def torch_nl_run(cutoff, pos, cell, pbc, batch):
-    import torch_nl
-
-    return torch_nl.compute_neighborlist(
-        cutoff, pos, cell, pbc, batch, self_interaction=True
-    )
-
-
 def setup_nnpops_cpu(atoms, cutoff):
     import torch
 
@@ -242,8 +218,6 @@ n_atoms = {}
 ase_time = {}
 matscipy_time = {}
 sisl_time = {}
-torch_nl_cpu_time = {}
-torch_nl_cuda_time = {}
 nnpops_cpu_time = {}
 nnpops_cuda_time = {}
 pymatgen_time = {}
@@ -263,8 +237,6 @@ for cutoff in CUTOFFS:
     ase_time[cutoff] = []
     matscipy_time[cutoff] = []
     sisl_time[cutoff] = []
-    torch_nl_cpu_time[cutoff] = []
-    torch_nl_cuda_time[cutoff] = []
     nnpops_cpu_time[cutoff] = []
     nnpops_cuda_time[cutoff] = []
     pymatgen_time[cutoff] = []
@@ -307,26 +279,6 @@ for cutoff in CUTOFFS:
         )
         sisl_time[cutoff].append(timing * 1e3)
         print(f"   sisl took {timing * 1e3:.3f} ms")
-
-        # TORCH_NL CPU
-        timing = benchmark(
-            setup_torch_nl_cpu,
-            torch_nl_run,
-            super_cell,
-            cutoff,
-        )
-        torch_nl_cpu_time[cutoff].append(timing * 1e3)
-        print(f"   torch_nl (cpu) took {timing * 1e3:.3f} ms")
-
-        # TORCH_NL CUDA
-        timing = benchmark(
-            setup_torch_nl_cuda,
-            torch_nl_run,
-            super_cell,
-            cutoff,
-        )
-        torch_nl_cuda_time[cutoff].append(timing * 1e3)
-        print(f"   torch_nl (cuda) took {timing * 1e3:.3f} ms")
 
         if np.any(super_cell.cell.lengths() < 2 * cutoff):
             nnpops_cpu_time[cutoff].append(float("nan"))
@@ -399,8 +351,6 @@ for cutoff in CUTOFFS:
         "n_atoms": n_atoms[cutoff],
         "ase": ase_time[cutoff],
         "matscipy": matscipy_time[cutoff],
-        "torch_nl_cpu": torch_nl_cpu_time[cutoff],
-        "torch_nl_cuda": torch_nl_cuda_time[cutoff],
         "nnpops_cpu": nnpops_cpu_time[cutoff],
         "nnpops_cuda": nnpops_cuda_time[cutoff],
         "pymatgen": pymatgen_time[cutoff],

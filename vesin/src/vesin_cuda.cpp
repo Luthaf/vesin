@@ -336,8 +336,8 @@ void checkCuda() {
     std::string suggestion;
 #if defined(__linux__)
     cuda_libname = "libcuda.so";
-    cudart_libname = "libcudart.so";
-    nvrtc_libname = "libnvrtc.so";
+    cudart_libname = "libcudart.so(.*)";
+    nvrtc_libname = "libnvrtc.so(.*)";
     suggestion = ("Try appending the directory containing this library to "
                   "your $LD_LIBRARY_PATH environment variable.");
 

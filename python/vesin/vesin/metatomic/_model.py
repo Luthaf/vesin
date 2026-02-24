@@ -55,19 +55,9 @@ def compute_requested_neighbors(
             model, model.__class__.__name__, all_options, model_length_unit
         )
 
-    if not isinstance(systems, list):
-        systems = [systems]
-
-    for options in all_options:
-        calculator = NeighborList(
-            options,
-            system_length_unit,
-            check_consistency=check_consistency,
-        )
-
-        for system in systems:
-            neighbors = calculator.compute(system)
-            system.add_neighbor_list(options, neighbors)
+    _compute_requested_neighbors(
+        systems, all_options, system_length_unit, check_consistency
+    )
 
 
 def _get_requested_neighbor_lists(
@@ -109,3 +99,25 @@ def _get_requested_neighbor_lists(
             requested=requested,
             length_unit=length_unit,
         )
+
+
+def _compute_requested_neighbors(
+    systems: List[System],
+    all_options: List[NeighborListOptions],
+    system_length_unit: str,
+    check_consistency: bool,
+) -> None:
+
+    if not isinstance(systems, list):
+        systems = [systems]
+
+    for options in all_options:
+        calculator = NeighborList(
+            options,
+            system_length_unit,
+            check_consistency=check_consistency,
+        )
+
+        for system in systems:
+            neighbors = calculator.compute(system)
+            system.add_neighbor_list(options, neighbors)

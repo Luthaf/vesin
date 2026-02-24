@@ -23,6 +23,11 @@ def compute_requested_neighbors(
     ``requested_neighbor_lists()`` member functions, and store them inside all the
     ``systems``.
 
+    .. seealso::
+
+        :py:func:`vesin.metatomic.compute_requested_neighbors_from_options` which 
+        is compatible with TorchScript and can be used inside a model.
+
     :param systems: Single system or list of systems for which we need to compute the
         neighbor lists that the model requires.
     :param system_length_unit: unit of length used by the data in ``systems``

@@ -17,6 +17,22 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.1](https://github.com/Luthaf/vesin/releases/tag/v0.5.1) - 2026-02-24
+
+### Added
+
+- Added `vesin.metatomic.compute_requested_neighbors_from_options` to allow
+  computing all neighbor lists requested by a metatomic model in a
+  TorchScript-compatible way.
+
+### Changed
+
+- Users can control how much memory is allocated for the CUDA neighbor list with
+  the `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable.
+- We now also try to load `libcudart.so.{11,12,13}` if the code can not find
+  `libcudart.so` on Linux.
+
+
 ## [Version 0.5.0](https://github.com/Luthaf/vesin/releases/tag/v0.5.0) - 2026-02-19
 
 ### Added

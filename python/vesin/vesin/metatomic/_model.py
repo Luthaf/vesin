@@ -25,7 +25,7 @@ def compute_requested_neighbors(
 
     .. seealso::
 
-        :py:func:`vesin.metatomic.compute_requested_neighbors_from_options` which 
+        :py:func:`vesin.metatomic.compute_requested_neighbors_from_options` which
         is compatible with TorchScript and can be used inside a model.
 
     :param systems: Single system or list of systems for which we need to compute the

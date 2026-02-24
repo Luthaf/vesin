@@ -16,8 +16,11 @@ from metatomic.torch import (  # noqa: E402
     System,
 )
 
-from vesin.metatomic import NeighborList, compute_requested_neighbors  # noqa: E402
-from vesin.metatomic._model import _compute_requested_neighbors  # noqa: E402
+from vesin.metatomic import (  # noqa: E402
+    NeighborList,
+    compute_requested_neighbors,
+    compute_requested_neighbors_from_options,
+)
 
 
 def test_backward():
@@ -82,9 +85,9 @@ class NLModule(torch.nn.Module):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels],
     ) -> None:
-        _compute_requested_neighbors(
+        compute_requested_neighbors_from_options(
             systems=systems,
-            all_options=self.requested_neighbor_lists(),
+            options=self.requested_neighbor_lists(),
             system_length_unit="A",
             check_consistency=True,
         )

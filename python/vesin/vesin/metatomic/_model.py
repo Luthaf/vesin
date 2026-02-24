@@ -55,7 +55,7 @@ def compute_requested_neighbors(
             model, model.__class__.__name__, all_options, model_length_unit
         )
 
-    _compute_requested_neighbors(
+    compute_requested_neighbors_from_options(
         systems, all_options, system_length_unit, check_consistency
     )
 
@@ -101,23 +101,34 @@ def _get_requested_neighbor_lists(
         )
 
 
-def _compute_requested_neighbors(
+def compute_requested_neighbors_from_options(
     systems: List[System],
-    all_options: List[NeighborListOptions],
+    options: List[NeighborListOptions],
     system_length_unit: str,
     check_consistency: bool,
 ) -> None:
+    """
+    Compute all neighbors lists requested by the ``options``, and store them inside all
+    the ``systems``.
+
+    :param systems: list of systems for which we need to compute the
+        neighbor lists that required by the ``options``.
+    :param options: list of :py:class:`NeighborListOptions`
+    :param system_length_unit: unit of length used by the data in ``systems``
+    :param check_consistency: whether to run additional checks on the neighbor lists
+        validity
+    """
 
     if not isinstance(systems, list):
         systems = [systems]
 
-    for options in all_options:
+    for option in options:
         calculator = NeighborList(
-            options,
+            option,
             system_length_unit,
             check_consistency=check_consistency,
         )
 
         for system in systems:
             neighbors = calculator.compute(system)
-            system.add_neighbor_list(options, neighbors)
+            system.add_neighbor_list(option, neighbors)

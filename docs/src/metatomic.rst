@@ -8,5 +8,7 @@ Vesin offers an interface to compute neighbor lists for `metatomic's
 
 .. autofunction:: vesin.metatomic.compute_requested_neighbors
 
+.. autofunction:: vesin.metatomic.compute_requested_neighbors_from_options
+
 .. autoclass:: vesin.metatomic.NeighborList
     :members:

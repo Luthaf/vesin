@@ -123,7 +123,7 @@ class NeighborList:
         )
         P = torch.as_tensor(P, dtype=torch.int32)
         S = torch.as_tensor(S, dtype=torch.int32)
-        D = torch.as_tensor(D)
+        D = torch.as_tensor(D, dtype=points.dtype)
 
         self._components = self._components.to(device=D.device)
         self._properties = self._properties.to(device=D.device)

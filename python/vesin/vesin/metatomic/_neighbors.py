@@ -1,3 +1,5 @@
+from typing import List, Union
+
 import torch
 from metatensor.torch import Labels, TensorBlock
 from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
@@ -18,11 +20,11 @@ except ImportError:
             self,
             points: torch.Tensor,
             box: torch.Tensor,
-            periodic: bool,
+            periodic: Union[bool, torch.Tensor],
             quantities: str,
             copy: bool = True,
-        ):
-            pass
+        ) -> List[torch.Tensor]:
+            raise ValueError("torchscript=True requires `vesin-torch` as a dependency")
 
 
 class NeighborList:

@@ -275,11 +275,12 @@ class NeighborList:
         n_pairs = self._neighbors.length
 
         if n_pairs == 0:
-            # Empty results
+            # Empty results -- use initial_dtype for floating-point arrays so
+            # the caller gets the same dtype they passed in.
             pairs = empty_array_fn((0, 2), dtype=ctypes.c_size_t, device_like=points)
             shifts = empty_array_fn((0, 3), dtype=ctypes.c_int32, device_like=points)
-            distances = empty_array_fn((0,), dtype=ctypes.c_double, device_like=points)
-            vectors = empty_array_fn((0, 3), dtype=ctypes.c_double, device_like=points)
+            distances = empty_array_fn((0,), dtype=initial_dtype, device_like=points)
+            vectors = empty_array_fn((0, 3), dtype=initial_dtype, device_like=points)
         else:
             pairs = ptr_to_array_fn(
                 self._neighbors.pairs,
@@ -436,7 +437,8 @@ def _torch_to_dtype(array: "torch.Tensor", dtype) -> "torch.Tensor":
 
 
 def _torch_empty(shape, dtype, device_like) -> "torch.Tensor":
-    return torch.empty(size=shape, dtype=TORCH_DTYPES[dtype], device=device_like.device)
+    dtype = TORCH_DTYPES.get(dtype, dtype)
+    return torch.empty(size=shape, dtype=dtype, device=device_like.device)
 
 
 def _torch_get_ptr(array: "torch.Tensor", dtype) -> ("torch.Tensor", POINTER):

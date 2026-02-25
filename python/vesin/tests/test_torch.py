@@ -294,3 +294,20 @@ def test_dtype(dtype, device):
     assert s.dtype == torch.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("device", DEVICES)
+def test_dtype_empty_neighbors(dtype, device):
+    """Dtype must be preserved even when no pairs are found (n_pairs == 0)."""
+    box = torch.eye(3, dtype=dtype, device=device) * 10.0
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [5.0, 5.0, 5.0]], dtype=dtype, device=device
+    )
+
+    calculator = NeighborList(cutoff=0.1, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, False, "ijSDd")
+
+    assert len(i) == 0
+    assert D.dtype == dtype
+    assert d.dtype == dtype

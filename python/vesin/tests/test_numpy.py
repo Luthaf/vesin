@@ -184,3 +184,18 @@ def test_dtype(dtype):
     assert s.dtype == np.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_dtype_empty_neighbors(dtype):
+    """Dtype must be preserved even when no pairs are found (n_pairs == 0)."""
+    box = np.eye(3, dtype=dtype) * 10.0
+    # Two points far apart with a tiny cutoff: guaranteed 0 neighbors
+    points = np.array([[0.0, 0.0, 0.0], [5.0, 5.0, 5.0]], dtype=dtype)
+
+    calculator = NeighborList(cutoff=0.1, full_list=True)
+    i, j, s, D, d = calculator.compute(points, box, False, "ijSDd")
+
+    assert len(i) == 0
+    assert D.dtype == dtype
+    assert d.dtype == dtype

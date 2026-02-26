@@ -17,6 +17,13 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.2](https://github.com/Luthaf/vesin/releases/tag/v0.5.2) - 2026-02-26
+
+### Fixed
+
+- The results are now returned with the same dtype as the input even when
+  we return an empty neighbor list
+
 ## [Version 0.5.1](https://github.com/Luthaf/vesin/releases/tag/v0.5.1) - 2026-02-24
 
 ### Added

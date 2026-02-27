@@ -1,9 +1,7 @@
 FROM docker://nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
 ENV CUDA_HOME="/usr/local/cuda"
-
-# torch.jit.script not supported in Python 3.14+
-ENV UV_PYTHON_VERSION="3.13"
+ENV UV_PYTHON_VERSION="3.14"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

@@ -480,6 +480,10 @@ def _get_cudart():
         candidates += glob.glob("/usr/local/cuda*/lib64/libcudart.so*")
         candidates += glob.glob("/usr/lib*/cuda*/lib64/libcudart.so*")
 
+        # look through LD_LIBRARY_PATH
+        for p in os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep):
+            candidates += glob.glob(os.path.join(p, "libcudart.so*"))
+
     # unique, non-empty
     candidates = [c for c in set(candidates) if c and os.path.isfile(c)]
 
@@ -494,9 +498,10 @@ def _get_cudart():
 
     if CUDART is None:
         raise RuntimeError(
-            "Could not find cudart library, please make sure it is available or "
-            "install cupy. On Windows ensure CUDA_PATH is set or cudart64_*.dll is "
-            "on PATH."
+            "Could not find cudart library, make sure it is available or "
+            "install cupy. On Linux, libcudart.so.* should be in a standard location "
+            "or in $LD_LIBRARY_PATH. On Windows %CUDA_PATH% should be set or "
+            "cudart64_*.dll should be in the %PATH%."
         ) from last_err
 
     CUDART.cudaMemcpy.argtypes = [

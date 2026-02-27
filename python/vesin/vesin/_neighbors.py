@@ -1,5 +1,4 @@
 import ctypes
-import glob
 import os
 import sys
 from ctypes import POINTER
@@ -446,6 +445,80 @@ def _torch_get_ptr(array: "torch.Tensor", dtype) -> ("torch.Tensor", POINTER):
     return array, ctypes.cast(ctypes.c_void_p(array.data_ptr()), POINTER(dtype))
 
 
+def _list_shared_libraries():
+    """
+    Return a list of paths to shared libraries loaded by the current process.
+    Supports Linux (reads /proc/self/maps) and Windows (EnumProcessModules).
+    """
+    import ctypes.util
+
+    # on Python 3.14+, we can use ctypes.util.dllist() which is cross-platform and more
+    # robust, but for older versions we need to do it manually
+    if hasattr(ctypes.util, "dllist"):
+        return ctypes.util.dllist()
+
+    if sys.platform.startswith("linux"):
+        import re
+
+        libs = set()
+        try:
+            with open("/proc/self/maps", "rb") as f:
+                maps = f.read()
+            matches = re.findall(rb"(/[^\s]+\.so[^\s]*)", maps)
+            for m in matches:
+                path = m.split(b" (deleted)")[0].decode(errors="replace")
+                if os.path.exists(path):
+                    libs.add(path)
+        except Exception:
+            pass
+        return list(libs)
+
+    elif sys.platform.startswith("win"):
+        from ctypes import byref, create_string_buffer, sizeof, windll, wintypes
+
+        psapi = windll.psapi
+        kernel32 = windll.kernel32
+
+        hProcess = kernel32.GetCurrentProcess()
+        # prepare buffer for module handles
+        arr_count = 1024
+        HMODULE_ARR = wintypes.HMODULE * arr_count
+        arr = HMODULE_ARR()
+        needed = wintypes.DWORD()
+
+        if not psapi.EnumProcessModules(hProcess, arr, sizeof(arr), byref(needed)):
+            return []
+
+        count = int(needed.value // sizeof(wintypes.HMODULE))
+        if count > arr_count:
+            # retry with larger buffer
+            arr_count = count
+            HMODULE_ARR = wintypes.HMODULE * arr_count
+            arr = HMODULE_ARR()
+            if not psapi.EnumProcessModules(hProcess, arr, sizeof(arr), byref(needed)):
+                return []
+
+        results = []
+        buf = create_string_buffer(260)
+        GetModuleFileNameExA = psapi.GetModuleFileNameExA
+        GetModuleFileNameExA.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HMODULE,
+            wintypes.LPSTR,
+            wintypes.DWORD,
+        ]
+        for i in range(count):
+            hmod = arr[i]
+            buf.raw = b"\x00" * len(buf)
+            if GetModuleFileNameExA(hProcess, hmod, buf, sizeof(buf)):
+                results.append(buf.value.decode(errors="replace"))
+        # remove empty/duplicate entries
+        return list(set(p for p in results if p))
+
+    else:
+        raise NotImplementedError("Platform not supported")
+
+
 CUDART = None
 
 
@@ -454,49 +527,21 @@ def _get_cudart():
     if CUDART is not None:
         return CUDART
 
-    import ctypes.util
-
-    # try ctypes.util.find_library first
-    cudart_path = ctypes.util.find_library("cudart")
-    candidates = [cudart_path] if cudart_path else []
-
-    # platform-specific fallbacks
-    if sys.platform.startswith("win"):
-        # common env vars and locations on Windows
-        cuda_paths = []
-        if "CUDA_PATH" in os.environ:
-            cuda_paths.append(os.environ["CUDA_PATH"])
-        if "CUDA_HOME" in os.environ:
-            cuda_paths.append(os.environ["CUDA_HOME"])
-        # look for typical cudart DLL names under bin/lib
-        for cp in cuda_paths:
-            candidates += glob.glob(os.path.join(cp, "bin", "cudart64_*.dll"))
-            candidates += glob.glob(os.path.join(cp, "lib", "x64", "cudart64_*.dll"))
-        # search directories on PATH
-        for p in os.environ.get("PATH", "").split(os.pathsep):
-            candidates += glob.glob(os.path.join(p, "cudart64_*.dll"))
-    else:
-        # linux: common install locations
-        candidates += glob.glob("/usr/local/cuda*/lib64/libcudart.so*")
-        candidates += glob.glob("/usr/lib*/cuda*/lib64/libcudart.so*")
-
-    # unique, non-empty
-    candidates = [c for c in set(candidates) if c and os.path.isfile(c)]
+    loaded = _list_shared_libraries()
 
     last_err = None
-    for path in candidates:
-        try:
-            CUDART = ctypes.CDLL(path)
-            break
-        except Exception as e:
-            last_err = e
-            continue
+    for lib in loaded:
+        if os.path.basename(lib).find("cudart") != -1:
+            try:
+                CUDART = ctypes.CDLL(lib)
+            except Exception as e:
+                last_err = e
+                continue
 
     if CUDART is None:
         raise RuntimeError(
-            "Could not find cudart library, please make sure it is available or "
-            "install cupy. On Windows ensure CUDA_PATH is set or cudart64_*.dll is "
-            "on PATH."
+            "Could not find cudart library, how are you running vesin on CUDA without "
+            f"it? Searched the following libraries:\n{' '.join(loaded)}"
         ) from last_err
 
     CUDART.cudaMemcpy.argtypes = [

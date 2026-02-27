@@ -59,3 +59,9 @@ def setup_functions(lib):
         POINTER(ctypes.c_char_p),  # error_message
     ]
     lib.vesin_neighbors.restype = ctypes.c_int
+
+    lib.vesin_list_libraries.argtypes = [
+        POINTER(ctypes.c_char_p),  # libraries
+        POINTER(ctypes.c_size_t),  # libraries_count
+    ]
+    lib.vesin_list_libraries.restype = None

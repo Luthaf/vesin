@@ -52,6 +52,7 @@ class cmake_ext(build_ext):
         os.makedirs(build_dir, exist_ok=True)
 
         cmake_options = [
+            "-DBUILD_VESIN_FOR_PYTHON=ON",
             f"-DCMAKE_INSTALL_PREFIX={install_dir}",
             f"-DCMAKE_BUILD_TYPE={VESIN_BUILD_TYPE}",
             "-DBUILD_SHARED_LIBS=ON",

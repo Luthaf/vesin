@@ -66,6 +66,10 @@ set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
 )
 
+if (BUILD_VESIN_FOR_PYTHON)
+    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/shared_libraries.cpp)
+endif()
+
 # create two targets: `vesin` is the main one, while `vesin_objects` will
 # be used by language bindings to embed vesin inside another (SHARED) library
 add_library(vesin ${VESIN_SOURCES})

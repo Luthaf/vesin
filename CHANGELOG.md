@@ -17,6 +17,13 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.3](https://github.com/Luthaf/vesin/releases/tag/v0.5.3) - 2026-03-10
+
+### Fixed
+
+- We now use the same cudart library from Python and C++ when using torch
+  tensors with `vesin.NeighborList`.
+
 ## [Version 0.5.2](https://github.com/Luthaf/vesin/releases/tag/v0.5.2) - 2026-02-26
 
 ### Fixed

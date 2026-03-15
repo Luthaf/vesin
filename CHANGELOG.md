@@ -6,16 +6,16 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 
 ## [Unreleased](https://github.com/luthaf/vesin/)
 
-<!-- Possible sections for each package:
-
 ### Added
 
-### Fixed
-
-### Changed
-
-### Removed
--->
+- Added `skin` parameter to `VesinOptions`. Setting `options.skin > 0` enables
+  displacement-based Verlet caching in `vesin_neighbors()`. The neighbor list
+  searches with `cutoff + skin`, caches the pair topology, and reuses it until
+  any atom displaces by more than `skin / 2`. This provides 2-4x speedup for
+  MD simulations by avoiding redundant spatial searches.
+- Added `skin` parameter to Python `NeighborList` and Fortran `NeighborList`
+  constructors for Verlet caching.
+- Added `verlet_mode` field to `VesinNeighborList` to track Verlet state.
 
 ## [Version 0.5.3](https://github.com/Luthaf/vesin/releases/tag/v0.5.3) - 2026-03-10
 

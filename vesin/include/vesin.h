@@ -64,6 +64,12 @@ struct VesinOptions {
     bool return_distances;
     /// Should the returned `VesinNeighborList` contain `vector`?
     bool return_vectors;
+
+    /// Skin size for Verlet caching. If > 0, enables displacement-based caching.
+    /// The neighbor list will use cutoff + skin for the spatial search, and
+    /// reuse the cached topology until any atom displaces by more than skin/2.
+    /// Default: 0.0 (disabled, stateless behavior)
+    double skin;
 };
 
 /// Device on which the data can be
@@ -123,7 +129,8 @@ struct VESIN_API VesinNeighborList {
         pairs(nullptr),
         shifts(nullptr),
         distances(nullptr),
-        vectors(nullptr) {}
+        vectors(nullptr),
+        verlet_mode(false) {}
 #endif
 
     /// Number of pairs in this neighbor list
@@ -145,8 +152,13 @@ struct VESIN_API VesinNeighborList {
     /// during the calculation.
     double (*vectors)[3];
 
-    /// Private pointer used to hold additional internal data
+    /// Private pointer used to hold additional internal data.
+    /// When verlet_mode is true, this is a VerletState*.
     void* opaque = nullptr;
+
+    /// Internal flag indicating Verlet caching is active.
+    /// When true, opaque points to VerletState.
+    bool verlet_mode = false;
 
     // TODO: custom memory allocators?
 };

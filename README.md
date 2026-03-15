@@ -52,6 +52,18 @@ i, j, S, d = calculator.compute(
 )
 ```
 
+For MD simulations, enable Verlet caching with `skin > 0` to avoid redundant
+spatial searches. The cached topology is reused until any atom moves more than
+`skin / 2`:
+
+```py
+# Verlet caching for MD simulations (2-4x speedup)
+calculator = NeighborList(cutoff=4.2, full_list=True, skin=0.5)
+for step in range(n_steps):
+    i, j, S, d = calculator.compute(positions, box, periodic=True, quantities="ijSd")
+    # ... update positions ...
+```
+
 We also provide a function with drop-in compatibility to ASE's neighbor list:
 
 ```py

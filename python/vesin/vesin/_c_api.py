@@ -29,6 +29,7 @@ class VesinOptions(ctypes.Structure):
         ("return_shifts", ctypes.c_bool),
         ("return_distances", ctypes.c_bool),
         ("return_vectors", ctypes.c_bool),
+        ("skin", ctypes.c_double),
     ]
 
 
@@ -41,6 +42,7 @@ class VesinNeighborList(ctypes.Structure):
         ("distances", POINTER(ctypes.c_double)),
         ("vectors", POINTER(ARRAY(ctypes.c_double, 3))),
         ("opaque", ctypes.c_void_p),
+        ("verlet_mode", ctypes.c_bool),
     ]
 
 

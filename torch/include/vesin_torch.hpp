@@ -77,6 +77,15 @@ public:
         bool copy = true
     );
 
+    /// Get the cutoff radius of the neighbor list
+    double cutoff() const { return cutoff_; }
+    /// Get whether pairs should be included twice in the output
+    bool full_list() const { return full_list_; }
+    /// Get whether pairs should be sorted in the output
+    bool sorted() const { return sorted_; }
+    /// Get the algorithm used for neighbor list calculation
+    std::string algorithm() const { return algorithm_; }
+
 private:
     double cutoff_;
     bool full_list_;

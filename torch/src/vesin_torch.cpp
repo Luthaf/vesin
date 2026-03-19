@@ -324,7 +324,27 @@ TORCH_LIBRARY(vesin, m) {
             torch::arg("quantities"),
             torch::arg("copy") = true
         })
-        ;
+        .def_pickle(
+            [](const c10::intrusive_ptr<NeighborListHolder>& self)
+                -> c10::Dict<std::string, c10::IValue> {
+                c10::impl::GenericDict dict(c10::StringType::get(), c10::AnyType::get());
+                dict.insert("cutoff", self->cutoff());
+                dict.insert("full_list", self->full_list());
+                dict.insert("sorted", self->sorted());
+                dict.insert("algorithm", self->algorithm());
+
+                return c10::impl::toTypedDict<std::string, c10::IValue>(std::move(dict));
+            },
+            [](c10::Dict<std::string, c10::IValue> data)
+                -> c10::intrusive_ptr<NeighborListHolder> {
+                return c10::make_intrusive<NeighborListHolder>(
+                    data.at("cutoff").toDouble(),
+                    data.at("full_list").toBool(),
+                    data.at("sorted").toBool(),
+                    data.at("algorithm").toStringRef()
+                );
+            }
+        );
     // clang-format on
 }
 

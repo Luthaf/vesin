@@ -600,6 +600,17 @@ void vesin::cuda::neighbors(
     double min_box_dim = std::min({h_box_diag[0], h_box_diag[1], h_box_diag[2]});
     bool cutoff_requires_cell_list = options.cutoff > min_box_dim / 2.0;
 
+    bool h_periodic[3];
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+        h_periodic,
+        d_periodic,
+        sizeof(bool) * 3,
+        cudaMemcpyDeviceToHost
+    ));
+
+    bool any_periodic = h_periodic[0] || h_periodic[1] || h_periodic[2];
+
+
     bool use_cell_list;
     switch (options.algorithm) {
     case VesinBruteForce:
@@ -614,7 +625,9 @@ void vesin::cuda::neighbors(
     case VesinAutoAlgorithm:
     default:
         // Use cell list if cutoff > half box size, or for large/non-orthogonal systems
-        use_cell_list = cutoff_requires_cell_list || !is_orthogonal || n_points >= 5000;
+        use_cell_list = (cutoff_requires_cell_list || !is_orthogonal || n_points >= 5000) 
+        // One must have a cell first, then one can use the cell list
+                && any_periodic;
         break;
     }
 

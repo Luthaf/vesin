@@ -2,9 +2,16 @@
 #include <iostream>
 #include <string>
 
+#include "cluster.hpp"
 #include "cpu_cell_list.hpp"
 #include "vesin.h"
 #include "vesin_cuda.hpp"
+
+/// Threshold for switching from cell-list to cluster-pair search.
+/// This is an internal auto-dispatch parameter, not exposed in the C API
+/// (VesinAlgorithm only has Auto, BruteForce, CellList). Cluster-pair is
+/// selected automatically when N >= this threshold and algorithm is Auto.
+#define CLUSTER_PAIR_THRESHOLD 64
 
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user
@@ -75,13 +82,26 @@ extern "C" int vesin_neighbors(
                 {{box[2][0], box[2][1], box[2][2]}},
             }}};
 
-            vesin::cpu::neighbors(
-                reinterpret_cast<const vesin::Vector*>(points),
-                n_points,
-                vesin::BoundingBox(matrix, periodic),
-                options,
-                *neighbors
-            );
+            auto bounding_box = vesin::BoundingBox(matrix, periodic);
+            auto points_vec = reinterpret_cast<const vesin::Vector*>(points);
+
+            if (options.algorithm == VesinAutoAlgorithm && n_points >= CLUSTER_PAIR_THRESHOLD) {
+                vesin::cpu::cluster_pair_neighbors(
+                    points_vec,
+                    n_points,
+                    bounding_box,
+                    options,
+                    *neighbors
+                );
+            } else {
+                vesin::cpu::neighbors(
+                    points_vec,
+                    n_points,
+                    bounding_box,
+                    options,
+                    *neighbors
+                );
+            }
         } else if (device.type == VesinCUDA) {
             vesin::cuda::neighbors(
                 points,

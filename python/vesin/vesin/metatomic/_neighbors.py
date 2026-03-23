@@ -142,6 +142,7 @@ class NeighborList:
                     "cell_shift_c",
                 ],
                 values=torch.hstack([P, S]),
+                assume_unique=True,
             ),
             components=[self._components],
             properties=self._properties,

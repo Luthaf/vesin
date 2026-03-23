@@ -11,7 +11,7 @@
 /// This is an internal auto-dispatch parameter, not exposed in the C API
 /// (VesinAlgorithm only has Auto, BruteForce, CellList). Cluster-pair is
 /// selected automatically when N >= this threshold and algorithm is Auto.
-#define CLUSTER_PAIR_THRESHOLD 64
+#define CLUSTER_PAIR_THRESHOLD 256
 
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user

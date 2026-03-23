@@ -11,15 +11,25 @@
 
 namespace vesin {
 
-/// Size of a cluster on CPU (maps to SIMD width for 4-wide float ops)
-static constexpr int32_t CLUSTER_SIZE_CPU = 4;
+/// Size of a cluster on CPU. 8 atoms maps well to AVX2 (4 doubles) with
+/// a 2-iteration inner loop, and degrades gracefully to SSE (2 doubles,
+/// 4 iterations) or AVX-512 (8 doubles, 1 iteration).
+static constexpr int32_t CLUSTER_SIZE_CPU = 8;
 
-/// A cluster of up to CLUSTER_SIZE_CPU atoms with a bounding box.
+/// A cluster of up to CLUSTER_SIZE_CPU atoms with a bounding box and
+/// SoA position data for SIMD distance calculations.
 struct Cluster {
     int32_t atom_indices[CLUSTER_SIZE_CPU];
     int32_t n_atoms;      // actual count (<= CLUSTER_SIZE_CPU)
     float bb_lower[3];    // bounding box min (float for SIMD efficiency)
     float bb_upper[3];    // bounding box max
+
+    // SoA (Structure of Arrays) wrapped positions for SIMD loads.
+    // These store the atom positions after subtracting the wrap shift,
+    // matching the coordinate space used for BB tests.
+    alignas(64) double pos_x[CLUSTER_SIZE_CPU];
+    alignas(64) double pos_y[CLUSTER_SIZE_CPU];
+    alignas(64) double pos_z[CLUSTER_SIZE_CPU];
 };
 
 /// Grid of clusters organized in 3D cells.
@@ -38,6 +48,11 @@ struct ClusterGrid {
     // outside [0, n_cells), it is wrapped into the grid and the integer
     // shift is recorded here. Indexed by original atom index.
     std::vector<CellShift> atom_wrap_shifts;
+
+    // Precomputed wrapped positions for all atoms: points[i] minus
+    // wrap_shift[i].cartesian(cell_matrix). Indexed by original atom
+    // index. Used to avoid per-pair matrix multiply in the inner loop.
+    std::vector<Vector> wrapped_positions;
 };
 
 /// Build a cluster grid from atom positions.
@@ -47,6 +62,7 @@ struct ClusterGrid {
 /// 2. Assign atoms to grid cells (fractional coordinate binning)
 /// 3. Within each cell, sort atoms by z coordinate, group into clusters
 /// 4. Compute cluster bounding boxes (AABB)
+/// 5. Fill SoA position arrays for SIMD
 ClusterGrid build_cluster_grid(
     const Vector* points,
     size_t n_points,
@@ -93,7 +109,8 @@ inline float bb_distance_sq_shifted(
 
 namespace cpu {
 
-/// Cluster-pair neighbor search. Replaces cell_list for N >= 64.
+/// Cluster-pair neighbor search with SIMD distance calculations.
+/// Replaces cell_list for N >= CLUSTER_PAIR_THRESHOLD.
 ///
 /// Output format is identical to the cell-list path: per-atom pairs with
 /// optional shifts, distances, and vectors in VesinNeighborList.

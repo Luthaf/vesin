@@ -7,6 +7,8 @@
 #include <numeric>
 #include <vector>
 
+#include "hwy/highway.h"
+
 #include "cluster.hpp"
 #include "cpu_cell_list.hpp"
 
@@ -108,6 +110,14 @@ ClusterGrid vesin::build_cluster_grid(
         assignments[i] = {i, linear, shift, static_cast<float>(fractional[2])};
     }
 
+    // Precompute wrapped positions for all atoms (avoids per-pair
+    // matrix multiply in the inner loop).
+    grid.wrapped_positions.resize(n_points);
+    for (size_t i = 0; i < n_points; i++) {
+        grid.wrapped_positions[i] = points[i]
+            - grid.atom_wrap_shifts[i].cartesian(cell_matrix);
+    }
+
     // Count atoms per cell
     std::vector<int32_t> cell_counts(total_cells, 0);
     for (auto& a : assignments) {
@@ -144,14 +154,23 @@ ClusterGrid vesin::build_cluster_grid(
                 cl.bb_upper[d] = -std::numeric_limits<float>::max();
             }
 
+            // Initialize SoA arrays to zero (padding slots get large
+            // distance, preventing false matches)
+            std::memset(cl.pos_x, 0, sizeof(cl.pos_x));
+            std::memset(cl.pos_y, 0, sizeof(cl.pos_y));
+            std::memset(cl.pos_z, 0, sizeof(cl.pos_z));
+
             for (int32_t k = 0; k < cl.n_atoms; k++) {
                 size_t idx = cell_start + offset + k;
                 auto atom_idx = assignments[idx].atom_index;
                 cl.atom_indices[k] = static_cast<int32_t>(atom_idx);
 
-                // Use wrapped position for BB (subtract wrap_shift)
-                auto wrapped = points[atom_idx]
-                    - grid.atom_wrap_shifts[atom_idx].cartesian(cell_matrix);
+                // Use precomputed wrapped position
+                const auto& wrapped = grid.wrapped_positions[atom_idx];
+                cl.pos_x[k] = wrapped[0];
+                cl.pos_y[k] = wrapped[1];
+                cl.pos_z[k] = wrapped[2];
+
                 for (int d = 0; d < 3; d++) {
                     float p = static_cast<float>(wrapped[d]);
                     cl.bb_lower[d] = std::min(cl.bb_lower[d], p);
@@ -159,9 +178,13 @@ ClusterGrid vesin::build_cluster_grid(
                 }
             }
 
-            // Pad unused indices with -1
+            // Pad unused slots: set positions to huge value so distance
+            // check always fails, and indices to -1.
             for (int32_t k = cl.n_atoms; k < CLUSTER_SIZE_CPU; k++) {
                 cl.atom_indices[k] = -1;
+                cl.pos_x[k] = 1e30;
+                cl.pos_y[k] = 1e30;
+                cl.pos_z[k] = 1e30;
             }
 
             grid.clusters.push_back(cl);
@@ -173,6 +196,80 @@ ClusterGrid vesin::build_cluster_grid(
 
     return grid;
 }
+
+// ---------------------------------------------------------------------------
+// SIMD inner loop using Google Highway
+// ---------------------------------------------------------------------------
+
+namespace {
+namespace hn = hwy::HWY_NAMESPACE;
+
+/// Process one atom i against all atoms in cluster j using SIMD.
+/// Returns the number of pairs found (written into the output arrays).
+///
+/// The output arrays must have room for CLUSTER_SIZE_CPU entries.
+/// This function writes (idx_j, distance2, vector) for each hit.
+HWY_ATTR
+static int simd_check_distances(
+    double i_x, double i_y, double i_z,
+    double shift_x, double shift_y, double shift_z,
+    const double* HWY_RESTRICT j_x,
+    const double* HWY_RESTRICT j_y,
+    const double* HWY_RESTRICT j_z,
+    double cutoff2,
+    // output arrays (caller provides space for CLUSTER_SIZE_CPU)
+    double* HWY_RESTRICT out_dist2,
+    double* HWY_RESTRICT out_dx,
+    double* HWY_RESTRICT out_dy,
+    double* HWY_RESTRICT out_dz,
+    uint8_t* HWY_RESTRICT out_mask
+) {
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    // Broadcast i position (already includes shift subtraction)
+    const auto vi_x = hn::Set(d, i_x - shift_x);
+    const auto vi_y = hn::Set(d, i_y - shift_y);
+    const auto vi_z = hn::Set(d, i_z - shift_z);
+    const auto vcut2 = hn::Set(d, cutoff2);
+
+    int count = 0;
+
+    for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane += N) {
+        // Load j positions (contiguous, aligned)
+        auto vj_x = hn::Load(d, j_x + lane);
+        auto vj_y = hn::Load(d, j_y + lane);
+        auto vj_z = hn::Load(d, j_z + lane);
+
+        // vector = j - (i - shift) = j - i + shift
+        auto dx = hn::Sub(vj_x, vi_x);
+        auto dy = hn::Sub(vj_y, vi_y);
+        auto dz = hn::Sub(vj_z, vi_z);
+
+        // dist2 = dx*dx + dy*dy + dz*dz
+        auto dist2 = hn::MulAdd(dx, dx, hn::MulAdd(dy, dy, hn::Mul(dz, dz)));
+
+        // mask: dist2 < cutoff2
+        auto mask = hn::Lt(dist2, vcut2);
+
+        // Store results for all lanes, caller filters by mask
+        hn::Store(dist2, d, out_dist2 + lane);
+        hn::Store(dx, d, out_dx + lane);
+        hn::Store(dy, d, out_dy + lane);
+        hn::Store(dz, d, out_dz + lane);
+
+        // Store mask as bits
+        uint8_t bits_buf[8] = {};
+        hn::StoreMaskBits(d, mask, bits_buf);
+        uint8_t bits = bits_buf[0];
+        for (size_t k = 0; k < N && (lane + k) < CLUSTER_SIZE_CPU; k++) {
+            out_mask[lane + k] = (bits >> k) & 1;
+            count += out_mask[lane + k];
+        }
+    }
+    return count;
+}
+} // anonymous namespace
 
 void vesin::cpu::cluster_pair_neighbors(
     const Vector* points,
@@ -203,6 +300,13 @@ void vesin::cpu::cluster_pair_neighbors(
         if (n_search[d] < 1) n_search[d] = 1;
         if (grid.n_cells[d] == 1 && !cell.periodic(d)) n_search[d] = 0;
     }
+
+    // Scratch arrays for SIMD output (stack-allocated, reused per atom i)
+    alignas(64) double tmp_dist2[CLUSTER_SIZE_CPU];
+    alignas(64) double tmp_dx[CLUSTER_SIZE_CPU];
+    alignas(64) double tmp_dy[CLUSTER_SIZE_CPU];
+    alignas(64) double tmp_dz[CLUSTER_SIZE_CPU];
+    uint8_t tmp_mask[CLUSTER_SIZE_CPU];
 
     // Iterate over all cells
     for (int32_t cz = 0; cz < grid.n_cells[2]; cz++) {
@@ -242,7 +346,12 @@ void vesin::cpu::cluster_pair_neighbors(
 
             auto cell_shift_base = CellShift{{sx, sy, sz}};
 
-            // Compute Cartesian shift once per cell-pair for BB test
+            // Precompute Cartesian shift for the cell pair. This is
+            // used both for the BB test (float) and for the SIMD
+            // distance calculation (double). Since wrapped positions
+            // already have wrap_shift removed, the cell_shift_base
+            // Cartesian offset is the only shift needed for the
+            // vector calculation.
             auto shift_cart = cell_shift_base.cartesian(cell_matrix);
             float shift_f[3] = {
                 static_cast<float>(shift_cart[0]),
@@ -256,10 +365,7 @@ void vesin::cpu::cluster_pair_neighbors(
                 for (int32_t cj = cj_start; cj < cj_end; cj++) {
                     const auto& cluster_j = grid.clusters[cj];
 
-                    // BB distance test with shift (fast reject for all
-                    // cell pairs, including periodic images). When shift
-                    // is zero, shift_f is {0,0,0} so this is equivalent
-                    // to the unshifted test.
+                    // BB distance test with shift
                     float bb_dist = bb_distance_sq_shifted(
                         cluster_i, cluster_j, shift_f
                     );
@@ -267,26 +373,48 @@ void vesin::cpu::cluster_pair_neighbors(
                         continue;
                     }
 
-                    // Expand to atom pairs
+                    // SIMD atom-pair expansion: for each atom i,
+                    // check all atoms j in cluster_j via SIMD.
                     for (int32_t ai = 0; ai < cluster_i.n_atoms; ai++) {
-                        size_t idx_i = cluster_i.atom_indices[ai];
-                        for (int32_t aj = 0; aj < cluster_j.n_atoms; aj++) {
-                            size_t idx_j = cluster_j.atom_indices[aj];
+                        int32_t idx_i = cluster_i.atom_indices[ai];
 
-                            // Correct shift for atom wrapping (same
-                            // convention as cell-list: shift = cell_shift
-                            // + wrap_i - wrap_j).
+                        // Use wrapped positions: the vector between
+                        // wrapped[j] and (wrapped[i] - shift_cart)
+                        // gives the correct displacement.
+                        simd_check_distances(
+                            cluster_i.pos_x[ai],
+                            cluster_i.pos_y[ai],
+                            cluster_i.pos_z[ai],
+                            shift_cart[0], shift_cart[1], shift_cart[2],
+                            cluster_j.pos_x,
+                            cluster_j.pos_y,
+                            cluster_j.pos_z,
+                            cutoff2,
+                            tmp_dist2, tmp_dx, tmp_dy, tmp_dz, tmp_mask
+                        );
+
+                        // Process hits from the SIMD pass
+                        for (int32_t aj = 0; aj < cluster_j.n_atoms; aj++) {
+                            if (!tmp_mask[aj]) continue;
+
+                            int32_t idx_j = cluster_j.atom_indices[aj];
+
+                            // Compute per-atom shift incorporating
+                            // wrap corrections (same convention as
+                            // cell-list: shift = cell_shift + wrap_i
+                            // - wrap_j).
                             auto shift = cell_shift_base
                                 + grid.atom_wrap_shifts[idx_i]
                                 - grid.atom_wrap_shifts[idx_j];
-                            bool shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
+                            bool shift_is_zero = shift[0] == 0
+                                && shift[1] == 0 && shift[2] == 0;
 
                             if (idx_i == idx_j && shift_is_zero) {
                                 continue;
                             }
 
                             if (!options.full) {
-                                if (idx_i > idx_j) continue;
+                                if (static_cast<size_t>(idx_i) > static_cast<size_t>(idx_j)) continue;
                                 if (idx_i == idx_j) {
                                     if (shift[0] + shift[1] + shift[2] < 0) continue;
                                     if ((shift[0] + shift[1] + shift[2] == 0) &&
@@ -296,23 +424,33 @@ void vesin::cpu::cluster_pair_neighbors(
                                 }
                             }
 
-                            auto vector = points[idx_j] - points[idx_i] + shift.cartesian(cell_matrix);
-                            auto distance2 = vector.dot(vector);
+                            // The SIMD pass already computed the
+                            // vector and distance2 using wrapped
+                            // positions + cell shift. These are
+                            // numerically identical to
+                            //   points[j] - points[i] + shift.cartesian(cell_matrix)
+                            // because wrapped[k] = points[k] - wrap[k].cart(M)
+                            // and shift = cell_shift + wrap_i - wrap_j.
+                            auto distance2 = tmp_dist2[aj];
 
-                            if (distance2 < cutoff2) {
-                                auto index = neighbors.length();
-                                neighbors.set_pair(index, idx_i, idx_j);
-                                if (options.return_shifts) {
-                                    neighbors.set_shift(index, shift);
-                                }
-                                if (options.return_distances) {
-                                    neighbors.set_distance(index, std::sqrt(distance2));
-                                }
-                                if (options.return_vectors) {
-                                    neighbors.set_vector(index, vector);
-                                }
-                                neighbors.increment_length();
+                            auto index = neighbors.length();
+                            neighbors.set_pair(index,
+                                static_cast<size_t>(idx_i),
+                                static_cast<size_t>(idx_j));
+
+                            if (options.return_shifts) {
+                                neighbors.set_shift(index, shift);
                             }
+                            if (options.return_distances) {
+                                neighbors.set_distance(index, std::sqrt(distance2));
+                            }
+                            if (options.return_vectors) {
+                                auto vector = Vector{
+                                    tmp_dx[aj], tmp_dy[aj], tmp_dz[aj]
+                                };
+                                neighbors.set_vector(index, vector);
+                            }
+                            neighbors.increment_length();
                         }
                     }
                 }

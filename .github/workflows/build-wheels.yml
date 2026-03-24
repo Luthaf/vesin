@@ -66,6 +66,9 @@ jobs:
           CIBW_BUILD_FRONTEND: build
           CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux2014_x86_64
           CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux2014_aarch64
+          # maybe?
+          CIBW_ENVIRONMENT: >
+            MACOSX_DEPLOYMENT_TARGET=11
 
       - name: check wheels with twine
         run: twine check wheelhouse/*

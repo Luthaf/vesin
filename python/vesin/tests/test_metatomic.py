@@ -20,6 +20,7 @@ from vesin.metatomic import (  # noqa: E402
     NeighborList,
     compute_requested_neighbors,
     compute_requested_neighbors_from_options,
+    neighbor_lists_for_model,
 )
 
 
@@ -107,13 +108,19 @@ def test_model():
 
     # Using a "raw" model
     model = OuterModule()
-    compute_requested_neighbors(
-        systems=systems,
-        system_length_unit="A",
-        model=model,
-        model_length_unit="A",
-        check_consistency=True,
+    message = (
+        "`compute_requested_neighbors` is deprecated and will be removed in a future "
+        "version. Please use `neighbor_lists_for_model` to get the calculators and "
+        "call them directly."
     )
+    with pytest.warns(UserWarning, match=message):
+        compute_requested_neighbors(
+            systems=systems,
+            system_length_unit="A",
+            model=model,
+            model_length_unit="A",
+            check_consistency=True,
+        )
 
     for system in systems:
         all_options = system.known_neighbor_lists()
@@ -131,11 +138,12 @@ def test_model():
         dtype="float64",
     )
     model = AtomisticModel(model.eval(), ModelMetadata(), capabilities)
-    compute_requested_neighbors(
-        systems=System(positions=positions, cell=cell, pbc=pbc, types=types),
-        system_length_unit="A",
-        model=model,
-    )
+    with pytest.warns(UserWarning, match=message):
+        compute_requested_neighbors(
+            systems=System(positions=positions, cell=cell, pbc=pbc, types=types),
+            system_length_unit="A",
+            model=model,
+        )
 
     for system in systems:
         all_options = system.known_neighbor_lists()
@@ -156,6 +164,53 @@ def test_model():
             model=model,
             model_length_unit="nm",
         )
+
+
+def test_get_requested_neighbor_calculators():
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 1.0, 1.4]], dtype=torch.float64, requires_grad=True
+    )
+    cell = (4 * torch.eye(3, dtype=torch.float64)).clone().requires_grad_(True)
+    pbc = torch.ones(3, dtype=bool)
+    types = torch.tensor([6, 8])
+
+    # Using a raw model
+    model = OuterModule()
+    calculators = neighbor_lists_for_model(
+        model=model,
+        system_length_unit="A",
+        model_length_unit="A",
+    )
+
+    assert len(calculators) == 2
+    assert calculators[0].options.cutoff == 5.2
+    assert calculators[1].options.cutoff == 3.4
+
+    # Using an AtomisticModel
+    capabilities = ModelCapabilities(
+        length_unit="A",
+        interaction_range=6.0,
+        supported_devices=["cpu"],
+        dtype="float64",
+    )
+    atomistic_model = AtomisticModel(model.eval(), ModelMetadata(), capabilities)
+    calculators = neighbor_lists_for_model(
+        model=atomistic_model,
+        system_length_unit="A",
+    )
+
+    assert len(calculators) == 2
+
+    # Reuse calculators across multiple calls, without passing model
+    for _ in range(3):
+        system = System(positions=positions, cell=cell, pbc=pbc, types=types)
+        for calculator in calculators:
+            calculator.add_neighbor_list(system)
+
+        all_options = system.known_neighbor_lists()
+        assert len(all_options) == 2
+        assert all_options[0].cutoff == 5.2
+        assert all_options[1].cutoff == 3.4
 
 
 def test_torchscriptability():

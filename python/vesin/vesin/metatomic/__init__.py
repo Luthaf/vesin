@@ -30,6 +30,7 @@ if mta_version < (0, 1, 3) or mta_version >= (0, 2, 0):
 from ._model import (  # noqa: E402
     compute_requested_neighbors,
     compute_requested_neighbors_from_options,
+    neighbor_lists_for_model,
 )
 from ._neighbors import NeighborList  # noqa: E402
 
@@ -38,4 +39,5 @@ __all__ = [
     "NeighborList",
     "compute_requested_neighbors",
     "compute_requested_neighbors_from_options",
+    "neighbor_lists_for_model",
 ]

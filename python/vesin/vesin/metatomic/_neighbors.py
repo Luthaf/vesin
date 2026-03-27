@@ -34,11 +34,6 @@ class NeighborList:
     The main difference with the other calculators is the automatic handling of
     different length unit between what the model expects and what the ``System`` are
     using.
-
-    .. seealso::
-
-        The :py:func:`vesin.metatomic.compute_requested_neighbors` function can be used
-        to automatically compute and store all neighbor lists required by a given model.
     """
 
     def __init__(
@@ -79,9 +74,8 @@ class NeighborList:
             properties (1): ['distance']
             gradients: None
         <BLANKLINE>
-
-        The returned TensorBlock can then be registered with the system
-
+        >>>
+        >>> # The returned TensorBlock can then be registered with the system
         >>> system.add_neighbor_list(options, neighbors)
         """  # noqa: E501
 
@@ -104,7 +98,7 @@ class NeighborList:
         self._components = Labels("xyz", torch.tensor([[0], [1], [2]]))
         self._properties = Labels("distance", torch.tensor([[0]]))
 
-    def compute(self, system: System) -> TensorBlock:
+    def compute(self, system: System, copy: bool = True) -> TensorBlock:
         """
         Compute the neighbor list for the given :py:class:`metatomic.torch.System`.
 
@@ -114,6 +108,11 @@ class NeighborList:
 
             The positions and cell need to be in the length unit defined for this
             :py:class:`NeighborList` calculator.
+        :param copy: whether to copy the neighbor list values before returning. If
+            ``False``, the neighbor list will contain a pointer to memory allocated
+            inside the calculator, saving memory and removing one copy. In this case,
+            the user MUST ensure that the calculator is kept alive at least as long as
+            the neighbor list is used.
         """
 
         points = system.positions.detach()
@@ -121,7 +120,11 @@ class NeighborList:
 
         # computes neighbor list
         (P, S, D) = self._nl.compute(
-            points=points, box=box, periodic=system.pbc, quantities="PSD", copy=True
+            points=points,
+            box=box,
+            periodic=system.pbc,
+            quantities="PSD",
+            copy=copy,
         )
         P = torch.as_tensor(P, dtype=torch.int32)
         S = torch.as_tensor(S, dtype=torch.int32)
@@ -153,3 +156,38 @@ class NeighborList:
         )
 
         return neighbors
+
+    def add_neighbor_list(
+        self,
+        systems: Union[System, List[System]],
+        copy: bool = True,
+    ):
+        """
+        Compute the neighbor list for all the given systems and add it to them.
+
+        :param systems: a system or a list of systems for which to compute and add the
+            neighbor list. If the positions or cell of these systems require gradients,
+            the neighbors list values computational graph will be set accordingly.
+
+            The positions and cell need to be in the length unit defined for this
+            :py:class:`NeighborList` calculator.
+        :param copy: whether to copy the neighbor list values before adding them to the
+            system. If ``False``, the neighbor list will contain a pointer to memory
+            allocated inside the calculator, saving memory and removing one copy. In
+            this case, the user MUST ensure that the calculator is kept alive at least
+            as long as the neighbor list is used. ``copy=False`` is only supported when
+            computing neighbor list for a single system.
+        """
+
+        if isinstance(systems, list):
+            if copy:
+                raise ValueError(
+                    "`copy=True` is not supported when computing neighbor lists "
+                    "for multiple systems with the same calculator"
+                )
+        else:
+            systems = [systems]
+
+        for system in systems:
+            neighbors = self.compute(system, copy=copy)
+            system.add_neighbor_list(self.options, neighbors)

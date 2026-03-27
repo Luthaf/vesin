@@ -54,7 +54,9 @@ def _compute(points, box, periodic, cutoff, full_list, algorithm):
     )
 
 
-def _compare_cpu_gpu(case: SystemCase, cutoff: float, full_list: bool, gpu_algorithm: str):
+def _compare_cpu_gpu(
+    case: SystemCase, cutoff: float, full_list: bool, gpu_algorithm: str
+):
     cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = _compute(
         points=case.points,
         box=case.box,
@@ -92,7 +94,9 @@ def _compare_cpu_gpu(case: SystemCase, cutoff: float, full_list: bool, gpu_algor
 def _polymer_chain() -> SystemCase:
     # Carbon backbone with realistic C-C distances for a simple 1D polymer-like chain.
     spacing = 1.54
-    points = np.array([[index * spacing, 0.0, 0.0] for index in range(8)], dtype=np.float64)
+    points = np.array(
+        [[index * spacing, 0.0, 0.0] for index in range(8)], dtype=np.float64
+    )
     box = np.diag([8 * spacing, 18.0, 18.0]).astype(np.float64)
     return SystemCase(
         name="polymer_chain_1d",
@@ -178,7 +182,9 @@ def _min_periodic_box_dimension(case: SystemCase) -> float | None:
     return min(periodic_lengths)
 
 
-def _gpu_algorithm_is_applicable(case: SystemCase, cutoff: float, gpu_algorithm: str) -> bool:
+def _gpu_algorithm_is_applicable(
+    case: SystemCase, cutoff: float, gpu_algorithm: str
+) -> bool:
     if gpu_algorithm == "cell_list":
         return True
 
@@ -193,9 +199,13 @@ def _gpu_algorithm_is_applicable(case: SystemCase, cutoff: float, gpu_algorithm:
 @pytest.mark.parametrize("case", CASES, ids=[case.name for case in CASES])
 @pytest.mark.parametrize("cutoff", CUTOFFS)
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force"])
-def test_gpu_matches_cpu_for_fixed_systems(case, cutoff, full_list, gpu_algorithm, monkeypatch):
+def test_gpu_matches_cpu_for_fixed_systems(
+    case, cutoff, full_list, gpu_algorithm, monkeypatch
+):
     if not _gpu_algorithm_is_applicable(case, cutoff, gpu_algorithm):
-        pytest.skip(f"{gpu_algorithm} is not applicable for {case.name} at cutoff={cutoff}")
+        pytest.skip(
+            f"{gpu_algorithm} is not applicable for {case.name} at cutoff={cutoff}"
+        )
 
     monkeypatch.setenv("VESIN_CUDA_MAX_PAIRS_PER_POINT", "4096")
     _compare_cpu_gpu(case, cutoff, full_list, gpu_algorithm)

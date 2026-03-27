@@ -20,14 +20,14 @@ CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 @dataclass(frozen=True)
-class SystemCase:
+class SystemForTests:
     name: str
     points: np.ndarray
     box: np.ndarray
     periodic: tuple[bool, bool, bool]
 
 
-def _canonicalize(i, j, S, D, d):
+def sort_neighbors(i, j, S, D, d):
     ijS = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1)
     sort_indices = np.lexsort(np.flip(ijS, axis=1).T)
     return (
@@ -39,7 +39,7 @@ def _canonicalize(i, j, S, D, d):
     )
 
 
-def _compute(points, box, periodic, cutoff, full_list, algorithm):
+def compute_neighbors(points, box, periodic, cutoff, full_list, algorithm):
     calculator = NeighborList(
         cutoff=cutoff,
         full_list=full_list,
@@ -54,10 +54,10 @@ def _compute(points, box, periodic, cutoff, full_list, algorithm):
     )
 
 
-def _compare_cpu_gpu(
-    case: SystemCase, cutoff: float, full_list: bool, gpu_algorithm: str
+def compare_cpu_gpu(
+    case: SystemForTests, cutoff: float, full_list: bool, gpu_algorithm: str
 ):
-    cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = _compute(
+    cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = compute_neighbors(
         points=case.points,
         box=case.box,
         periodic=case.periodic,
@@ -65,8 +65,15 @@ def _compare_cpu_gpu(
         full_list=full_list,
         algorithm="cell_list",
     )
+    cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = sort_neighbors(
+        cpu_i,
+        cpu_j,
+        cpu_S,
+        cpu_D,
+        cpu_d,
+    )
 
-    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = _compute(
+    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = compute_neighbors(
         points=cp.asarray(case.points, dtype=cp.float64),
         box=cp.asarray(case.box, dtype=cp.float64),
         periodic=cp.asarray(case.periodic),
@@ -75,8 +82,7 @@ def _compare_cpu_gpu(
         algorithm=gpu_algorithm,
     )
 
-    cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = _canonicalize(cpu_i, cpu_j, cpu_S, cpu_D, cpu_d)
-    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = _canonicalize(
+    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = sort_neighbors(
         cp.asnumpy(gpu_i),
         cp.asnumpy(gpu_j),
         cp.asnumpy(gpu_S),
@@ -91,14 +97,14 @@ def _compare_cpu_gpu(
     assert np.allclose(cpu_d, gpu_d)
 
 
-def _polymer_chain() -> SystemCase:
+def polymer_chain() -> SystemForTests:
     # Carbon backbone with realistic C-C distances for a simple 1D polymer-like chain.
     spacing = 1.54
     points = np.array(
         [[index * spacing, 0.0, 0.0] for index in range(8)], dtype=np.float64
     )
     box = np.diag([8 * spacing, 18.0, 18.0]).astype(np.float64)
-    return SystemCase(
+    return SystemForTests(
         name="polymer_chain_1d",
         points=points,
         box=box,
@@ -106,7 +112,7 @@ def _polymer_chain() -> SystemCase:
     )
 
 
-def _graphene_sheet() -> SystemCase:
+def graphene_sheet() -> SystemForTests:
     # 4x4 graphene supercell in the xy plane with vacuum along z.
     a1 = np.array([2.46, 0.0, 0.0])
     a2 = np.array([1.23, 2.13042249, 0.0])
@@ -122,7 +128,7 @@ def _graphene_sheet() -> SystemCase:
             for atom in basis:
                 points.append(origin + atom)
 
-    return SystemCase(
+    return SystemForTests(
         name="graphene_sheet_2d",
         points=np.asarray(points, dtype=np.float64),
         box=np.array(
@@ -137,13 +143,13 @@ def _graphene_sheet() -> SystemCase:
     )
 
 
-def _diamond_crystal() -> SystemCase:
+def diamond_crystal() -> SystemForTests:
     atoms = ase.io.read(f"{CURRENT_DIR}/data/diamond.xyz")
     atoms = atoms.repeat((2, 2, 2))
     rng = np.random.default_rng(1234)
     positions = np.asarray(atoms.positions, dtype=np.float64).copy()
     positions += rng.normal(scale=1.0, size=positions.shape)
-    return SystemCase(
+    return SystemForTests(
         name="diamond_crystal_3d",
         points=positions,
         box=np.asarray(atoms.cell[:], dtype=np.float64),
@@ -151,9 +157,9 @@ def _diamond_crystal() -> SystemCase:
     )
 
 
-def _naphthalene_cluster() -> SystemCase:
+def naphthalene_cluster() -> SystemForTests:
     atoms = ase.io.read(f"{CURRENT_DIR}/data/naphthalene.xyz")
-    return SystemCase(
+    return SystemForTests(
         name="naphthalene_cluster_0d",
         points=np.asarray(atoms.positions, dtype=np.float64),
         box=np.diag([30.0, 30.0, 30.0]).astype(np.float64),
@@ -161,17 +167,17 @@ def _naphthalene_cluster() -> SystemCase:
     )
 
 
-CASES = [
-    _naphthalene_cluster(),
-    _polymer_chain(),
-    _graphene_sheet(),
-    _diamond_crystal(),
+SYSTEMS_FOR_TESTS = [
+    naphthalene_cluster(),
+    polymer_chain(),
+    graphene_sheet(),
+    diamond_crystal(),
 ]
 
 CUTOFFS = [3.0, 5.0, 7.0, 10.0]
 
 
-def _min_periodic_box_dimension(case: SystemCase) -> float | None:
+def min_periodic_box_dimension(case: SystemForTests) -> float | None:
     periodic_lengths = [
         float(np.linalg.norm(case.box[index]))
         for index, is_periodic in enumerate(case.periodic)
@@ -182,13 +188,15 @@ def _min_periodic_box_dimension(case: SystemCase) -> float | None:
     return min(periodic_lengths)
 
 
-def _gpu_algorithm_is_applicable(
-    case: SystemCase, cutoff: float, gpu_algorithm: str
+def gpu_algorithm_is_applicable(
+    case: SystemForTests,
+    cutoff: float,
+    gpu_algorithm: str,
 ) -> bool:
     if gpu_algorithm == "cell_list":
         return True
 
-    min_periodic_dim = _min_periodic_box_dimension(case)
+    min_periodic_dim = min_periodic_box_dimension(case)
     if min_periodic_dim is None:
         return True
 
@@ -196,16 +204,18 @@ def _gpu_algorithm_is_applicable(
 
 
 @pytest.mark.parametrize("full_list", [False, True])
-@pytest.mark.parametrize("case", CASES, ids=[case.name for case in CASES])
+@pytest.mark.parametrize(
+    "system", SYSTEMS_FOR_TESTS, ids=[case.name for case in SYSTEMS_FOR_TESTS]
+)
 @pytest.mark.parametrize("cutoff", CUTOFFS)
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force"])
 def test_gpu_matches_cpu_for_fixed_systems(
-    case, cutoff, full_list, gpu_algorithm, monkeypatch
+    system, cutoff, full_list, gpu_algorithm, monkeypatch
 ):
-    if not _gpu_algorithm_is_applicable(case, cutoff, gpu_algorithm):
+    if not gpu_algorithm_is_applicable(system, cutoff, gpu_algorithm):
         pytest.skip(
-            f"{gpu_algorithm} is not applicable for {case.name} at cutoff={cutoff}"
+            f"{gpu_algorithm} is not applicable for {system.name} at cutoff={cutoff}"
         )
 
     monkeypatch.setenv("VESIN_CUDA_MAX_PAIRS_PER_POINT", "4096")
-    _compare_cpu_gpu(case, cutoff, full_list, gpu_algorithm)
+    compare_cpu_gpu(system, cutoff, full_list, gpu_algorithm)

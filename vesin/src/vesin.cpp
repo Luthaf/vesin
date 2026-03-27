@@ -75,10 +75,13 @@ extern "C" int vesin_neighbors(
                 {{box[2][0], box[2][1], box[2][2]}},
             }}};
 
+            auto box = vesin::BoundingBox(matrix, periodic);
+            box.make_bounding_for(points, n_points);
+
             vesin::cpu::neighbors(
                 reinterpret_cast<const vesin::Vector*>(points),
                 n_points,
-                vesin::BoundingBox(matrix, periodic),
+                std::move(box),
                 options,
                 *neighbors
             );

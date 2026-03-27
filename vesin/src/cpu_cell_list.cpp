@@ -14,7 +14,7 @@ using namespace vesin::cpu;
 void vesin::cpu::neighbors(
     const Vector* points,
     size_t n_points,
-    BoundingBox cell,
+    BoundingBox box,
     VesinOptions options,
     VesinNeighborList& raw_neighbors
 ) {
@@ -24,13 +24,12 @@ void vesin::cpu::neighbors(
         throw std::runtime_error("only VesinAutoAlgorithm and VesinCellList are supported on CPU");
     }
 
-    auto cell_list = CellList(cell, options.cutoff);
+    auto cell_list = CellList(std::move(box), options.cutoff);
 
     for (size_t i = 0; i < n_points; i++) {
         cell_list.add_point(i, points[i]);
     }
 
-    auto cell_matrix = cell.matrix();
     auto cutoff2 = options.cutoff * options.cutoff;
 
     // the cell list creates too many pairs, we only need to keep the
@@ -73,7 +72,7 @@ void vesin::cpu::neighbors(
             }
         }
 
-        auto vector = points[second] - points[first] + shift.cartesian(cell_matrix);
+        auto vector = points[second] - points[first] + shift.cartesian(box);
         auto distance2 = vector.dot(vector);
 
         if (distance2 < cutoff2) {
@@ -137,7 +136,7 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
     cells_shape_({0, 0, 0}),
-    box_(box) {
+    box_(std::move(box)) {
     auto distances_between_faces = box_.distances_between_faces();
 
     auto n_cells = Vector{
@@ -180,12 +179,6 @@ CellList::CellList(BoundingBox box, double cutoff):
         if (n_search_[spatial] < 1) {
             n_search_[spatial] = 1;
         }
-
-        // don't look for neighboring cells if we have only one cell and no
-        // periodic boundary condition
-        if (n_cells[spatial] == 1 && !box.periodic(spatial)) {
-            n_search_[spatial] = 0;
-        }
     }
 
     this->cells_.resize(cells_shape_[0] * cells_shape_[1] * cells_shape_[2]);
@@ -204,14 +197,11 @@ void CellList::add_point(size_t index, Vector position) {
     // deal with pbc by wrapping the atom inside if it was outside of the cell
     CellShift shift;
     for (size_t spatial = 0; spatial < 3; spatial++) {
-        if (box_.periodic(spatial)) {
-            auto result = divmod(cell_index[spatial], cells_shape_[spatial]);
-            shift[spatial] = std::get<0>(result);
-            cell_index[spatial] = std::get<1>(result);
-        } else {
-            shift[spatial] = 0;
-            cell_index[spatial] = std::clamp(cell_index[spatial], 0, static_cast<int32_t>(cells_shape_[spatial] - 1));
-        }
+        auto result = divmod(cell_index[spatial], cells_shape_[spatial]);
+        shift[spatial] = std::get<0>(result);
+        cell_index[spatial] = std::get<1>(result);
+
+        assert(box_.periodic(spatial) || shift[spatial] == 0);
     }
 
     this->get_cell(cell_index).emplace_back(Point{index, shift});

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cassert>
+#include <string>
 
 #include "math.hpp"
 
@@ -10,9 +11,17 @@ namespace vesin {
 
 class BoundingBox {
 public:
+    BoundingBox(const BoundingBox&) = delete;
+    BoundingBox& operator=(const BoundingBox&) = delete;
+
+    BoundingBox(BoundingBox&&) = default;
+    BoundingBox& operator=(BoundingBox&&) = default;
+
     BoundingBox(Matrix matrix, const bool periodic[3]):
         matrix_(matrix),
-        periodic_({periodic[0], periodic[1], periodic[2]}) {
+        periodic_({periodic[0], periodic[1], periodic[2]}),
+        max_positions_({-1e300, -1e300, -1e300}),
+        min_positions_({1e300, 1e300, 1e300}) {
 
         // find number of periodic directions and their indices
         int n_periodic = 0;
@@ -69,6 +78,22 @@ public:
         }
 
         this->inverse_ = matrix_.inverse();
+
+        // precompute distances between faces of the bounding box
+        auto a = Vector{matrix_[0]};
+        auto b = Vector{matrix_[1]};
+        auto c = Vector{matrix_[2]};
+
+        // Plans normal vectors
+        auto na = b.cross(c).normalize();
+        auto nb = c.cross(a).normalize();
+        auto nc = a.cross(b).normalize();
+
+        distances_between_faces_ = Vector{
+            periodic_[0] ? std::abs(na.dot(a)) : max_positions_[0] - min_positions_[0],
+            periodic_[1] ? std::abs(nb.dot(b)) : max_positions_[1] - min_positions_[1],
+            periodic_[2] ? std::abs(nc.dot(c)) : max_positions_[2] - min_positions_[2],
+        };
     }
 
     const Matrix& matrix() const {
@@ -80,37 +105,97 @@ public:
     }
 
     /// Convert a vector from cartesian coordinates to fractional coordinates
+    ///
+    /// For non-periodic dimensions, the fractional coordinates are not wrapped
+    /// inside [0, 1], but are normalized by the corresponding box length.
     Vector cartesian_to_fractional(Vector cartesian) const {
-        return cartesian * inverse_;
+        auto fractional = cartesian * inverse_;
+        if (!periodic_[0]) {
+            fractional[0] = (cartesian[0] - min_positions_[0]) / distances_between_faces_[0];
+        }
+
+        if (!periodic_[1]) {
+            fractional[1] = (cartesian[1] - min_positions_[1]) / distances_between_faces_[1];
+        }
+
+        if (!periodic_[2]) {
+            fractional[2] = (cartesian[2] - min_positions_[2]) / distances_between_faces_[2];
+        }
+
+        return fractional;
     }
 
     /// Convert a vector from fractional coordinates to cartesian coordinates
     Vector fractional_to_cartesian(Vector fractional) const {
-        return fractional * matrix_;
+        auto cartesian = fractional * matrix_;
+
+        if (!periodic_[0]) {
+            cartesian[0] *= distances_between_faces_[0];
+            cartesian[0] += min_positions_[0];
+        }
+
+        if (!periodic_[1]) {
+            cartesian[1] *= distances_between_faces_[1];
+            cartesian[1] += min_positions_[1];
+        }
+
+        if (!periodic_[2]) {
+            cartesian[2] *= distances_between_faces_[2];
+            cartesian[2] += min_positions_[2];
+        }
+
+        return cartesian;
     }
 
     /// Get the three distances between faces of the bounding box
     Vector distances_between_faces() const {
-        auto a = Vector{matrix_[0]};
-        auto b = Vector{matrix_[1]};
-        auto c = Vector{matrix_[2]};
+        return distances_between_faces_;
+    }
 
-        // Plans normal vectors
-        auto na = b.cross(c).normalize();
-        auto nb = c.cross(a).normalize();
-        auto nc = a.cross(b).normalize();
+    void make_bounding_for(const double (*points)[3], size_t n_points) {
+        // find the min and max coordinates along each axis
+        for (size_t i = 0; i < n_points; i++) {
+            for (size_t spatial = 0; spatial < 3; spatial++) {
+                if (!std::isfinite(points[i][spatial])) {
+                    throw std::runtime_error(
+                        "point " + std::to_string(i) + " has non-finite coordinate " +
+                        "along axis " + std::to_string(spatial) + ": " +
+                        std::to_string(points[i][spatial])
+                    );
+                }
 
-        return Vector{
-            std::abs(na.dot(a)),
-            std::abs(nb.dot(b)),
-            std::abs(nc.dot(c)),
-        };
+                if (points[i][spatial] < min_positions_[spatial]) {
+                    min_positions_[spatial] = points[i][spatial];
+                }
+                if (points[i][spatial] > max_positions_[spatial]) {
+                    max_positions_[spatial] = points[i][spatial];
+                }
+            }
+        }
+
+        for (int dim = 0; dim < 3; dim++) {
+            // if all atoms have the same coordinate in this dimension, pretend
+            // that the bounding box is at least 1 unit wide to avoid numerical issues
+            if (max_positions_[dim] - min_positions_[dim] < 1e-6) {
+                max_positions_[dim] = min_positions_[dim] + 1;
+            }
+
+            if (!periodic_[dim]) {
+                // add a 1% margin to make sure all points are strictly inside the
+                // bounding box
+                distances_between_faces_[dim] = max_positions_[dim] * 1.01 - min_positions_[dim];
+            }
+        }
     }
 
 private:
     Matrix matrix_;
-    Matrix inverse_;
     std::array<bool, 3> periodic_;
+
+    Matrix inverse_;
+    Vector min_positions_;
+    Vector max_positions_;
+    Vector distances_between_faces_;
 };
 
 /// A cell shift represents the displacement along cell axis between the actual
@@ -121,13 +206,17 @@ private:
 struct CellShift: public std::array<int32_t, 3> {
     /// Compute the shift vector in cartesian coordinates, using the given cell
     /// matrix (stored in row major order).
-    Vector cartesian(Matrix cell) const {
+    Vector cartesian(const BoundingBox& box) const {
+        assert(box.periodic(0) || (*this)[0] == 0);
+        assert(box.periodic(1) || (*this)[1] == 0);
+        assert(box.periodic(2) || (*this)[2] == 0);
+
         auto vector = Vector{
             static_cast<double>((*this)[0]),
             static_cast<double>((*this)[1]),
             static_cast<double>((*this)[2]),
         };
-        return vector * cell;
+        return vector * box.matrix();
     }
 };
 

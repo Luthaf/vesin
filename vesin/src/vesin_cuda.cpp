@@ -229,6 +229,8 @@ static void free_cell_list_buffers(CellListBuffers& cl) {
     CUDART_INSTANCE.cudaFree(cl.n_cells);
     CUDART_INSTANCE.cudaFree(cl.n_search);
     CUDART_INSTANCE.cudaFree(cl.n_cells_total);
+    CUDART_INSTANCE.cudaFree(cl.bounding_min);
+    CUDART_INSTANCE.cudaFree(cl.bounding_max);
 
     cl = CellListBuffers();
 }
@@ -420,6 +422,8 @@ static void ensure_cell_list_buffers(
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.n_cells, sizeof(int32_t) * 3));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.n_search, sizeof(int32_t) * 3));
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.n_cells_total, sizeof(int32_t)));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.bounding_min, sizeof(double) * 3));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.bounding_max, sizeof(double) * 3));
     }
 }
 
@@ -635,7 +639,25 @@ void vesin::cuda::neighbors(
         size_t THREADS_PER_BLOCK = 256;
         size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-        NVTX_PUSH("kernel0_grid_params");
+        NVTX_PUSH("kernel0_bounding_box");
+        auto* bounding_kernel = factory.create(
+            "compute_bounding_box",
+            cuda_cell_list_code,
+            "cuda_cell_list.cu",
+            {"-std=c++17", "-default-device"}
+        );
+        std::vector<void*> bounding_args = {
+            static_cast<void*>(&d_positions),
+            static_cast<void*>(&n_points),
+            static_cast<void*>(&cl.bounding_min),
+            static_cast<void*>(&cl.bounding_max),
+        };
+        // the 256 here must match the size of shared memory allocated inside the code,
+        // if you update one please update the other.
+        bounding_kernel->launch(dim3(1), dim3(256), 0, nullptr, bounding_args, false);
+        NVTX_POP();
+
+        NVTX_PUSH("kernel1_grid_params");
         auto* grid_kernel = factory.create(
             "compute_cell_grid_params",
             cuda_cell_list_code,
@@ -653,6 +675,8 @@ void vesin::cuda::neighbors(
             static_cast<void*>(&cl.n_cells),
             static_cast<void*>(&cl.n_search),
             static_cast<void*>(&cl.n_cells_total),
+            static_cast<void*>(&cl.bounding_min),
+            static_cast<void*>(&cl.bounding_max),
         };
         grid_kernel->launch(dim3(1), dim3(1), 0, nullptr, grid_args, false);
         NVTX_POP();
@@ -680,6 +704,8 @@ void vesin::cuda::neighbors(
             static_cast<void*>(&n_points),
             static_cast<void*>(&cl.cell_indices),
             static_cast<void*>(&cl.particle_shifts),
+            static_cast<void*>(&cl.bounding_min),
+            static_cast<void*>(&cl.bounding_max),
         };
         assign_kernel->launch(
             dim3(num_blocks_points), dim3(THREADS_PER_BLOCK), 0, nullptr, assign_args, false

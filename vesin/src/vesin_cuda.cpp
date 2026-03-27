@@ -38,9 +38,10 @@ static const char* CUDA_CELL_LIST_CODE =
 
 // Maximum number of cells (limited by single-block prefix sum)
 static constexpr size_t MAX_CELLS = 8192;
-// Minimum particles per cell target for good GPU utilization
-// Higher values = fewer cells = more work per block but larger search range
-static constexpr size_t MIN_PARTICLES_PER_CELL = 128;
+// Minimum particles per cell target for good GPU utilization.
+// Lower values create more cells and reduce per-cell neighbor work, which is
+// beneficial on larger systems where the previous coarse grids became too dense.
+static constexpr size_t MIN_PARTICLES_PER_CELL = 32;
 
 // Helper functions for CPU-side vector math
 static inline double cpu_dot3(const double* a, const double* b) {
@@ -568,42 +569,45 @@ void vesin::cuda::neighbors(
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->inv_box_brute, sizeof(double) * 9));
     }
 
-    auto* box_check_kernel = factory.create(
-        "mic_box_check",
-        CUDA_BRUTEFORCE_CODE,
-        "cuda_bruteforce.cu",
-        {"-std=c++17"}
-    );
-
     double* d_box_diag = extras->box_diag;
     double* d_inv_box_brute = extras->inv_box_brute;
-    std::vector<void*> box_check_args = {
-        static_cast<void*>(&d_box),
-        static_cast<void*>(&d_periodic),
-        static_cast<void*>(&options.cutoff),
-        static_cast<void*>(&d_cell_check),
-        static_cast<void*>(&d_box_diag),
-        static_cast<void*>(&d_inv_box_brute),
-    };
 
-    box_check_kernel->launch(dim3(1), dim3(32), 0, nullptr, box_check_args, false);
-
-    int32_t h_cell_check = 1;
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int32_t), cudaMemcpyDeviceToHost));
-
-    bool box_check_error = (h_cell_check & 1) != 0;
-    bool is_orthogonal = (h_cell_check & 2) != 0;
-
-    // Get box dimensions for auto algorithm selection
+    double h_box[9];
+    bool h_periodic[3];
     double h_box_diag[3];
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(h_box_diag, d_box_diag, sizeof(double) * 3, cudaMemcpyDeviceToHost));
+    double h_inv_box[9];
+
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+        h_box, d_box, sizeof(double) * 9, cudaMemcpyDeviceToHost
+    ));
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+        h_periodic, d_periodic, sizeof(bool) * 3, cudaMemcpyDeviceToHost
+    ));
+
+    auto [box_is_valid, is_orthogonal] = cpu_box_check(
+        h_box,
+        h_periodic,
+        options.cutoff,
+        h_box_diag,
+        h_inv_box
+    );
+
+    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+        d_box_diag, h_box_diag, sizeof(double) * 3, cudaMemcpyHostToDevice
+    ));
+    if (!is_orthogonal) {
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+            d_inv_box_brute, h_inv_box, sizeof(double) * 9, cudaMemcpyHostToDevice
+        ));
+    }
+
     double min_box_dim = std::min({h_box_diag[0], h_box_diag[1], h_box_diag[2]});
     bool cutoff_requires_cell_list = options.cutoff > min_box_dim / 2.0;
 
     bool use_cell_list;
     switch (options.algorithm) {
     case VesinBruteForce:
-        if (box_check_error) {
+        if (!box_is_valid) {
             throw std::runtime_error("Invalid cutoff: too large for box dimensions");
         }
         use_cell_list = false;

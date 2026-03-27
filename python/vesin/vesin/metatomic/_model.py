@@ -1,3 +1,4 @@
+import warnings
 from typing import List, Optional, Union
 
 import torch
@@ -9,6 +10,77 @@ from metatomic.torch import (
 )
 
 from ._neighbors import NeighborList
+
+
+def neighbor_lists_for_model(
+    system_length_unit: str,
+    model: Union[AtomisticModel, ModelInterface],
+    model_length_unit: Optional[str] = None,
+    torchscript: bool = False,
+    check_consistency: bool = False,
+) -> List[NeighborList]:
+    """
+    Get a list of calculators, corresponding to the neighbor lists requested by the
+    ``model`` .
+
+    .. code-block:: python
+
+        from vesin.metatomic import neighbor_lists_for_model
+
+        model = MyModel()  # some model following metatomic API
+
+        # Get the neighbor lists calculators for the model
+        calculators = neighbor_lists_for_model(systems, "angstrom", model)
+
+        systems = [System(...), System(...)]  # some systems
+
+        # Compute and store the neighbor lists in the systems
+        for calculator in calculators:
+            calculator.add_neighbor_list(systems)
+
+    :param system_length_unit: unit of length used for the data in the systems
+    :param model: :py:class:`AtomisticModel` or any ``torch.nn.Module`` following the
+        :py:class:`ModelInterface`
+    :param model_length_unit: unit of length used by the model, optional. This is only
+        required when giving a raw model instead of a :py:class:`AtomisticModel`.
+    :param torchscript: whether this function should be compatible with TorchScript
+        or not. If ``True``, this requires installing the ``vesin-torch`` package.
+    :param check_consistency: whether to run additional checks on the neighbor lists
+        validity
+    """
+
+    if isinstance(model, AtomisticModel):
+        if model_length_unit is not None:
+            if model.capabilities().length_unit != model_length_unit:
+                raise ValueError(
+                    f"the given `model_length_unit` ({model_length_unit}) does not "
+                    f"match the model capabilities ({model.capabilities().length_unit})"
+                )
+
+        all_options = model.requested_neighbor_lists()
+    elif isinstance(model, torch.nn.Module):
+        if model_length_unit is None:
+            raise ValueError(
+                "`model_length_unit` parameter is required when not "
+                "using AtomisticModel"
+            )
+
+        all_options = []
+        _get_requested_neighbor_lists(
+            model, model.__class__.__name__, all_options, model_length_unit
+        )
+
+    calculators = []
+    for option in all_options:
+        calculators.append(
+            NeighborList(
+                option,
+                system_length_unit,
+                torchscript=torchscript,
+                check_consistency=check_consistency,
+            )
+        )
+    return calculators
 
 
 def compute_requested_neighbors(
@@ -23,10 +95,10 @@ def compute_requested_neighbors(
     ``requested_neighbor_lists()`` member functions, and store them inside all the
     ``systems``.
 
-    .. seealso::
+    .. warning::
 
-        :py:func:`vesin.metatomic.compute_requested_neighbors_from_options` which
-        is compatible with TorchScript and can be used inside a model.
+        This function is deprecated, please use
+        :py:func:`vesin.metatomic.neighbor_lists_for_model` instead.
 
     :param systems: Single system or list of systems for which we need to compute the
         neighbor lists that the model requires.
@@ -60,7 +132,14 @@ def compute_requested_neighbors(
             model, model.__class__.__name__, all_options, model_length_unit
         )
 
-    compute_requested_neighbors_from_options(
+    warnings.warn(
+        "`compute_requested_neighbors` is deprecated and will be removed in a future "
+        "version. Please use `neighbor_lists_for_model` to get the calculators and "
+        "call them directly.",
+        stacklevel=2,
+    )
+
+    _compute_requested_neighbors_from_options_impl(
         systems, all_options, system_length_unit, check_consistency
     )
 
@@ -116,6 +195,11 @@ def compute_requested_neighbors_from_options(
     Compute all neighbors lists requested by the ``options``, and store them inside all
     the ``systems``.
 
+    .. warning::
+
+        This function is deprecated, please use
+        :py:func:`vesin.metatomic.neighbor_lists_for_model` instead.
+
     :param systems: list of systems for which we need to compute the
         neighbor lists that required by the ``options``.
     :param options: list of :py:class:`NeighborListOptions`
@@ -124,6 +208,26 @@ def compute_requested_neighbors_from_options(
         validity
     """
 
+    warnings.warn(
+        "`compute_requested_neighbors_from_options` is deprecated and will be removed "
+        "in a future version. Please use `neighbor_lists_for_model` to get the "
+        "calculators and call them directly.",
+        stacklevel=2,
+    )
+    return _compute_requested_neighbors_from_options_impl(
+        systems=systems,
+        options=options,
+        system_length_unit=system_length_unit,
+        check_consistency=check_consistency,
+    )
+
+
+def _compute_requested_neighbors_from_options_impl(
+    systems: List[System],
+    options: List[NeighborListOptions],
+    system_length_unit: str,
+    check_consistency: bool,
+) -> None:
     if not isinstance(systems, list):
         systems = [systems]
 

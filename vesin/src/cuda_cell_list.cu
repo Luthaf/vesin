@@ -16,6 +16,68 @@ __device__ inline double dot3(const double3& a, const double3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+__global__ void compute_bounding_box(
+    const double* __restrict__ positions,
+    size_t n_points,
+    double* __restrict__ bounding_min,
+    double* __restrict__ bounding_max
+) {
+    // 256 here must match the number of threads used to launch this kernel.
+    __shared__ double shared_min[3][256];
+    __shared__ double shared_max[3][256];
+
+    int tid = static_cast<int>(threadIdx.x);
+    constexpr double MAX_DOUBLE = 1e300;
+    constexpr double MIN_DOUBLE = -1e300;
+
+    double local_min[3] = {MAX_DOUBLE, MAX_DOUBLE, MAX_DOUBLE};
+    double local_max[3] = {MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE};
+
+    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    for (size_t idx = tid; idx < n_points; idx += blockDim.x) {
+        double3 point = pos3[idx];
+        local_min[0] = fmin(local_min[0], point.x);
+        local_min[1] = fmin(local_min[1], point.y);
+        local_min[2] = fmin(local_min[2], point.z);
+        local_max[0] = fmax(local_max[0], point.x);
+        local_max[1] = fmax(local_max[1], point.y);
+        local_max[2] = fmax(local_max[2], point.z);
+    }
+
+    shared_min[0][tid] = local_min[0];
+    shared_min[1][tid] = local_min[1];
+    shared_min[2][tid] = local_min[2];
+    shared_max[0][tid] = local_max[0];
+    shared_max[1][tid] = local_max[1];
+    shared_max[2][tid] = local_max[2];
+    __syncthreads();
+
+    if (tid == 0) {
+        double final_min[3] = {shared_min[0][0], shared_min[1][0], shared_min[2][0]};
+        double final_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
+
+        for (int i = 1; i < blockDim.x; i++) {
+            final_min[0] = fmin(final_min[0], shared_min[0][i]);
+            final_min[1] = fmin(final_min[1], shared_min[1][i]);
+            final_min[2] = fmin(final_min[2], shared_min[2][i]);
+            final_max[0] = fmax(final_max[0], shared_max[0][i]);
+            final_max[1] = fmax(final_max[1], shared_max[1][i]);
+            final_max[2] = fmax(final_max[2], shared_max[2][i]);
+        }
+
+        for (int dim = 0; dim < 3; dim++) {
+            bounding_min[dim] = final_min[dim];
+            bounding_max[dim] = final_max[dim];
+
+            // if all atoms have the same coordinate in this dimension, pretend
+            // that the bounding box is at least 1 unit wide
+            if (bounding_max[dim] - bounding_min[dim] < 1e-6) {
+                bounding_max[dim] = bounding_min[dim] + 1;
+            }
+        }
+    }
+}
+
 // Compute inv_box, n_cells, n_search from box matrix and cutoff (single thread)
 __global__ void compute_cell_grid_params(
     const double* __restrict__ box,
@@ -27,7 +89,9 @@ __global__ void compute_cell_grid_params(
     double* __restrict__ inv_box,
     int* __restrict__ n_cells,
     int* __restrict__ n_search,
-    int* __restrict__ n_cells_total
+    int* __restrict__ n_cells_total,
+    const double* __restrict__ bounding_min,
+    const double* __restrict__ bounding_max
 ) {
     if (threadIdx.x != 0 || blockIdx.x != 0) {
         return;
@@ -74,10 +138,27 @@ __global__ void compute_cell_grid_params(
     double ab_norm = sqrt(ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]);
 
     // Distances between opposite faces
-    double dist_a = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
-    double dist_b = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
-    double dist_c = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
-    double distances[3] = {dist_a, dist_b, dist_c};
+    // For non-periodic directions, use the bounding box extent (with 1% margin)
+    // instead of the box matrix geometry
+    double distances[3];
+
+    if (periodic[0]) {
+        distances[0] = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
+    } else {
+        distances[0] = bounding_max[0] * 1.01 - bounding_min[0];
+    }
+
+    if (periodic[1]) {
+        distances[1] = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
+    } else {
+        distances[1] = bounding_max[1] * 1.01 - bounding_min[1];
+    }
+
+    if (periodic[2]) {
+        distances[2] = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
+    } else {
+        distances[2] = bounding_max[2] * 1.01 - bounding_min[2];
+    }
 
     // Compute number of cells based on cutoff (one cell per cutoff distance)
     n_cells[0] = max(1, (int)floor(distances[0] / cutoff));
@@ -106,9 +187,6 @@ __global__ void compute_cell_grid_params(
     for (int dim = 0; dim < 3; dim++) {
         double cell_size = distances[dim] / n_cells[dim];
         n_search[dim] = max(1, (int)ceil(cutoff / cell_size));
-        if (!periodic[dim] && n_cells[dim] == 1) {
-            n_search[dim] = 0;
-        }
     }
 }
 
@@ -120,7 +198,9 @@ __global__ void assign_cell_indices(
     const int* __restrict__ n_cells,
     size_t n_points,
     int* __restrict__ cell_indices,
-    int* __restrict__ particle_shifts
+    int* __restrict__ particle_shifts,
+    const double* __restrict__ bounding_min,
+    const double* __restrict__ bounding_max
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
@@ -137,17 +217,27 @@ __global__ void assign_cell_indices(
     frac[1] = pos.x * inv_box[1] + pos.y * inv_box[4] + pos.z * inv_box[7];
     frac[2] = pos.x * inv_box[2] + pos.y * inv_box[5] + pos.z * inv_box[8];
 
+    double pos_arr[3] = {pos.x, pos.y, pos.z};
+
+    // For non-periodic dimensions, compute fractional coordinates using the
+    // bounding box instead of the box matrix inverse
+    for (int d = 0; d < 3; d++) {
+        if (!periodic[d]) {
+            double dist = bounding_max[d] * 1.01 - bounding_min[d];
+            frac[d] = (pos_arr[d] - bounding_min[d]) / dist;
+        }
+    }
+
     int cell_idx[3];
     int shift[3];
 
     for (int d = 0; d < 3; d++) {
-        if (periodic[d]) {
-            shift[d] = static_cast<int>(floor(frac[d]));
-            frac[d] -= shift[d];
-        } else {
-            shift[d] = 0;
-            frac[d] = fmax(0.0, fmin(frac[d], 1.0 - 1e-10));
-        }
+        // Use divmod for both periodic and non-periodic dimensions.
+        // For non-periodic dimensions, the fractional coordinates should be
+        // in [0, 1) due to the bounding box margin, so shift will be 0.
+        shift[d] = static_cast<int>(floor(frac[d]));
+        frac[d] -= shift[d];
+
         cell_idx[d] = static_cast<int>(frac[d] * n_cells[d]);
         cell_idx[d] = max(0, min(n_cells[d] - 1, cell_idx[d]));
     }

@@ -15,7 +15,7 @@ void free_neighbors(VesinNeighborList& neighbors);
 void neighbors(
     const Vector* points,
     size_t n_points,
-    BoundingBox cell,
+    BoundingBox box,
     VesinOptions options,
     VesinNeighborList& neighbors
 );

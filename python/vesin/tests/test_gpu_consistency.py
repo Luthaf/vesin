@@ -213,9 +213,7 @@ def test_gpu_matches_cpu_for_fixed_systems(
     system, cutoff, full_list, gpu_algorithm, monkeypatch
 ):
     if not gpu_algorithm_is_applicable(system, cutoff, gpu_algorithm):
-        pytest.skip(
-            f"{gpu_algorithm} is not applicable for {system.name} at cutoff={cutoff}"
-        )
+        return
 
     monkeypatch.setenv("VESIN_CUDA_MAX_PAIRS_PER_POINT", "4096")
     compare_cpu_gpu(system, cutoff, full_list, gpu_algorithm)

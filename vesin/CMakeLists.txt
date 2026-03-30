@@ -14,28 +14,6 @@ endif()
 
 project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
 
-#[[
- This function wraps the input file with the appropriate string to allow us to
- static-initialize string variables, for example:
-     static const char* CUDA_CODE =
-#include "generated/cuda_impl.cu"
-        ;
-]]
-function(make_includeable INPUT_FILE OUTPUT_FILE)
-    if(NOT EXISTS ${INPUT_FILE})
-        message(FATAL_ERROR "Error: The input file '${INPUT_FILE}' does not exist.")
-    endif()
-    file(STRINGS ${INPUT_FILE} content)
-
-    file(WRITE ${OUTPUT_FILE} "")
-    foreach(line IN LISTS content)
-        # Write multiple raw string literals to workaound MSVC size limitations
-        # on string literals. https://learn.microsoft.com/en-us/cpp/c-language/maximum-string-length
-        file(APPEND ${OUTPUT_FILE} "R\"======(${line}\n)======\"\n")
-    endforeach()
-endfunction()
-
-
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(VESIN_MAIN_PROJECT ON)
 else()
@@ -70,18 +48,33 @@ if (BUILD_VESIN_FOR_PYTHON)
     list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/shared_libraries.cpp)
 endif()
 
+# Generate the CUDA source files for NVRTC compilation
+file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu)
+foreach(cuda_source IN LISTS CUDA_SOURCES)
+    get_filename_component(cuda_filename ${cuda_source} NAME)
+    set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/${cuda_filename}.inc")
+    add_custom_command(
+        OUTPUT ${output_file}
+        COMMAND ${CMAKE_COMMAND}
+            -DINPUT_FILE=${cuda_source}
+            -DOUTPUT_FILE=${output_file}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/make_hex_array.cmake
+        DEPENDS ${cuda_source}
+        COMMENT "Generating ${output_file}"
+    )
+    list(APPEND GENERATED_CUDA_HEX ${output_file})
+endforeach()
+
+add_custom_target(generate_cuda_hex DEPENDS ${GENERATED_CUDA_HEX})
+
 # create two targets: `vesin` is the main one, while `vesin_objects` will
 # be used by language bindings to embed vesin inside another (SHARED) library
-add_library(vesin ${VESIN_SOURCES})
-add_library(vesin_objects OBJECT ${VESIN_SOURCES})
+add_library(vesin ${VESIN_SOURCES} ${GENERATED_CUDA_HEX})
+add_library(vesin_objects OBJECT ${VESIN_SOURCES} ${GENERATED_CUDA_HEX})
 
 target_include_directories(vesin_objects PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-
-# Generate the CUDA source files for NVRTC compilation
-make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_bruteforce.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_bruteforce.cu)
-make_includeable(${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_cell_list.cu ${CMAKE_CURRENT_BINARY_DIR}/generated/cuda_cell_list.cu)
 
 include(FetchContent)
 

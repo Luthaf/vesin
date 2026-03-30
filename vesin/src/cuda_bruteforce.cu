@@ -35,9 +35,15 @@ __device__ inline double3 normalize(const double3& a) {
 }
 
 __device__ void invert_matrix(const double3 box[3], double3 inverse[3]) {
-    double a = box[0].x, b = box[0].y, c = box[0].z;
-    double d = box[1].x, e = box[1].y, f = box[1].z;
-    double g = box[2].x, h = box[2].y, i = box[2].z;
+    double a = box[0].x;
+    double b = box[0].y;
+    double c = box[0].z;
+    double d = box[1].x;
+    double e = box[1].y;
+    double f = box[1].z;
+    double g = box[2].x;
+    double h = box[2].y;
+    double i = box[2].z;
 
     double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
     double invdet = 1.0 / det;
@@ -160,8 +166,8 @@ __global__ void compute_mic_neighbours_full_impl(
     __shared__ double3 shared_inv_box[3];
     __shared__ bool shared_is_orthogonal;
 
-    const int warp_id = threadIdx.x / WARP_SIZE;
-    const int thread_id = threadIdx.x % WARP_SIZE;
+    int warp_id = static_cast<int>(threadIdx.x) / WARP_SIZE;
+    int thread_id = static_cast<int>(threadIdx.x) % WARP_SIZE;
 
     const size_t point_i = blockIdx.x * NWARPS + warp_id;
     const double cutoff2 = cutoff * cutoff;
@@ -371,7 +377,7 @@ __global__ void compute_mic_neighbours_half_impl(
 
     bool is_orthogonal = shared_is_orthogonal;
 
-    size_t point_j = floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0);
+    size_t point_j = floor((sqrt(8.0 * (double)index + 1.0) + 1.0) / 2.0);
     if (point_j * (point_j - 1) > 2 * index) {
         point_j--;
     }
@@ -500,7 +506,7 @@ __global__ void brute_force_half_orthogonal(
         return;
     }
 
-    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * (double)index + 1.0) + 1.0) / 2.0));
     if (j * (j - 1) > 2 * index) {
         j--;
     }
@@ -568,7 +574,7 @@ __global__ void brute_force_full_orthogonal(
         return;
     }
 
-    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * (double)index + 1.0) + 1.0) / 2.0));
     if (j * (j - 1) > 2 * index) {
         j--;
     }
@@ -666,7 +672,7 @@ __global__ void brute_force_half_general(
         return;
     }
 
-    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * (double)index + 1.0) + 1.0) / 2.0));
     if (j * (j - 1) > 2 * index) {
         j--;
     }
@@ -755,7 +761,7 @@ __global__ void brute_force_full_general(
     }
 
     // NNPOps-style triangular indexing for half-list
-    size_t j = static_cast<size_t>(floor((sqrt(8.0 * index + 1.0) + 1.0) / 2.0));
+    size_t j = static_cast<size_t>(floor((sqrt(8.0 * (double)index + 1.0) + 1.0) / 2.0));
     if (j * (j - 1) > 2 * index) {
         j--;
     }

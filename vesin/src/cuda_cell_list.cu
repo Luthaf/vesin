@@ -34,9 +34,15 @@ __global__ void compute_cell_grid_params(
     }
 
     // Box matrix elements
-    double a = box[0], b = box[1], c = box[2];
-    double d = box[3], e = box[4], f = box[5];
-    double g = box[6], h = box[7], i = box[8];
+    double a = box[0];
+    double b = box[1];
+    double c = box[2];
+    double d = box[3];
+    double e = box[4];
+    double f = box[5];
+    double g = box[6];
+    double h = box[7];
+    double i = box[8];
 
     // Determinant
     double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
@@ -123,7 +129,7 @@ __global__ void assign_cell_indices(
 
     // Vectorized position load
     const double3* pos3 = reinterpret_cast<const double3*>(positions);
-    const double3 pos = pos3[i];
+    double3 pos = pos3[i];
 
     // frac = pos @ inv_box (inv_box stored row-major: rows are inv_box[0..2], inv_box[3..5], inv_box[6..8])
     double frac[3];
@@ -167,13 +173,13 @@ __global__ void count_particles_per_cell(
 
 // Exclusive prefix sum of cell counts -> cell_starts (single block, uses shared mem)
 __global__ void prefix_sum_cells(
-    int* __restrict__ cell_counts,
+    const int* __restrict__ cell_counts,
     int* __restrict__ cell_starts,
     const int* __restrict__ n_cells_total_ptr
 ) {
     extern __shared__ int shared[];
-    int tid = threadIdx.x;
-    int nthreads = blockDim.x;
+    int tid = static_cast<int>(threadIdx.x);
+    int nthreads = static_cast<int>(blockDim.x);
     int n_cells_total = n_cells_total_ptr[0];
 
     // Each thread computes sum for its chunk
@@ -278,29 +284,29 @@ __global__ void find_neighbors_optimized(
 ) {
     // Thread organization: 32 threads/warp, THREADS_PER_PARTICLE threads per particle
     // Example with THREADS_PER_PARTICLE=8: 4 particles per warp, each gets 8 threads
-    const int warp_id = threadIdx.x / 32;
-    const int lane_id = threadIdx.x % 32;
-    const int particle_in_warp = lane_id / THREADS_PER_PARTICLE; // which particle in warp
-    const int thread_in_group = lane_id % THREADS_PER_PARTICLE;  // thread's role within group
-    const int particles_per_warp = 32 / THREADS_PER_PARTICLE;
+    int warp_id = static_cast<int>(threadIdx.x) / 32;
+    int lane_id = static_cast<int>(threadIdx.x) % 32;
+    int particle_in_warp = lane_id / THREADS_PER_PARTICLE; // which particle in warp
+    int thread_in_group = lane_id % THREADS_PER_PARTICLE;  // thread's role within group
+    int particles_per_warp = 32 / THREADS_PER_PARTICLE;
 
-    const int warps_per_block = blockDim.x / 32;
-    const size_t base_particle = (size_t)(blockIdx.x * warps_per_block + warp_id) * particles_per_warp;
-    const size_t i = base_particle + particle_in_warp; // global particle index
+    int warps_per_block = static_cast<int>(blockDim.x) / 32;
+    size_t base_particle = (size_t)(blockIdx.x * warps_per_block + warp_id) * particles_per_warp;
+    size_t i = base_particle + particle_in_warp; // global particle index
 
     if (i >= n_points) {
         return;
     }
 
-    const double cutoff2 = cutoff * cutoff;
+    double cutoff2 = cutoff * cutoff;
 
-    const int nc_x = __ldg(&n_cells[0]);
-    const int nc_y = __ldg(&n_cells[1]);
-    const int nc_z = __ldg(&n_cells[2]);
-    const int nc_xy = nc_x * nc_y;
-    const int ns_x = __ldg(&n_search[0]);
-    const int ns_y = __ldg(&n_search[1]);
-    const int ns_z = __ldg(&n_search[2]);
+    int nc_x = __ldg(&n_cells[0]);
+    int nc_y = __ldg(&n_cells[1]);
+    int nc_z = __ldg(&n_cells[2]);
+    int nc_xy = nc_x * nc_y;
+    int ns_x = __ldg(&n_search[0]);
+    int ns_y = __ldg(&n_search[1]);
+    int ns_z = __ldg(&n_search[2]);
     const bool pbc_x = periodic[0];
     const bool pbc_y = periodic[1];
     const bool pbc_z = periodic[2];
@@ -314,15 +320,15 @@ __global__ void find_neighbors_optimized(
     // Vectorized position load
     const double3* pos3 = reinterpret_cast<const double3*>(sorted_positions);
     const double3 ri = pos3[i];
-    const int orig_i = __ldg(&sorted_indices[i]);
-    const int shift_i_x = __ldg(&sorted_shifts[i * 3 + 0]);
-    const int shift_i_y = __ldg(&sorted_shifts[i * 3 + 1]);
-    const int shift_i_z = __ldg(&sorted_shifts[i * 3 + 2]);
+    int orig_i = __ldg(&sorted_indices[i]);
+    int shift_i_x = __ldg(&sorted_shifts[i * 3 + 0]);
+    int shift_i_y = __ldg(&sorted_shifts[i * 3 + 1]);
+    int shift_i_z = __ldg(&sorted_shifts[i * 3 + 2]);
 
-    const int cell_i = __ldg(&sorted_cell_indices[i]);
-    const int cell_iz = cell_i / nc_xy;
-    const int cell_iy = (cell_i % nc_xy) / nc_x;
-    const int cell_ix = cell_i % nc_x;
+    int cell_i = __ldg(&sorted_cell_indices[i]);
+    int cell_iz = cell_i / nc_xy;
+    int cell_iy = (cell_i % nc_xy) / nc_x;
+    int cell_ix = cell_i % nc_x;
 
     // Per-thread output buffer to reduce atomic contention
     int buffered_count = 0;
@@ -345,7 +351,9 @@ __global__ void find_neighbors_optimized(
         int cell_jx = cell_ix + dx;
         int cell_jy = cell_iy + dy;
         int cell_jz = cell_iz + dz;
-        int cell_shift_x = 0, cell_shift_y = 0, cell_shift_z = 0;
+        int cell_shift_x = 0;
+        int cell_shift_y = 0;
+        int cell_shift_z = 0;
 
         // Wrap cell indices for PBC, track shift; skip out-of-bounds for non-PBC
         if (pbc_x) {
@@ -393,20 +401,20 @@ __global__ void find_neighbors_optimized(
             }
         }
 
-        const int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
-        const int start_j = __ldg(&cell_starts[cell_j]);
-        const int count_j = __ldg(&cell_counts[cell_j]);
+        int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
+        int start_j = __ldg(&cell_starts[cell_j]);
+        int count_j = __ldg(&cell_counts[cell_j]);
 
         for (int k = start_j; k < start_j + count_j; k++) {
-            const int orig_j = __ldg(&sorted_indices[k]);
+            int orig_j = __ldg(&sorted_indices[k]);
 
-            const int shift_j_x = __ldg(&sorted_shifts[k * 3 + 0]);
-            const int shift_j_y = __ldg(&sorted_shifts[k * 3 + 1]);
-            const int shift_j_z = __ldg(&sorted_shifts[k * 3 + 2]);
+            int shift_j_x = __ldg(&sorted_shifts[k * 3 + 0]);
+            int shift_j_y = __ldg(&sorted_shifts[k * 3 + 1]);
+            int shift_j_z = __ldg(&sorted_shifts[k * 3 + 2]);
 
-            const int total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
-            const int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
-            const int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
+            int total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
+            int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
+            int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
 
             const bool shift_is_zero = (total_shift_x == 0 && total_shift_y == 0 && total_shift_z == 0);
 
@@ -450,7 +458,7 @@ __global__ void find_neighbors_optimized(
                 rj.z - ri.z + shift_cart.z
             );
 
-            const double dist2 = dot3(vec, vec);
+            double dist2 = dot3(vec, vec);
 
             if (dist2 < cutoff2 && dist2 > 0.0) {
                 buffered_j[buffered_count] = orig_j;

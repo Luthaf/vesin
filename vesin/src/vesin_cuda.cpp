@@ -28,13 +28,13 @@ using namespace vesin::cuda;
     } while (0)
 #endif
 
-static const char* CUDA_BRUTEFORCE_CODE =
-#include "generated/cuda_bruteforce.cu"
-    ;
+const unsigned char CUDA_BRUTEFORCE_CODE[] = {
+#include "generated/cuda_bruteforce.cu.inc"
+};
 
-static const char* CUDA_CELL_LIST_CODE =
-#include "generated/cuda_cell_list.cu"
-    ;
+const unsigned char CUDA_CELL_LIST_CODE[] = {
+#include "generated/cuda_cell_list.cu.inc"
+};
 
 // Maximum number of cells (limited by single-block prefix sum)
 static constexpr size_t MAX_CELLS = 8192;
@@ -561,6 +561,9 @@ void vesin::cuda::neighbors(
 
     auto& factory = KernelFactory::instance(device_id);
 
+    auto cuda_bruteforce_code = std::string(reinterpret_cast<const char*>(CUDA_BRUTEFORCE_CODE), sizeof(CUDA_BRUTEFORCE_CODE));
+    auto cuda_cell_list_code = std::string(reinterpret_cast<const char*>(CUDA_CELL_LIST_CODE), sizeof(CUDA_CELL_LIST_CODE));
+
     if (extras->box_diag == nullptr) {
         CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->box_diag, sizeof(double) * 3));
     }
@@ -570,9 +573,9 @@ void vesin::cuda::neighbors(
 
     auto* box_check_kernel = factory.create(
         "mic_box_check",
-        CUDA_BRUTEFORCE_CODE,
+        cuda_bruteforce_code,
         "cuda_bruteforce.cu",
-        {"-std=c++17"}
+        {"-std=c++17", "-default-device"}
     );
 
     double* d_box_diag = extras->box_diag;
@@ -635,9 +638,9 @@ void vesin::cuda::neighbors(
         NVTX_PUSH("kernel0_grid_params");
         auto* grid_kernel = factory.create(
             "compute_cell_grid_params",
-            CUDA_CELL_LIST_CODE,
+            cuda_cell_list_code,
             "cuda_cell_list.cu",
-            {"-std=c++17"}
+            {"-std=c++17", "-default-device"}
         );
         std::vector<void*> grid_args = {
             static_cast<void*>(&d_box),
@@ -665,9 +668,9 @@ void vesin::cuda::neighbors(
         NVTX_PUSH("kernel1_assign_cells");
         auto* assign_kernel = factory.create(
             "assign_cell_indices",
-            CUDA_CELL_LIST_CODE,
+            cuda_cell_list_code,
             "cuda_cell_list.cu",
-            {"-std=c++17"}
+            {"-std=c++17", "-default-device"}
         );
         std::vector<void*> assign_args = {
             static_cast<void*>(&d_positions),
@@ -686,9 +689,9 @@ void vesin::cuda::neighbors(
         NVTX_PUSH("kernel2_count_particles");
         auto* count_kernel = factory.create(
             "count_particles_per_cell",
-            CUDA_CELL_LIST_CODE,
+            cuda_cell_list_code,
             "cuda_cell_list.cu",
-            {"-std=c++17"}
+            {"-std=c++17", "-default-device"}
         );
         std::vector<void*> count_args = {
             static_cast<void*>(&cl.cell_indices),
@@ -703,9 +706,9 @@ void vesin::cuda::neighbors(
         NVTX_PUSH("kernel3_prefix_sum");
         auto* prefix_kernel = factory.create(
             "prefix_sum_cells",
-            CUDA_CELL_LIST_CODE,
+            cuda_cell_list_code,
             "cuda_cell_list.cu",
-            {"-std=c++17"}
+            {"-std=c++17", "-default-device"}
         );
         std::vector<void*> prefix_args = {
             static_cast<void*>(&cl.cell_counts),
@@ -728,9 +731,9 @@ void vesin::cuda::neighbors(
         NVTX_PUSH("kernel4_scatter");
         auto* scatter_kernel = factory.create(
             "scatter_particles",
-            CUDA_CELL_LIST_CODE,
+            cuda_cell_list_code,
             "cuda_cell_list.cu",
-            {"-std=c++17"}
+            {"-std=c++17", "-default-device"}
         );
         std::vector<void*> scatter_args = {
             static_cast<void*>(&d_positions),
@@ -751,9 +754,9 @@ void vesin::cuda::neighbors(
         NVTX_PUSH("kernel5_find_neighbors");
         auto* find_kernel = factory.create(
             "find_neighbors_optimized",
-            CUDA_CELL_LIST_CODE,
+            cuda_cell_list_code,
             "cuda_cell_list.cu",
-            {"-std=c++17"}
+            {"-std=c++17", "-default-device"}
         );
         std::vector<void*> find_args = {
             static_cast<void*>(&cl.sorted_positions),
@@ -804,9 +807,9 @@ void vesin::cuda::neighbors(
                 NVTX_PUSH("brute_force_full_orthogonal");
                 auto* kernel = factory.create(
                     "brute_force_full_orthogonal",
-                    CUDA_BRUTEFORCE_CODE,
+                    cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
-                    {"-std=c++17"}
+                    {"-std=c++17", "-default-device"}
                 );
 
                 std::vector<void*> args = {
@@ -841,9 +844,9 @@ void vesin::cuda::neighbors(
                 NVTX_PUSH("brute_force_half_orthogonal");
                 auto* kernel = factory.create(
                     "brute_force_half_orthogonal",
-                    CUDA_BRUTEFORCE_CODE,
+                    cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
-                    {"-std=c++17"}
+                    {"-std=c++17", "-default-device"}
                 );
 
                 std::vector<void*> args = {
@@ -880,9 +883,9 @@ void vesin::cuda::neighbors(
                 NVTX_PUSH("brute_force_full_general");
                 auto* kernel = factory.create(
                     "brute_force_full_general",
-                    CUDA_BRUTEFORCE_CODE,
+                    cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
-                    {"-std=c++17"}
+                    {"-std=c++17", "-default-device"}
                 );
 
                 std::vector<void*> args = {
@@ -918,9 +921,9 @@ void vesin::cuda::neighbors(
                 NVTX_PUSH("brute_force_half_general");
                 auto* kernel = factory.create(
                     "brute_force_half_general",
-                    CUDA_BRUTEFORCE_CODE,
+                    cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
-                    {"-std=c++17"}
+                    {"-std=c++17", "-default-device"}
                 );
 
                 std::vector<void*> args = {

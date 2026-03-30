@@ -82,6 +82,11 @@ if __name__ == "__main__":
             check=True,
         )
 
+        subprocess.run(
+            ["cmake", "--build", ".", "--target", "generate_cuda_hex"],
+            check=True,
+        )
+
         with open(os.path.join(HERE, "vesin-single-build.cpp"), "w") as output:
             add_version(output)
             merge_files("cpu_cell_list.cpp", output)

@@ -1,10 +1,11 @@
+#include <cstdio>
 #include <cstring>
-#include <iostream>
 #include <string>
 
 #include "cpu_cell_list.hpp"
 #include "vesin.h"
 #include "vesin_cuda.hpp"
+#include "verlet.hpp"
 
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user
@@ -49,6 +50,12 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    // Validate Verlet options
+    if (options.skin < 0) {
+        *error_message = "skin must be non-negative";
+        return EXIT_FAILURE;
+    }
+
     if (neighbors->device.type != VesinUnknownDevice && neighbors->device.type != device.type) {
         *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
         return EXIT_FAILURE;
@@ -67,32 +74,80 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
-    try {
-        if (device.type == VesinCPU) {
-            auto matrix = vesin::Matrix{{{
-                {{box[0][0], box[0][1], box[0][2]}},
-                {{box[1][0], box[1][1], box[1][2]}},
-                {{box[2][0], box[2][1], box[2][2]}},
-            }}};
+    // Check if Verlet caching is enabled
+    bool use_verlet = options.skin > 0;
 
-            vesin::cpu::neighbors(
-                reinterpret_cast<const vesin::Vector*>(points),
-                n_points,
-                vesin::BoundingBox(matrix, periodic),
-                options,
-                *neighbors
+    try {
+        if (use_verlet) {
+            // Verlet caching path -- CPU only in this PR
+            if (device.type != VesinCPU) {
+                LAST_ERROR = "Verlet caching (skin > 0) is only supported on CPU";
+                *error_message = LAST_ERROR.c_str();
+                return EXIT_FAILURE;
+            }
+
+            // Create VerletState if not present
+            if (neighbors->opaque == nullptr || !neighbors->verlet_mode) {
+                auto* state = new vesin::VerletState();
+                state->cutoff = options.cutoff;
+                state->skin = options.skin;
+                state->half_skin_sq = (options.skin / 2.0) * (options.skin / 2.0);
+                state->full_list = options.full;
+                state->n_points = 0;
+                state->n_pairs = 0;
+                state->did_rebuild_flag = false;
+                state->has_cache = false;
+                std::memset(state->ref_box, 0, sizeof(state->ref_box));
+                for (int d = 0; d < 3; d++) {
+                    state->ref_periodic[d] = false;
+                }
+                neighbors->opaque = static_cast<void*>(state);
+                neighbors->verlet_mode = true;
+            }
+
+            auto* state = static_cast<vesin::VerletState*>(neighbors->opaque);
+
+            // CPU path
+            bool needs_rebuild = vesin::verlet_needs_rebuild(
+                *state, points, n_points, box, periodic
             );
-        } else if (device.type == VesinCUDA) {
-            vesin::cuda::neighbors(
-                points,
-                n_points,
-                box,
-                periodic,
-                options,
-                *neighbors
-            );
+
+            if (needs_rebuild) {
+                vesin::verlet_rebuild(*state, points, n_points, box, periodic);
+            } else {
+                state->did_rebuild_flag = false;
+            }
+
+            vesin::verlet_recompute(*state, points, box, options, *neighbors);
+
         } else {
-            throw std::runtime_error("unknown device " + std::to_string(device.type));
+            // Stateless path (original behavior)
+            if (device.type == VesinCPU) {
+                auto matrix = vesin::Matrix{{{
+                    {{box[0][0], box[0][1], box[0][2]}},
+                    {{box[1][0], box[1][1], box[1][2]}},
+                    {{box[2][0], box[2][1], box[2][2]}},
+                }}};
+
+                vesin::cpu::neighbors(
+                    reinterpret_cast<const vesin::Vector*>(points),
+                    n_points,
+                    vesin::BoundingBox(matrix, periodic),
+                    options,
+                    *neighbors
+                );
+            } else if (device.type == VesinCUDA) {
+                vesin::cuda::neighbors(
+                    points,
+                    n_points,
+                    box,
+                    periodic,
+                    options,
+                    *neighbors
+                );
+            } else {
+                throw std::runtime_error("unknown device " + std::to_string(device.type));
+            }
         }
     } catch (const std::bad_alloc&) {
         LAST_ERROR = "failed to allocate memory";
@@ -116,6 +171,13 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
     }
 
     try {
+        // Free VerletState if present (only when verlet_mode is true)
+        if (neighbors->verlet_mode && neighbors->opaque != nullptr) {
+            auto* state = static_cast<vesin::VerletState*>(neighbors->opaque);
+            delete state;
+            neighbors->opaque = nullptr;
+        }
+
         if (neighbors->device.type == VesinUnknownDevice) {
             // nothing to do
         } else if (neighbors->device.type == VesinCPU) {
@@ -126,10 +188,10 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
             throw std::runtime_error("unknown device " + std::to_string(neighbors->device.type) + " when freeing memory");
         }
     } catch (const std::exception& e) {
-        std::cerr << "error in vesin_free: " << e.what() << std::endl;
+        std::fprintf(stderr, "error in vesin_free: %s\n", e.what());
         return;
     } catch (...) {
-        std::cerr << "fatal error in vesin_free, unknown type thrown as exception" << std::endl;
+        std::fprintf(stderr, "fatal error in vesin_free, unknown type thrown as exception\n");
         return;
     }
 

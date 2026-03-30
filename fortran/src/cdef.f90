@@ -71,6 +71,9 @@ module vesin_c
         !> Should the returned `VesinNeighborList` contain `vector`?
         logical(c_bool) :: return_vectors = .false.
 
+        !> Skin size for Verlet caching. If > 0, enables displacement-based caching.
+        real(c_double) :: skin = 0.0_c_double
+
     end type VesinOptions
 
     !> Used as return type from `vesin_neighbors()`.

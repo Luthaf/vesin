@@ -63,6 +63,7 @@ option(VESIN_ENABLE_NVTX "Enable NVTX profiling markers" OFF)
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cluster_pair_search.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
 )
 
@@ -103,8 +104,22 @@ endif()
 
 FetchContent_MakeAvailable(gpulite)
 
-target_link_libraries(vesin_objects PRIVATE gpulite)
-target_link_libraries(vesin PRIVATE gpulite)
+# Google Highway for portable SIMD (used in cluster-pair search)
+FetchContent_Declare(
+    highway
+    GIT_REPOSITORY https://github.com/google/highway.git
+    GIT_TAG 1.2.0
+    GIT_SHALLOW TRUE
+    EXCLUDE_FROM_ALL
+)
+set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(highway)
+
+target_link_libraries(vesin_objects PRIVATE gpulite hwy)
+target_link_libraries(vesin PRIVATE gpulite hwy)
 
 # Create generated directory
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)

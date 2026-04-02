@@ -470,7 +470,10 @@ void vesin::cuda::neighbors(
     }
 
     auto* extras = vesin::cuda::get_cuda_extras(&neighbors);
-    size_t max_pairs_per_point = VESIN_DEFAULT_CUDA_MAX_PAIRS_PER_POINT;
+    size_t max_pairs_per_point = std::max(
+        static_cast<size_t>(VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT),
+        static_cast<size_t>(std::ceil(std::pow(options.cutoff, 3)))
+    );
 
     if (extras->allocated_device_id != device_id) {
         // first switch to previous device
@@ -508,26 +511,25 @@ void vesin::cuda::neighbors(
             max_pairs_per_point = static_cast<size_t>(parsed_max_pairs_per_point);
         }
 
-        auto max_pairs = static_cast<size_t>(1.2 * static_cast<double>(n_points * max_pairs_per_point));
-        extras->max_pairs = max_pairs;
+        extras->max_pairs = n_points * max_pairs_per_point;
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * max_pairs * 2));
+        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * extras->max_pairs * 2));
 
         if (options.return_shifts) {
             CUDART_SAFE_CALL(
-                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * max_pairs * 3)
+                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * extras->max_pairs * 3)
             );
         }
 
         if (options.return_distances) {
             CUDART_SAFE_CALL(
-                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.distances, sizeof(double) * max_pairs)
+                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.distances, sizeof(double) * extras->max_pairs)
             );
         }
 
         if (options.return_vectors) {
             CUDART_SAFE_CALL(
-                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.vectors, sizeof(double) * max_pairs * 3)
+                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.vectors, sizeof(double) * extras->max_pairs * 3)
             );
         }
 

@@ -17,6 +17,28 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.4](https://github.com/Luthaf/vesin/releases/tag/v0.5.4) - 2026-04-02
+
+### Fixed
+
+- The cell list algorithm are now properly O(N) even in the case of non-periodic
+  dimensions. The code previously fell back to a O(N^2) implementation in this
+  case.
+
+### Added
+
+- `vesin.torch.NeighborList` can now be saved with `torch.script.save`,
+  including when used as attribute of a model
+- The `vesin-torch` wheels on PyPI are now compatible with PyTorch v2.11
+
+### Changed
+
+- The main API for compatibility with metatomic models is now
+  `vesin.metatomic.neighbor_lists_for_model`, which allows re-using the same
+  calculator across multiple simulation steps. The previous API
+  (`compute_requested_neighbors` and `compute_requested_neighbors_from_options`)
+  is now deprecated.
+
 ## [Version 0.5.3](https://github.com/Luthaf/vesin/releases/tag/v0.5.3) - 2026-03-10
 
 ### Fixed

@@ -261,8 +261,8 @@ def test_max_pairs():
     points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
 
     message = (
-        "The number of neighbor pairs exceeds the maximum capacity of 30720 "
-        "\\(max_pairs_per_point=256; n_points=100\\). Consider reducing the "
+        "The number of neighbor pairs exceeds the maximum capacity of 12800 "
+        "\\(max_pairs_per_point=128; n_points=100\\). Consider reducing the "
         "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
         "an environment variable."
     )
@@ -277,7 +277,7 @@ def test_max_pairs():
 
     os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "10"
     message = (
-        "The number of neighbor pairs exceeds the maximum capacity of 1200 "
+        "The number of neighbor pairs exceeds the maximum capacity of 1000 "
         "\\(max_pairs_per_point=10; n_points=100\\). Consider reducing the "
         "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
         "an environment variable."

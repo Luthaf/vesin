@@ -180,9 +180,9 @@ class NeighborList:
         """
 
         if isinstance(systems, list):
-            if copy:
+            if len(systems) > 1 and not copy:
                 raise ValueError(
-                    "`copy=True` is not supported when computing neighbor lists "
+                    "`copy=False` is not supported when computing neighbor lists "
                     "for multiple systems with the same calculator"
                 )
         else:

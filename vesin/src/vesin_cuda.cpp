@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 
 #include <algorithm>
 #include <optional>
@@ -181,7 +182,7 @@ static std::optional<cudaPointerAttributes> getPtrAttributes(const void* ptr) {
 
     try {
         cudaPointerAttributes attr;
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaPointerGetAttributes(&attr, ptr));
+        GPULITE_CUDART_CALL(cudaPointerGetAttributes(&attr, ptr));
         return attr;
     } catch (const std::runtime_error& e) {
         return std::nullopt;
@@ -216,42 +217,46 @@ static int32_t get_device_id(const void* ptr) {
 }
 
 static void free_cell_list_buffers(CellListBuffers& cl) {
-    CUDART_INSTANCE.cudaFree(cl.cell_indices);
-    CUDART_INSTANCE.cudaFree(cl.particle_shifts);
-    CUDART_INSTANCE.cudaFree(cl.cell_counts);
-    CUDART_INSTANCE.cudaFree(cl.cell_starts);
-    CUDART_INSTANCE.cudaFree(cl.cell_offsets);
-    CUDART_INSTANCE.cudaFree(cl.sorted_positions);
-    CUDART_INSTANCE.cudaFree(cl.sorted_indices);
-    CUDART_INSTANCE.cudaFree(cl.sorted_shifts);
-    CUDART_INSTANCE.cudaFree(cl.sorted_cell_indices);
-    CUDART_INSTANCE.cudaFree(cl.inv_box);
-    CUDART_INSTANCE.cudaFree(cl.n_cells);
-    CUDART_INSTANCE.cudaFree(cl.n_search);
-    CUDART_INSTANCE.cudaFree(cl.n_cells_total);
-    CUDART_INSTANCE.cudaFree(cl.bounding_min);
-    CUDART_INSTANCE.cudaFree(cl.bounding_max);
+    GPULITE_CUDART_CALL(cudaFree(cl.cell_indices));
+    GPULITE_CUDART_CALL(cudaFree(cl.particle_shifts));
+    GPULITE_CUDART_CALL(cudaFree(cl.cell_counts));
+    GPULITE_CUDART_CALL(cudaFree(cl.cell_starts));
+    GPULITE_CUDART_CALL(cudaFree(cl.cell_offsets));
+    GPULITE_CUDART_CALL(cudaFree(cl.sorted_positions));
+    GPULITE_CUDART_CALL(cudaFree(cl.sorted_indices));
+    GPULITE_CUDART_CALL(cudaFree(cl.sorted_shifts));
+    GPULITE_CUDART_CALL(cudaFree(cl.sorted_cell_indices));
+    GPULITE_CUDART_CALL(cudaFree(cl.inv_box));
+    GPULITE_CUDART_CALL(cudaFree(cl.n_cells));
+    GPULITE_CUDART_CALL(cudaFree(cl.n_search));
+    GPULITE_CUDART_CALL(cudaFree(cl.n_cells_total));
+    GPULITE_CUDART_CALL(cudaFree(cl.bounding_min));
+    GPULITE_CUDART_CALL(cudaFree(cl.bounding_max));
 
     cl = CellListBuffers();
 }
 
 CudaNeighborListExtras::~CudaNeighborListExtras() {
     if (this->length_ptr != nullptr) {
-        CUDART_INSTANCE.cudaFree(this->length_ptr);
+        gpulite::CUDART::instance().cudaFree(this->length_ptr);
     }
     if (this->cell_check_ptr != nullptr) {
-        CUDART_INSTANCE.cudaFree(this->cell_check_ptr);
+        gpulite::CUDART::instance().cudaFree(this->cell_check_ptr);
     }
     if (this->overflow_flag != nullptr) {
-        CUDART_INSTANCE.cudaFree(this->overflow_flag);
+        gpulite::CUDART::instance().cudaFree(this->overflow_flag);
     }
     if (this->box_diag != nullptr) {
-        CUDART_INSTANCE.cudaFree(this->box_diag);
+        gpulite::CUDART::instance().cudaFree(this->box_diag);
     }
     if (this->inv_box_brute != nullptr) {
-        CUDART_INSTANCE.cudaFree(this->inv_box_brute);
+        gpulite::CUDART::instance().cudaFree(this->inv_box_brute);
     }
-    free_cell_list_buffers(this->cell_list);
+    try {
+        free_cell_list_buffers(this->cell_list);
+    } catch (const std::runtime_error& e) {
+        std::cerr << "Error freeing cell list buffers: " << e.what() << std::endl;
+    }
 }
 
 vesin::cuda::CudaNeighborListExtras*
@@ -267,16 +272,16 @@ static void reset(VesinNeighborList& neighbors) {
     auto* extras = vesin::cuda::get_cuda_extras(&neighbors);
 
     if ((neighbors.pairs != nullptr) && is_device_ptr(getPtrAttributes(neighbors.pairs), "pairs")) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.pairs));
+        GPULITE_CUDART_CALL(cudaFree(neighbors.pairs));
     }
     if ((neighbors.shifts != nullptr) && is_device_ptr(getPtrAttributes(neighbors.shifts), "shifts")) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.shifts));
+        GPULITE_CUDART_CALL(cudaFree(neighbors.shifts));
     }
     if ((neighbors.distances != nullptr) && is_device_ptr(getPtrAttributes(neighbors.distances), "distances")) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.distances));
+        GPULITE_CUDART_CALL(cudaFree(neighbors.distances));
     }
     if ((neighbors.vectors != nullptr) && is_device_ptr(getPtrAttributes(neighbors.vectors), "vectors")) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(neighbors.vectors));
+        GPULITE_CUDART_CALL(cudaFree(neighbors.vectors));
     }
 
     neighbors.pairs = nullptr;
@@ -287,18 +292,18 @@ static void reset(VesinNeighborList& neighbors) {
 
     // Free pinned memory if allocated
     if (extras->pinned_length_ptr != nullptr) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFreeHost(extras->pinned_length_ptr));
+        GPULITE_CUDART_CALL(cudaFreeHost(extras->pinned_length_ptr));
         extras->pinned_length_ptr = nullptr;
     }
 
     // Free brute force buffers
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->box_diag));
+    GPULITE_CUDART_CALL(cudaFree(extras->box_diag));
     extras->box_diag = nullptr;
 
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->inv_box_brute));
+    GPULITE_CUDART_CALL(cudaFree(extras->inv_box_brute));
     extras->inv_box_brute = nullptr;
 
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaFree(extras->overflow_flag));
+    GPULITE_CUDART_CALL(cudaFree(extras->overflow_flag));
     extras->overflow_flag = nullptr;
 
     free_cell_list_buffers(extras->cell_list);
@@ -313,18 +318,18 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
     int32_t device_id = -1;
 
     if (neighbors.pairs != nullptr) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaGetDevice(&curr_device));
+        GPULITE_CUDART_CALL(cudaGetDevice(&curr_device));
         device_id = get_device_id(neighbors.pairs);
 
         if ((device_id != -1) && curr_device != device_id) {
-            CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(device_id));
+            GPULITE_CUDART_CALL(cudaSetDevice(device_id));
         }
     }
 
     reset(neighbors);
 
     if ((device_id != -1) && curr_device != device_id) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(curr_device));
+        GPULITE_CUDART_CALL(cudaSetDevice(curr_device));
     }
 
     delete static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
@@ -356,19 +361,19 @@ void checkCuda() {
     nvrtc_libname = "nvrtc";
     suggestion = "Unsupported platform: unable to load CUDA libraries.";
 #endif
-    if (!CUDA_DRIVER_INSTANCE.loaded()) {
+    if (!gpulite::CUDADriver::loaded()) {
         throw std::runtime_error(
             "Failed to load " + cuda_libname + ". " + suggestion
         );
     }
 
-    if (!CUDART_INSTANCE.loaded()) {
+    if (!gpulite::CUDART::loaded()) {
         throw std::runtime_error(
             "Failed to load " + cudart_libname + ". " + suggestion
         );
     }
 
-    if (!NVRTC_INSTANCE.loaded()) {
+    if (!gpulite::NVRTC::loaded()) {
         throw std::runtime_error(
             "Failed to load " + nvrtc_libname + ". " + suggestion
         );
@@ -386,44 +391,44 @@ static void ensure_cell_list_buffers(
 
     if (need_realloc_points) {
         // Free old point-related buffers
-        CUDART_INSTANCE.cudaFree(cl.cell_indices);
-        CUDART_INSTANCE.cudaFree(cl.particle_shifts);
-        CUDART_INSTANCE.cudaFree(cl.sorted_positions);
-        CUDART_INSTANCE.cudaFree(cl.sorted_indices);
-        CUDART_INSTANCE.cudaFree(cl.sorted_shifts);
-        CUDART_INSTANCE.cudaFree(cl.sorted_cell_indices);
+        GPULITE_CUDART_CALL(cudaFree(cl.cell_indices));
+        GPULITE_CUDART_CALL(cudaFree(cl.particle_shifts));
+        GPULITE_CUDART_CALL(cudaFree(cl.sorted_positions));
+        GPULITE_CUDART_CALL(cudaFree(cl.sorted_indices));
+        GPULITE_CUDART_CALL(cudaFree(cl.sorted_shifts));
+        GPULITE_CUDART_CALL(cudaFree(cl.sorted_cell_indices));
 
         auto new_max = static_cast<size_t>(1.2 * static_cast<double>(n_points));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_indices, sizeof(int32_t) * new_max));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.particle_shifts, sizeof(int32_t) * new_max * 3));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.sorted_positions, sizeof(double) * new_max * 3));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.sorted_indices, sizeof(int32_t) * new_max));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.sorted_shifts, sizeof(int32_t) * new_max * 3));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.sorted_cell_indices, sizeof(int32_t) * new_max));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_indices, sizeof(int32_t) * new_max));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.particle_shifts, sizeof(int32_t) * new_max * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_positions, sizeof(double) * new_max * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_indices, sizeof(int32_t) * new_max));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_shifts, sizeof(int32_t) * new_max * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_cell_indices, sizeof(int32_t) * new_max));
         cl.max_points = new_max;
     }
 
     if (need_realloc_cells) {
         // Free old cell-related buffers
-        CUDART_INSTANCE.cudaFree(cl.cell_counts);
-        CUDART_INSTANCE.cudaFree(cl.cell_starts);
-        CUDART_INSTANCE.cudaFree(cl.cell_offsets);
+        GPULITE_CUDART_CALL(cudaFree(cl.cell_counts));
+        GPULITE_CUDART_CALL(cudaFree(cl.cell_starts));
+        GPULITE_CUDART_CALL(cudaFree(cl.cell_offsets));
 
         auto new_max = static_cast<size_t>(1.2 * static_cast<double>(n_cells_total));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_counts, sizeof(int32_t) * new_max));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_starts, sizeof(int32_t) * new_max));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.cell_offsets, sizeof(int32_t) * new_max));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_counts, sizeof(int32_t) * new_max));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_starts, sizeof(int32_t) * new_max));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_offsets, sizeof(int32_t) * new_max));
         cl.max_cells = new_max;
     }
 
     // Allocate cell grid parameter buffers (fixed size, only once)
     if (cl.inv_box == nullptr) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.inv_box, sizeof(double) * 9));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.n_cells, sizeof(int32_t) * 3));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.n_search, sizeof(int32_t) * 3));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.n_cells_total, sizeof(int32_t)));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.bounding_min, sizeof(double) * 3));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&cl.bounding_max, sizeof(double) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.inv_box, sizeof(double) * 9));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.n_cells, sizeof(int32_t) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.n_search, sizeof(int32_t) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.n_cells_total, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.bounding_min, sizeof(double) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.bounding_max, sizeof(double) * 3));
     }
 }
 
@@ -478,19 +483,19 @@ void vesin::cuda::neighbors(
     if (extras->allocated_device_id != device_id) {
         // first switch to previous device
         if (extras->allocated_device_id >= 0) {
-            CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(extras->allocated_device_id));
+            GPULITE_CUDART_CALL(cudaSetDevice(extras->allocated_device_id));
         }
         // free any existing allocations
         reset(neighbors);
         // switch back to current device
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaSetDevice(device_id));
+        GPULITE_CUDART_CALL(cudaSetDevice(device_id));
         extras->allocated_device_id = device_id;
     }
 
     if (extras->capacity >= n_points && (extras->length_ptr != nullptr)) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int32_t)));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->overflow_flag, 0, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
+        GPULITE_CUDART_CALL(cudaMemset(extras->cell_check_ptr, 0, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMemset(extras->overflow_flag, 0, sizeof(int32_t)));
     } else {
         auto saved_device = extras->allocated_device_id;
         reset(neighbors);
@@ -513,41 +518,35 @@ void vesin::cuda::neighbors(
 
         extras->max_pairs = n_points * max_pairs_per_point;
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * extras->max_pairs * 2));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * extras->max_pairs * 2));
 
         if (options.return_shifts) {
-            CUDART_SAFE_CALL(
-                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * extras->max_pairs * 3)
-            );
+            GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * extras->max_pairs * 3));
         }
 
         if (options.return_distances) {
-            CUDART_SAFE_CALL(
-                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.distances, sizeof(double) * extras->max_pairs)
-            );
+            GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.distances, sizeof(double) * extras->max_pairs));
         }
 
         if (options.return_vectors) {
-            CUDART_SAFE_CALL(
-                CUDART_INSTANCE.cudaMalloc((void**)&neighbors.vectors, sizeof(double) * extras->max_pairs * 3)
-            );
+            GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.vectors, sizeof(double) * extras->max_pairs * 3));
         }
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->length_ptr, sizeof(size_t)));
+        GPULITE_CUDART_CALL(cudaMemset(extras->length_ptr, 0, sizeof(size_t)));
 
         // Pinned host memory for async D2H copy
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaHostAlloc(
+        GPULITE_CUDART_CALL(cudaHostAlloc(
             (void**)&extras->pinned_length_ptr,
             sizeof(size_t),
             cudaHostAllocDefault
         ));
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int32_t)));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->cell_check_ptr, 0, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->cell_check_ptr, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMemset(extras->cell_check_ptr, 0, sizeof(int32_t)));
 
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->overflow_flag, sizeof(int32_t)));
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(extras->overflow_flag, 0, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->overflow_flag, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMemset(extras->overflow_flag, 0, sizeof(int32_t)));
 
         extras->capacity = static_cast<size_t>(1.2 * static_cast<double>(n_points));
     }
@@ -565,16 +564,16 @@ void vesin::cuda::neighbors(
     auto* d_overflow_flag = extras->overflow_flag;
     size_t max_pairs = extras->max_pairs;
 
-    auto& factory = KernelFactory::instance(device_id);
+    auto& factory = gpulite::KernelFactory::instance(device_id);
 
     auto cuda_bruteforce_code = std::string(reinterpret_cast<const char*>(CUDA_BRUTEFORCE_CODE), sizeof(CUDA_BRUTEFORCE_CODE));
     auto cuda_cell_list_code = std::string(reinterpret_cast<const char*>(CUDA_CELL_LIST_CODE), sizeof(CUDA_CELL_LIST_CODE));
 
     if (extras->box_diag == nullptr) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->box_diag, sizeof(double) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->box_diag, sizeof(double) * 3));
     }
     if (extras->inv_box_brute == nullptr) {
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMalloc((void**)&extras->inv_box_brute, sizeof(double) * 9));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->inv_box_brute, sizeof(double) * 9));
     }
 
     auto* box_check_kernel = factory.create(
@@ -598,14 +597,14 @@ void vesin::cuda::neighbors(
     box_check_kernel->launch(dim3(1), dim3(32), 0, nullptr, box_check_args, false);
 
     int32_t h_cell_check = 1;
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int32_t), cudaMemcpyDeviceToHost));
+    GPULITE_CUDART_CALL(cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int32_t), cudaMemcpyDeviceToHost));
 
     bool box_check_error = (h_cell_check & 1) != 0;
     bool is_orthogonal = (h_cell_check & 2) != 0;
 
     // Get box dimensions for auto algorithm selection
     double h_box_diag[3];
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(h_box_diag, d_box_diag, sizeof(double) * 3, cudaMemcpyDeviceToHost));
+    GPULITE_CUDART_CALL(cudaMemcpy(h_box_diag, d_box_diag, sizeof(double) * 3, cudaMemcpyDeviceToHost));
     double min_box_dim = std::min({h_box_diag[0], h_box_diag[1], h_box_diag[2]});
     bool cutoff_requires_cell_list = options.cutoff > min_box_dim / 2.0;
 
@@ -684,11 +683,11 @@ void vesin::cuda::neighbors(
         NVTX_POP();
 
         NVTX_PUSH("memset_cell_counts");
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * MAX_CELLS));
+        GPULITE_CUDART_CALL(cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * MAX_CELLS));
         NVTX_POP();
 
         NVTX_PUSH("memset_cell_starts");
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemset(cl.cell_starts, 0, sizeof(int32_t) * MAX_CELLS));
+        GPULITE_CUDART_CALL(cudaMemset(cl.cell_starts, 0, sizeof(int32_t) * MAX_CELLS));
         NVTX_POP();
 
         NVTX_PUSH("kernel1_assign_cells");
@@ -751,7 +750,7 @@ void vesin::cuda::neighbors(
         NVTX_POP();
 
         NVTX_PUSH("memcpy_cell_offsets");
-        CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+        GPULITE_CUDART_CALL(cudaMemcpy(
             cl.cell_offsets, cl.cell_starts, sizeof(int32_t) * MAX_CELLS, cudaMemcpyDeviceToDevice
         ));
         NVTX_POP();
@@ -991,7 +990,7 @@ void vesin::cuda::neighbors(
 
     NVTX_PUSH("async_copy_and_sync");
 
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpyAsync(
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
         extras->pinned_length_ptr,
         d_pair_counter,
         sizeof(size_t),
@@ -999,11 +998,11 @@ void vesin::cuda::neighbors(
         nullptr
     ));
 
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaDeviceSynchronize());
+    GPULITE_CUDART_CALL(cudaDeviceSynchronize());
 
     // Check for overflow
     int h_overflow_flag = 0;
-    CUDART_SAFE_CALL(CUDART_INSTANCE.cudaMemcpy(
+    GPULITE_CUDART_CALL(cudaMemcpy(
         &h_overflow_flag,
         d_overflow_flag,
         sizeof(int),

@@ -39,9 +39,10 @@ const unsigned char CUDA_CELL_LIST_CODE[] = {
 
 // Maximum number of cells (limited by single-block prefix sum)
 static constexpr size_t MAX_CELLS = 8192;
-// Minimum particles per cell target for good GPU utilization
-// Higher values = fewer cells = more work per block but larger search range
-static constexpr size_t MIN_PARTICLES_PER_CELL = 128;
+// Minimum particles per cell target for good GPU utilization.
+// Lower values create more cells and reduce per-cell neighbor work, which is
+// beneficial on larger systems where more coarse grids become too dense.
+static constexpr size_t MIN_PARTICLES_PER_CELL = 8;
 
 // Helper functions for CPU-side vector math
 static inline double cpu_dot3(const double* a, const double* b) {

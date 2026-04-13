@@ -17,7 +17,6 @@ try:
 except ImportError:
     HAS_NNPOPS = False
 
-# nvalchemi (nvalchemiops) v0.3.0
 try:
     from nvalchemiops.torch.neighbors import neighbor_list as nvalchemi_neighbor_list
 
@@ -94,15 +93,15 @@ def nnpops_run(positions, cutoff, box_vectors):
 
 
 def setup_nvalchemi_cpu(atoms, cutoff):
-    positions = torch.tensor(atoms.positions, dtype=torch.float64)
-    cell = torch.tensor(atoms.cell[:], dtype=torch.float64).unsqueeze(0)
+    positions = torch.tensor(atoms.positions)
+    cell = torch.tensor(atoms.cell[:]).unsqueeze(0)
     pbc = torch.tensor(atoms.pbc)
     return positions, cutoff, cell, pbc
 
 
 def setup_nvalchemi_cuda(atoms, cutoff):
-    positions = torch.tensor(atoms.positions, dtype=torch.float64, device="cuda")
-    cell = torch.tensor(atoms.cell[:], dtype=torch.float64, device="cuda").unsqueeze(0)
+    positions = torch.tensor(atoms.positions, device="cuda")
+    cell = torch.tensor(atoms.cell[:], device="cuda").unsqueeze(0)
     pbc = torch.tensor(atoms.pbc, device="cuda")
     return positions, cutoff, cell, pbc
 

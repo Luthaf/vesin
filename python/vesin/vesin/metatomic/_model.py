@@ -136,6 +136,7 @@ def compute_requested_neighbors(
         "`compute_requested_neighbors` is deprecated and will be removed in a future "
         "version. Please use `neighbor_lists_for_model` to get the calculators and "
         "call them directly.",
+        category=DeprecationWarning,
         stacklevel=2,
     )
 
@@ -212,6 +213,7 @@ def compute_requested_neighbors_from_options(
         "`compute_requested_neighbors_from_options` is deprecated and will be removed "
         "in a future version. Please use `neighbor_lists_for_model` to get the "
         "calculators and call them directly.",
+        category=DeprecationWarning,
         stacklevel=2,
     )
     return _compute_requested_neighbors_from_options_impl(

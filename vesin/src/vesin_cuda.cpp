@@ -38,7 +38,7 @@ const unsigned char CUDA_CELL_LIST_CODE[] = {
 };
 
 // Maximum number of cells (limited by single-block prefix sum)
-static constexpr size_t MAX_CELLS = 8192;
+static constexpr size_t DEFAULT_MAX_CELLS = 8192;
 // Minimum particles per cell target for good GPU utilization.
 // Lower values create more cells and reduce per-cell neighbor work, which is
 // beneficial on larger systems where more coarse grids become too dense.
@@ -382,15 +382,12 @@ void checkCuda() {
 }
 
 // Ensure cell list buffers are allocated with sufficient capacity
-static void ensure_cell_list_buffers(
+static void realloc_buffers_if_needed(
     CellListBuffers& cl,
     size_t n_points,
-    size_t n_cells_total
+    size_t n_cells
 ) {
-    bool need_realloc_points = (cl.max_points < n_points);
-    bool need_realloc_cells = (cl.max_cells < n_cells_total);
-
-    if (need_realloc_points) {
+    if (cl.max_points < n_points) {
         // Free old point-related buffers
         GPULITE_CUDART_CALL(cudaFree(cl.cell_indices));
         GPULITE_CUDART_CALL(cudaFree(cl.particle_shifts));
@@ -399,27 +396,25 @@ static void ensure_cell_list_buffers(
         GPULITE_CUDART_CALL(cudaFree(cl.sorted_shifts));
         GPULITE_CUDART_CALL(cudaFree(cl.sorted_cell_indices));
 
-        auto new_max = static_cast<size_t>(1.2 * static_cast<double>(n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_indices, sizeof(int32_t) * new_max));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.particle_shifts, sizeof(int32_t) * new_max * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_positions, sizeof(double) * new_max * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_indices, sizeof(int32_t) * new_max));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_shifts, sizeof(int32_t) * new_max * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_cell_indices, sizeof(int32_t) * new_max));
-        cl.max_points = new_max;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_indices, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.particle_shifts, sizeof(int32_t) * n_points * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_positions, sizeof(double) * n_points * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_indices, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_shifts, sizeof(int32_t) * n_points * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.sorted_cell_indices, sizeof(int32_t) * n_points));
+        cl.max_points = n_points;
     }
 
-    if (need_realloc_cells) {
+    if (cl.max_cells < n_cells) {
         // Free old cell-related buffers
         GPULITE_CUDART_CALL(cudaFree(cl.cell_counts));
         GPULITE_CUDART_CALL(cudaFree(cl.cell_starts));
         GPULITE_CUDART_CALL(cudaFree(cl.cell_offsets));
 
-        auto new_max = static_cast<size_t>(1.2 * static_cast<double>(n_cells_total));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_counts, sizeof(int32_t) * new_max));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_starts, sizeof(int32_t) * new_max));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_offsets, sizeof(int32_t) * new_max));
-        cl.max_cells = new_max;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_counts, sizeof(int32_t) * n_cells));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_starts, sizeof(int32_t) * n_cells));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.cell_offsets, sizeof(int32_t) * n_cells));
+        cl.max_cells = n_cells;
     }
 
     // Allocate cell grid parameter buffers (fixed size, only once)
@@ -630,13 +625,15 @@ void vesin::cuda::neighbors(
     if (use_cell_list) {
         NVTX_PUSH("cell_list_total");
 
+        // Compute effective max cells based on minimum particles per cell target
+        // This ensures we have enough work per cell for good GPU utilization
+        size_t max_cells_from_particles = std::max(n_points / MIN_PARTICLES_PER_CELL, static_cast<size_t>(1));
+        size_t max_cells = std::min(DEFAULT_MAX_CELLS, max_cells_from_particles);
+
         NVTX_PUSH("ensure_buffers");
-        ensure_cell_list_buffers(extras->cell_list, n_points, MAX_CELLS);
+        realloc_buffers_if_needed(extras->cell_list, n_points, max_cells);
         NVTX_POP();
         auto& cl = extras->cell_list;
-
-        int32_t max_cells_int = static_cast<int32_t>(MAX_CELLS);
-        int32_t min_particles_per_cell = MIN_PARTICLES_PER_CELL;
 
         size_t THREADS_PER_BLOCK = 256;
         size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -670,9 +667,7 @@ void vesin::cuda::neighbors(
             static_cast<void*>(&d_box),
             static_cast<void*>(&d_periodic),
             static_cast<void*>(&options.cutoff),
-            static_cast<void*>(&max_cells_int),
-            static_cast<void*>(&n_points),
-            static_cast<void*>(&min_particles_per_cell),
+            static_cast<void*>(&max_cells),
             static_cast<void*>(&cl.inv_box),
             static_cast<void*>(&cl.n_cells),
             static_cast<void*>(&cl.n_search),
@@ -683,12 +678,9 @@ void vesin::cuda::neighbors(
         grid_kernel->launch(dim3(1), dim3(1), 0, nullptr, grid_args, false);
         NVTX_POP();
 
-        NVTX_PUSH("memset_cell_counts");
-        GPULITE_CUDART_CALL(cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * MAX_CELLS));
-        NVTX_POP();
-
-        NVTX_PUSH("memset_cell_starts");
-        GPULITE_CUDART_CALL(cudaMemset(cl.cell_starts, 0, sizeof(int32_t) * MAX_CELLS));
+        NVTX_PUSH("memset_cell_counts_starts");
+        GPULITE_CUDART_CALL(cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * max_cells));
+        GPULITE_CUDART_CALL(cudaMemset(cl.cell_starts, 0, sizeof(int32_t) * max_cells));
         NVTX_POP();
 
         NVTX_PUSH("kernel1_assign_cells");
@@ -752,7 +744,7 @@ void vesin::cuda::neighbors(
 
         NVTX_PUSH("memcpy_cell_offsets");
         GPULITE_CUDART_CALL(cudaMemcpy(
-            cl.cell_offsets, cl.cell_starts, sizeof(int32_t) * MAX_CELLS, cudaMemcpyDeviceToDevice
+            cl.cell_offsets, cl.cell_starts, sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice
         ));
         NVTX_POP();
 

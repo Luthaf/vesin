@@ -83,9 +83,7 @@ __global__ void compute_cell_grid_params(
     const double* __restrict__ box,
     const bool* __restrict__ periodic,
     double cutoff,
-    int max_cells,
-    size_t n_points,
-    int min_particles_per_cell,
+    size_t max_cells,
     double* __restrict__ inv_box,
     int* __restrict__ n_cells,
     int* __restrict__ n_search,
@@ -167,18 +165,30 @@ __global__ void compute_cell_grid_params(
 
     int total = n_cells[0] * n_cells[1] * n_cells[2];
 
-    // Compute effective max cells based on minimum particles per cell target
-    // This ensures we have enough work per cell for good GPU utilization
-    int max_cells_from_particles = max(1, (int)(n_points / min_particles_per_cell));
-    int effective_max_cells = min(max_cells, max_cells_from_particles);
-
     // Limit total cells to effective maximum
-    if (total > effective_max_cells) {
-        double ratio = cbrt((double)effective_max_cells / total);
-        n_cells[0] = max(1, (int)(n_cells[0] * ratio));
-        n_cells[1] = max(1, (int)(n_cells[1] * ratio));
-        n_cells[2] = max(1, (int)(n_cells[2] * ratio));
+    if (total > max_cells) {
+        double ratio = cbrt((double)max_cells / total);
+        n_cells[0] = max(1, (int)floor(n_cells[0] * ratio));
+        n_cells[1] = max(1, (int)floor(n_cells[1] * ratio));
+        n_cells[2] = max(1, (int)floor(n_cells[2] * ratio));
         total = n_cells[0] * n_cells[1] * n_cells[2];
+
+        // total might still be above max_cells due to separate rounding for
+        // separate dimensions. Decrease the largest dimension until the product
+        // fits
+        while (total > max_cells) {
+            if (n_cells[0] >= n_cells[1] && n_cells[0] >= n_cells[2] && n_cells[0] > 1) {
+                n_cells[0] -= 1;
+            } else if (n_cells[1] >= n_cells[0] && n_cells[1] >= n_cells[2] && n_cells[1] > 1) {
+                n_cells[1] -= 1;
+            } else if (n_cells[2] > 1) {
+                n_cells[2] -= 1;
+            } else {
+                break;
+            }
+
+            total = n_cells[0] * n_cells[1] * n_cells[2];
+        }
     }
     n_cells_total[0] = total;
 

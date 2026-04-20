@@ -17,6 +17,18 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.5](https://github.com/Luthaf/vesin/releases/tag/v0.5.5) - 2026-04-20
+
+### Fixed
+
+- Fixed a bug when using `copy=False` in vesin.metatomic
+
+### Changed
+
+- Tweaked parameters for the cuda implementation to make the code faster
+- Change the default number of pairs we allocate for in the CUDA implementation,
+  fewer people should have to manually override the default value
+
 ## [Version 0.5.4](https://github.com/Luthaf/vesin/releases/tag/v0.5.4) - 2026-04-02
 
 ### Fixed

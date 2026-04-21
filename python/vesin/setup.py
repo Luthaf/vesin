@@ -139,7 +139,7 @@ class sdist_with_lib(sdist):
 
         print("downloading gpulite source code")
         urllib.request.urlretrieve(
-            f"https://github.com/rubber-duck-debug/gpu-lite/archive/{commit}.tar.gz",
+            f"https://github.com/metatensor/gpu-lite/archive/{commit}.tar.gz",
             gpulite_archive,
         )
 

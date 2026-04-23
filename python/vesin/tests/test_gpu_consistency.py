@@ -39,11 +39,11 @@ def sort_neighbors(i, j, S, D, d):
     )
 
 
-def compute_neighbors(points, box, periodic, cutoff, full_list, algorithm):
+def compute_neighbors(points, box, periodic, cutoff, full_list, algorithm, sorted):
     calculator = NeighborList(
         cutoff=cutoff,
         full_list=full_list,
-        sorted=False,
+        sorted=sorted,
         algorithm=algorithm,
     )
     return calculator.compute(
@@ -55,7 +55,11 @@ def compute_neighbors(points, box, periodic, cutoff, full_list, algorithm):
 
 
 def compare_cpu_gpu(
-    case: SystemForTests, cutoff: float, full_list: bool, gpu_algorithm: str
+    case: SystemForTests,
+    cutoff: float,
+    full_list: bool,
+    gpu_algorithm: str,
+    sorted: bool,
 ):
     cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = compute_neighbors(
         points=case.points,
@@ -64,6 +68,7 @@ def compare_cpu_gpu(
         cutoff=cutoff,
         full_list=full_list,
         algorithm="cell_list",
+        sorted=sorted,
     )
     cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = sort_neighbors(
         cpu_i,
@@ -80,6 +85,7 @@ def compare_cpu_gpu(
         cutoff=cutoff,
         full_list=full_list,
         algorithm=gpu_algorithm,
+        sorted=sorted,
     )
 
     gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = sort_neighbors(
@@ -209,11 +215,12 @@ def gpu_algorithm_is_applicable(
 )
 @pytest.mark.parametrize("cutoff", CUTOFFS)
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force"])
+@pytest.mark.parametrize("sorted", [False, True])
 def test_gpu_matches_cpu_for_fixed_systems(
-    system, cutoff, full_list, gpu_algorithm, monkeypatch
+    system, cutoff, full_list, gpu_algorithm, sorted, monkeypatch
 ):
     if not gpu_algorithm_is_applicable(system, cutoff, gpu_algorithm):
         return
 
     monkeypatch.setenv("VESIN_CUDA_MAX_PAIRS_PER_POINT", "4096")
-    compare_cpu_gpu(system, cutoff, full_list, gpu_algorithm)
+    compare_cpu_gpu(system, cutoff, full_list, gpu_algorithm, sorted)

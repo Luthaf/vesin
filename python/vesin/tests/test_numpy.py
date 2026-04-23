@@ -96,6 +96,27 @@ def test_sorting():
     assert np.all(sorted_ij[np.lexsort((j, i))] == sorted_ij)
 
 
+def test_sorting_tie_break_on_shifts():
+    points = np.array([[0.0, 0.0, 0.0]], dtype=np.float64)
+    box = np.array(
+        [
+            [0.5, 0.0, 0.0],
+            [0.0, 0.5, 0.0],
+            [0.0, 0.0, 0.5],
+        ],
+        dtype=np.float64,
+    )
+
+    calculator = NeighborList(cutoff=0.6, full_list=False, sorted=True)
+    i, j, S = calculator.compute(
+        points=points, box=box, periodic=True, quantities="ijS"
+    )
+
+    ijS = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1)
+    # sorted by i, then j, then shifts
+    assert np.all(ijS[np.lexsort(np.flip(ijS, axis=1).T)] == ijS)
+
+
 def test_errors():
     points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
     box = np.zeros((3, 3))

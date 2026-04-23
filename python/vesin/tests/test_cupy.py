@@ -235,6 +235,46 @@ def test_no_neighbors():
     assert len(j) == 0
 
 
+@pytest.mark.parametrize("algorithm", ["auto", "brute_force", "cell_list"])
+def test_sorted_output(algorithm):
+    if algorithm == "brute_force":
+        # brute force uses MIC and requires cutoff <= min(box_length) / 2
+        points = cp.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=cp.float64)
+        box = cp.array(
+            [
+                [3.0, 0.0, 0.0],
+                [0.0, 3.0, 0.0],
+                [0.0, 0.0, 3.0],
+            ],
+            dtype=cp.float64,
+        )
+        cutoff = 1.45
+    else:
+        # single atom in a small box gives multiple (i, j) with different shifts,
+        # exercising the tie-break on S
+        points = cp.array([[0.0, 0.0, 0.0]], dtype=cp.float64)
+        box = cp.array(
+            [
+                [0.5, 0.0, 0.0],
+                [0.0, 0.5, 0.0],
+                [0.0, 0.0, 0.5],
+            ],
+            dtype=cp.float64,
+        )
+        cutoff = 0.6
+
+    calculator = NeighborList(
+        cutoff=cutoff, full_list=False, sorted=True, algorithm=algorithm
+    )
+    i, j, S = calculator.compute(
+        points=points, box=box, periodic=True, quantities="ijS"
+    )
+
+    ijS = cp.asnumpy(cp.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1))
+    sorted_ijS = ijS[np.lexsort(np.flip(ijS, axis=1).T)]
+    assert np.array_equal(ijS, sorted_ijS)
+
+
 @pytest.mark.parametrize("dtype", [cp.float32, cp.float64])
 def test_dtype(dtype):
     box = cp.eye(3, dtype=dtype) * 3.0

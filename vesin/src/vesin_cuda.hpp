@@ -63,6 +63,13 @@ struct CudaNeighborListExtras {
     double* box_diag = nullptr;      // [3] diagonal elements for orthogonal boxes
     double* inv_box_brute = nullptr; // [9] inverse box matrix for general boxes
 
+    // Temporary buffers for on-device sorting
+    size_t* sort_pairs_tmp = nullptr;     // [sort_capacity * 2]
+    int32_t* sort_shifts_tmp = nullptr;   // [sort_capacity * 3]
+    double* sort_distances_tmp = nullptr; // [sort_capacity]
+    double* sort_vectors_tmp = nullptr;   // [sort_capacity * 3]
+    size_t sort_capacity = 0;
+
     ~CudaNeighborListExtras();
 };
 

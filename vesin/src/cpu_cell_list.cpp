@@ -303,7 +303,10 @@ void GrowableNeighborList::set_vector(size_t index, vesin::Vector vector) {
 }
 
 template <typename scalar_t, size_t N>
-static scalar_t (*alloc(scalar_t (*ptr)[N], size_t size, size_t new_size))[N] {
+using array_ptr = scalar_t (*)[N];
+
+template <typename scalar_t, size_t N>
+static array_ptr<scalar_t, N> alloc(array_ptr<scalar_t, N> ptr, size_t size, size_t new_size) {
     auto* new_ptr = reinterpret_cast<scalar_t(*)[N]>(std::realloc(ptr, new_size * sizeof(scalar_t[N])));
 
     if (new_ptr == nullptr) {
@@ -421,11 +424,26 @@ void GrowableNeighborList::sort() {
     std::iota(std::begin(indices), std::end(indices), 0);
 
     struct compare_pairs {
-        compare_pairs(size_t (*pairs_)[2]):
-            pairs(pairs_) {}
+        compare_pairs(size_t (*pairs_)[2], int32_t (*shifts_)[3], bool with_shifts_):
+            pairs(pairs_),
+            shifts(shifts_),
+            with_shifts(with_shifts_) {}
 
         bool operator()(int64_t a, int64_t b) const {
             if (pairs[a][0] == pairs[b][0]) {
+                if (pairs[a][1] == pairs[b][1]) {
+                    if (!with_shifts) {
+                        return false;
+                    }
+
+                    if (shifts[a][0] == shifts[b][0]) {
+                        if (shifts[a][1] == shifts[b][1]) {
+                            return shifts[a][2] < shifts[b][2];
+                        }
+                        return shifts[a][1] < shifts[b][1];
+                    }
+                    return shifts[a][0] < shifts[b][0];
+                }
                 return pairs[a][1] < pairs[b][1];
             } else {
                 return pairs[a][0] < pairs[b][0];
@@ -433,9 +451,15 @@ void GrowableNeighborList::sort() {
         }
 
         size_t (*pairs)[2];
+        int32_t (*shifts)[3];
+        bool with_shifts;
     };
 
-    std::sort(std::begin(indices), std::end(indices), compare_pairs(this->neighbors.pairs));
+    std::sort(
+        std::begin(indices),
+        std::end(indices),
+        compare_pairs(this->neighbors.pairs, this->neighbors.shifts, options.return_shifts)
+    );
 
     // step 2: permute all data according to the sorted indices.
     int64_t cur = 0;

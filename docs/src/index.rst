@@ -145,11 +145,18 @@ Installation
 
         .. code-block:: cmake
 
+            # make sure to enable CXX as a language in this project to
+            # link the C++ standard library
+            project(your-project LANGUAGES CXX Fortran)
+
             set(VESIN_FORTRAN ON CACHE BOOL "Build the vesin_fortran library")
 
             add_subdirectory(vesin)
-            # or use fetch_content
+            # or use fetch_content, see above
             FetchContent_xxx(...)
+
+            # link to vesin_fortran
+            target_link_libraries(your-fortran-target vesin_fortran)
 
 
     .. tab-item:: |logo-c| |logo-cxx| Single file

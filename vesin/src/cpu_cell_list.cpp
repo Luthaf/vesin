@@ -3,7 +3,6 @@
 #include <cstring>
 
 #include <algorithm>
-#include <new>
 #include <numeric>
 #include <tuple>
 
@@ -310,11 +309,13 @@ static array_ptr<scalar_t, N> alloc(array_ptr<scalar_t, N> ptr, size_t size, siz
     auto* new_ptr = reinterpret_cast<scalar_t(*)[N]>(std::realloc(ptr, new_size * sizeof(scalar_t[N])));
 
     if (new_ptr == nullptr) {
-        throw std::bad_alloc();
+        return nullptr;
     }
 
+#ifndef NDEBUG
     // initialize with a bit pattern that maps to NaN for double
     std::memset(new_ptr + size, 0b11111111, (new_size - size) * sizeof(scalar_t[N]));
+#endif
 
     return new_ptr;
 }
@@ -324,11 +325,13 @@ static scalar_t* alloc(scalar_t* ptr, size_t size, size_t new_size) {
     auto* new_ptr = reinterpret_cast<scalar_t*>(std::realloc(ptr, new_size * sizeof(scalar_t)));
 
     if (new_ptr == nullptr) {
-        throw std::bad_alloc();
+        return nullptr;
     }
 
+#ifndef NDEBUG
     // initialize with a bit pattern that maps to NaN for double
     std::memset(new_ptr + size, 0b11111111, (new_size - size) * sizeof(scalar_t));
+#endif
 
     return new_ptr;
 }
@@ -356,6 +359,19 @@ void GrowableNeighborList::grow() {
         new_vectors = alloc<double, 3>(neighbors.vectors, neighbors.length, new_size);
     }
 
+    if (
+        (new_pairs == nullptr) ||
+        (options.return_shifts && new_shifts == nullptr) ||
+        (options.return_distances && new_distances == nullptr) ||
+        (options.return_vectors && new_vectors == nullptr)
+    ) {
+        std::free(new_pairs);
+        std::free(new_shifts);
+        std::free(new_distances);
+        std::free(new_vectors);
+        throw std::runtime_error("could not allocate memory for growing neighbor list");
+    }
+
     this->neighbors.pairs = new_pairs;
     this->neighbors.shifts = new_shifts;
     this->neighbors.distances = new_distances;
@@ -365,21 +381,23 @@ void GrowableNeighborList::grow() {
 }
 
 void GrowableNeighborList::reset() {
-    // set all allocated data to zero
+#ifndef NDEBUG
     auto size = this->neighbors.length;
-    std::memset(this->neighbors.pairs, 0, size * sizeof(size_t[2]));
+    // set all allocated data to a bit pattern that maps to NaN for double
+    std::memset(this->neighbors.pairs, 0b11111111, size * sizeof(size_t[2]));
 
     if (this->neighbors.shifts != nullptr) {
-        std::memset(this->neighbors.shifts, 0, size * sizeof(int32_t[3]));
+        std::memset(this->neighbors.shifts, 0b11111111, size * sizeof(int32_t[3]));
     }
 
     if (this->neighbors.distances != nullptr) {
-        std::memset(this->neighbors.distances, 0, size * sizeof(double));
+        std::memset(this->neighbors.distances, 0b11111111, size * sizeof(double));
     }
 
     if (this->neighbors.vectors != nullptr) {
-        std::memset(this->neighbors.vectors, 0, size * sizeof(double[3]));
+        std::memset(this->neighbors.vectors, 0b11111111, size * sizeof(double[3]));
     }
+#endif
 
     // reset length (but keep the capacity where it's at)
     this->neighbors.length = 0;

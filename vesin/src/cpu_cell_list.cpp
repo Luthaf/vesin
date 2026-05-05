@@ -212,7 +212,7 @@ void CellList::add_point(size_t index, Vector position) {
 // clang-format off
 template <typename Function>
 void CellList::foreach_pair(const Vector* points, Function callback) {
-    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 256;
+    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 128;
 
     struct ProjectedPoint {
         double projection;
@@ -274,23 +274,25 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
                 continue;
             }
 
-            auto current_center = Vector{
-                (static_cast<double>(cell_i_x) + 0.5) / static_cast<double>(cells_shape_[0]),
-                (static_cast<double>(cell_i_y) + 0.5) / static_cast<double>(cells_shape_[1]),
-                (static_cast<double>(cell_i_z) + 0.5) / static_cast<double>(cells_shape_[2]),
+            auto cell_pair_axis = Vector{
+                static_cast<double>(delta_x) / static_cast<double>(cells_shape_[0]),
+                static_cast<double>(delta_y) / static_cast<double>(cells_shape_[1]),
+                static_cast<double>(delta_z) / static_cast<double>(cells_shape_[2]),
             };
-            auto neighbor_center = Vector{
-                (static_cast<double>(cell_i_x + delta_x) + 0.5) / static_cast<double>(cells_shape_[0]),
-                (static_cast<double>(cell_i_y + delta_y) + 0.5) / static_cast<double>(cells_shape_[1]),
-                (static_cast<double>(cell_i_z + delta_z) + 0.5) / static_cast<double>(cells_shape_[2]),
-            };
-            auto axis = box_.fractional_to_cartesian(neighbor_center) - box_.fractional_to_cartesian(current_center);
+            auto axis = box_.fractional_to_cartesian(cell_pair_axis) - box_.fractional_to_cartesian(Vector{0, 0, 0});
             auto axis_norm_sq = axis.dot(axis);
             if (axis_norm_sq < 1e-24) {
                 visit_all_pairs();
                 continue;
             }
             axis = axis * (1.0 / std::sqrt(axis_norm_sq));
+
+            const auto& box_matrix = box_.matrix();
+            auto box_projection = Vector{
+                box_matrix[0][0] * axis[0] + box_matrix[0][1] * axis[1] + box_matrix[0][2] * axis[2],
+                box_matrix[1][0] * axis[0] + box_matrix[1][1] * axis[1] + box_matrix[1][2] * axis[2],
+                box_matrix[2][0] * axis[0] + box_matrix[2][1] * axis[1] + box_matrix[2][2] * axis[2],
+            };
 
             // Gonnet projection pruning sorts both cells along the center-to-center
             // axis e_AB and only visits pairs where |p_j - p_i| <= cutoff. Projection
@@ -299,16 +301,21 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             // Gonnet, J. Comput. Chem. 28, 570-573 (2007), doi:10.1002/jcc.20563;
             // linked-cell efficiency context: Welling and Germano, Comput. Phys.
             // Commun. 182, 611-615 (2011), doi:10.1016/j.cpc.2010.11.002.
-            auto image_position = [&](const Point& atom, CellShift extra_shift) {
-                auto shift = extra_shift - atom.shift;
-                return points[atom.index] + shift.cartesian(box_);
+            auto shift_projection = [&](CellShift shift) {
+                return static_cast<double>(shift[0]) * box_projection[0]
+                     + static_cast<double>(shift[1]) * box_projection[1]
+                     + static_cast<double>(shift[2]) * box_projection[2];
+            };
+
+            auto image_projection = [&](const Point& atom, CellShift extra_shift) {
+                return points[atom.index].dot(axis) + shift_projection(extra_shift) - shift_projection(atom.shift);
             };
 
             current_projections.clear();
             current_projections.reserve(current_cell.size());
             for (const auto& atom: current_cell) {
                 current_projections.push_back(ProjectedPoint{
-                    image_position(atom, CellShift{{0, 0, 0}}).dot(axis),
+                    image_projection(atom, CellShift{{0, 0, 0}}),
                     &atom,
                 });
             }
@@ -317,7 +324,7 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             neighbor_projections.reserve(neighbor_cell.size());
             for (const auto& atom: neighbor_cell) {
                 neighbor_projections.push_back(ProjectedPoint{
-                    image_position(atom, CellShift{cell_shift}).dot(axis),
+                    image_projection(atom, CellShift{cell_shift}),
                     &atom,
                 });
             }

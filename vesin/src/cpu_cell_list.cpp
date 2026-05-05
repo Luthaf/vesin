@@ -212,7 +212,7 @@ void CellList::add_point(size_t index, Vector position) {
 // clang-format off
 template <typename Function>
 void CellList::foreach_pair(const Vector* points, Function callback) {
-    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 128;
+    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 192;
 
     struct ProjectedPoint {
         double projection;

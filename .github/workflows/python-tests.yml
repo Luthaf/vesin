@@ -15,6 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
@@ -47,5 +48,7 @@ jobs:
       - name: run tests
         run: tox -e lint,numpy-tests,cupy-tests,torch-tests,torchscript-tests
         env:
+          PIP_DEFAULT_TIMEOUT: "60"
+          PIP_RETRIES: "10"
           # Use the CPU only version of torch when building/running the code
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

@@ -17,6 +17,17 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.6](https://github.com/Luthaf/vesin/releases/tag/v0.5.6) - 2026-05-05
+
+### Added
+
+- The CUDA implementation now support the `sorted` option
+
+### Changed
+
+- When passing `sorted=true`, pairs are now only sorted by the index of the
+  first point (`i`). This is faster and enough in most cases.
+
 ## [Version 0.5.5](https://github.com/Luthaf/vesin/releases/tag/v0.5.5) - 2026-04-20
 
 ### Fixed

@@ -128,6 +128,19 @@ def pymatgen_run(structure, cutoff):
     return structure.get_neighbor_list(cutoff)
 
 
+def setup_vesin(atoms, cutoff):
+    calculator = vesin.NeighborList(
+        cutoff=cutoff,
+        full_list=True,
+        sorted=False,
+    )
+    return calculator, atoms
+
+
+def vesin_run(calculator, atoms):
+    return calculator.compute(atoms.positions, atoms.cell, atoms.pbc, quantities="ijSd")
+
+
 def determine_super_cell(max_cell_repeat, max_log_size_delta, max_cell_ratio):
     """
     Determine which super cells to include. We want equally spaced number of atoms in
@@ -308,8 +321,8 @@ for cutoff in [3, 6, 12]:
 
         # VESIN
         timing = benchmark(
-            setup_ase_like,
-            vesin.ase_neighbor_list,
+            setup_vesin,
+            vesin_run,
             super_cell,
             cutoff,
         )

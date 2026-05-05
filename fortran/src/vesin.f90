@@ -85,8 +85,9 @@ contains
         !! and `j -> i` pairs) or a half list (include only `i -> j`)?
         logical, intent(in) :: full
 
-        !> Should the neighbor list be sorted? If yes, the returned pairs will be
-        !! sorted using lexicographic order.
+        !> Should the neighbor list be sorted?  If `.true.`, the returned pairs
+        !! will be sorted by the first index (`i`). The order of the second
+        !! index (`j`) and shifts in the list of pairs is unspecified.
         logical, intent(in), optional :: sorted
 
         !> Algorithm to use for the neighbor list calculation (one of
@@ -125,8 +126,9 @@ contains
         !! and `j -> i` pairs) or a half list (include only `i -> j`)?
         logical, intent(in) :: full
 
-        !> Should the neighbor list be sorted? If yes, the returned pairs will be
-        !! sorted using lexicographic order.
+        !> Should the neighbor list be sorted?  If `.true.`, the returned pairs
+        !! will be sorted by the first point index (`i`). The order of the second
+        !! point index (`j`) and shifts in the list of pairs is unspecified.
         logical, intent(in), optional :: sorted
 
         !> Algorithm to use for the neighbor list calculation (one of

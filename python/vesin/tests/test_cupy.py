@@ -266,13 +266,12 @@ def test_sorted_output(algorithm):
     calculator = NeighborList(
         cutoff=cutoff, full_list=False, sorted=True, algorithm=algorithm
     )
-    i, j, S = calculator.compute(
-        points=points, box=box, periodic=True, quantities="ijS"
+    (sorted_i,) = calculator.compute(
+        points=points, box=box, periodic=True, quantities="i"
     )
 
-    ijS = cp.asnumpy(cp.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1))
-    sorted_ijS = ijS[np.lexsort(np.flip(ijS, axis=1).T)]
-    assert np.array_equal(ijS, sorted_ijS)
+    sorted_i = cp.asnumpy(sorted_i)
+    assert np.all(sorted_i == np.sort(sorted_i))
 
 
 @pytest.mark.parametrize("dtype", [cp.float32, cp.float64])

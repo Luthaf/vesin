@@ -31,7 +31,7 @@ add_subdirectory(vesin)
 
 add_library(vesin_fortran src/vesin.f90 src/cdef.f90)
 
-target_link_libraries(vesin_fortran PRIVATE vesin_objects)
+target_link_libraries(vesin_fortran PUBLIC vesin)
 set_target_properties(vesin_fortran PROPERTIES Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 target_include_directories(vesin_fortran PUBLIC

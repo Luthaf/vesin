@@ -76,6 +76,7 @@ class NeighborList:
         full_list: bool,
         sorted: bool = False,
         algorithm: str = "auto",
+        skin: float = 0.0,
     ):
         """
         :param cutoff: spherical cutoff for this neighbor list
@@ -86,11 +87,14 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
+        :param skin: skin size for Verlet caching. A positive value enables
+            displacement-based cache reuse on CPU.
         """
         self._lib = _get_library()
         self.cutoff = float(cutoff)
         self.full_list = bool(full_list)
         self.sorted = bool(sorted)
+        self.skin = float(skin)
 
         self.algorithm = algorithm
 
@@ -204,6 +208,7 @@ class NeighborList:
         options.return_distances = "d" in quantities
         options.return_vectors = "D" in quantities
         options.algorithm = self._c_algorithm
+        options.skin = self.skin
 
         if isinstance(periodic, (bool, np.bool_)):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)

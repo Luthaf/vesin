@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -46,6 +47,16 @@ extern "C" int vesin_neighbors(
 
     if (options.cutoff <= 1e-6) {
         *error_message = "cutoff is too small";
+        return EXIT_FAILURE;
+    }
+
+    if (!std::isfinite(options.skin) || options.skin < 0.0) {
+        *error_message = "skin must be a finite, non-negative number";
+        return EXIT_FAILURE;
+    }
+
+    if (options.skin > 0.0 && device.type != VesinCPU) {
+        *error_message = "Verlet caching with skin > 0 is only supported on CPU";
         return EXIT_FAILURE;
     }
 

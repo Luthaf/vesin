@@ -31,6 +31,7 @@ foreach(_file_ ${ALL_TESTS})
     get_filename_component(_name_ ${_file_} NAME_WE)
     add_executable(${_name_} ${_file_})
     target_link_libraries(${_name_} vesin Catch2WithMain)
+    target_compile_features(${_name_} PRIVATE cxx_std_17)
 
     add_test(
         NAME ${_name_}

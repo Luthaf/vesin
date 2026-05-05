@@ -6,6 +6,7 @@
 #include <new>
 #include <numeric>
 #include <tuple>
+#include <utility>
 
 #include "cpu_cell_list.hpp"
 
@@ -136,7 +137,8 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
     cells_shape_({0, 0, 0}),
-    box_(std::move(box)) {
+    box_(std::move(box)),
+    cutoff_(cutoff) {
     auto distances_between_faces = box_.distances_between_faces();
 
     auto n_cells = Vector{
@@ -204,12 +206,14 @@ void CellList::add_point(size_t index, Vector position) {
         assert(box_.periodic(spatial) || shift[spatial] == 0);
     }
 
-    this->get_cell(cell_index).emplace_back(Point{index, shift});
+    this->get_cell(cell_index).emplace_back(Point{index, shift, position});
 }
 
 // clang-format off
 template <typename Function>
 void CellList::foreach_pair(Function callback) {
+    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 32;
+
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
     for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
     for (int32_t cell_i_z=0; cell_i_z<static_cast<int32_t>(cells_shape_[2]); cell_i_z++) {
@@ -227,30 +231,110 @@ void CellList::foreach_pair(Function callback) {
             // shift vector from one cell to the other and index of
             // the neighboring cell
             auto [cell_shift, neighbor_cell_i] = divmod(cell_i, cells_shape_);
+            if ((cell_shift[0] != 0 && !box_.periodic(0)) ||
+                (cell_shift[1] != 0 && !box_.periodic(1)) ||
+                (cell_shift[2] != 0 && !box_.periodic(2)))
+            {
+                continue;
+            }
 
-            for (const auto& atom_i: current_cell) {
-                for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {
-                    auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
-                    auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
+            const auto& neighbor_cell = this->get_cell(neighbor_cell_i);
 
-                    if ((shift[0] != 0 && !box_.periodic(0)) ||
-                        (shift[1] != 0 && !box_.periodic(1)) ||
-                        (shift[2] != 0 && !box_.periodic(2)))
-                    {
-                        // do not create pairs crossing the periodic
-                        // boundaries in a non-periodic box
-                        continue;
-                    }
+            auto visit_pair = [&](const Point& atom_i, const Point& atom_j) {
+                auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
+                auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
 
-                    if (atom_i.index == atom_j.index && shift_is_zero) {
-                        // only create pairs with the same atom twice if the
-                        // pair spans more than one bounding box
-                        continue;
-                    }
-
-                    callback(atom_i.index, atom_j.index, shift);
+                if (atom_i.index == atom_j.index && shift_is_zero) {
+                    // only create pairs with the same atom twice if the pair
+                    // spans more than one bounding box
+                    return;
                 }
-            } // loop over atoms in current neighbor cells
+
+                callback(atom_i.index, atom_j.index, shift);
+            };
+
+            auto visit_all_pairs = [&]() {
+                for (const auto& atom_i: current_cell) {
+                    for (const auto& atom_j: neighbor_cell) {
+                        visit_pair(atom_i, atom_j);
+                    }
+                }
+            };
+
+            auto n_candidates = current_cell.size() * neighbor_cell.size();
+            if (n_candidates < GONNET_MIN_CELL_PAIR_CANDIDATES) {
+                visit_all_pairs();
+                continue;
+            }
+
+            auto current_center = Vector{
+                (static_cast<double>(cell_i_x) + 0.5) / static_cast<double>(cells_shape_[0]),
+                (static_cast<double>(cell_i_y) + 0.5) / static_cast<double>(cells_shape_[1]),
+                (static_cast<double>(cell_i_z) + 0.5) / static_cast<double>(cells_shape_[2]),
+            };
+            auto neighbor_center = Vector{
+                (static_cast<double>(cell_i_x + delta_x) + 0.5) / static_cast<double>(cells_shape_[0]),
+                (static_cast<double>(cell_i_y + delta_y) + 0.5) / static_cast<double>(cells_shape_[1]),
+                (static_cast<double>(cell_i_z + delta_z) + 0.5) / static_cast<double>(cells_shape_[2]),
+            };
+            auto axis = box_.fractional_to_cartesian(neighbor_center) - box_.fractional_to_cartesian(current_center);
+            auto axis_norm_sq = axis.dot(axis);
+            if (axis_norm_sq < 1e-24) {
+                visit_all_pairs();
+                continue;
+            }
+            axis = axis * (1.0 / std::sqrt(axis_norm_sq));
+
+            struct ProjectedPoint {
+                double projection;
+                const Point* atom;
+            };
+
+            auto image_position = [&](const Point& atom, CellShift extra_shift) {
+                auto shift = extra_shift - atom.shift;
+                return atom.position + shift.cartesian(box_);
+            };
+
+            auto current_projections = std::vector<ProjectedPoint>();
+            current_projections.reserve(current_cell.size());
+            for (const auto& atom: current_cell) {
+                current_projections.push_back(ProjectedPoint{
+                    image_position(atom, CellShift{{0, 0, 0}}).dot(axis),
+                    &atom,
+                });
+            }
+
+            auto neighbor_projections = std::vector<ProjectedPoint>();
+            neighbor_projections.reserve(neighbor_cell.size());
+            for (const auto& atom: neighbor_cell) {
+                neighbor_projections.push_back(ProjectedPoint{
+                    image_position(atom, CellShift{cell_shift}).dot(axis),
+                    &atom,
+                });
+            }
+
+            auto by_projection = [](const ProjectedPoint& first, const ProjectedPoint& second) {
+                return first.projection < second.projection;
+            };
+            std::sort(current_projections.begin(), current_projections.end(), by_projection);
+            std::sort(neighbor_projections.begin(), neighbor_projections.end(), by_projection);
+
+            size_t first_candidate = 0;
+            for (const auto& projected_i: current_projections) {
+                while (first_candidate < neighbor_projections.size() &&
+                       neighbor_projections[first_candidate].projection < projected_i.projection - cutoff_)
+                {
+                    first_candidate += 1;
+                }
+
+                for (auto candidate = first_candidate; candidate < neighbor_projections.size(); candidate++) {
+                    const auto& projected_j = neighbor_projections[candidate];
+                    if (projected_j.projection > projected_i.projection + cutoff_) {
+                        break;
+                    }
+                    visit_pair(*projected_i.atom, *projected_j.atom);
+                }
+            }
         }}}
     }}} // loop over neighboring cells
 }

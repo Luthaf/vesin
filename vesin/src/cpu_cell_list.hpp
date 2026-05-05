@@ -49,6 +49,7 @@ private:
     struct Point {
         size_t index;
         CellShift shift;
+        Vector position;
     };
     struct Cell: public std::vector<Point> {};
 
@@ -58,6 +59,7 @@ private:
     std::array<size_t, 3> cells_shape_;
 
     BoundingBox box_;
+    double cutoff_;
 
     Cell& get_cell(std::array<int32_t, 3> index);
 };

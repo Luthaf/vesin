@@ -1,19 +1,24 @@
+import re
 import warnings
 
 import metatomic.torch
 import torch
 
 
+VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:.*)?")
+
 # Dynamically check the dependencies versions since we can not declare them
 # as dependencies in pyproject.toml (we only want to provide code in this module
 # if the user already has the correct dependencies installed).
-torch_version = tuple(map(int, torch.__version__.split(".")[:2]))
+torch_version = tuple(map(int, VERSION_RE.match(torch.__version__).groups()[:2]))
 if torch_version < (2, 3):
     raise ImportError(
         f"Found torch v{torch.__version__}, but vesin.metatomic requires torch >= 2.3"
     )
 
-mta_version = tuple(map(int, metatomic.torch.__version__.split(".")[:3]))
+mta_version = tuple(
+    map(int, VERSION_RE.match(metatomic.torch.__version__).groups()[:3])
+)
 if mta_version < (0, 1, 3) or mta_version >= (0, 2, 0):
     # this is not an import error so we can also use this code inside metatomic
     # to implement interfaces to some Python simulation engines and not fail when

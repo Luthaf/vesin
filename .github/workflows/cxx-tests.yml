@@ -27,7 +27,6 @@ jobs:
             fc: gfortran-14
             do-valgrind: true
             setup-dependencies: |
-              sudo add-apt-repository ppa:ubuntu-toolchain-r/test
               sudo apt-get ${APT_OPTIONS} update
               sudo apt-get ${APT_OPTIONS} install -y gcc-14 g++-14 gfortran-14
 

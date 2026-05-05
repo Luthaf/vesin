@@ -56,6 +56,11 @@ bool vesin::verlet_needs_rebuild(
         }
     }
 
+    // Verlet-list reuse is valid while every atom stays within skin/2 of its
+    // reference position: any pair inside cutoff is present in the cached
+    // candidate list built at cutoff + skin. See Verlet, Phys. Rev. 159, 98-103
+    // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
+    // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
     for (size_t i = 0; i < n_points; i++) {
         double dx = points[i][0] - state.ref_positions[i * 3 + 0];
         double dy = points[i][1] - state.ref_positions[i * 3 + 1];
@@ -159,6 +164,8 @@ void vesin::verlet_recompute(
     auto growable = cpu::GrowableNeighborList{neighbors, output_capacity, options};
     growable.reset();
 
+    // The cached list is an over-complete Verlet candidate list. Each call
+    // filters candidates with the exact cutoff and requested shift/vector outputs.
     for (size_t k = 0; k < state.n_pairs; k++) {
         size_t i = state.pairs_i[k];
         size_t j = state.pairs_j[k];

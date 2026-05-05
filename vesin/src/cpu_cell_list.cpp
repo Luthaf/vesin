@@ -292,6 +292,13 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             }
             axis = axis * (1.0 / std::sqrt(axis_norm_sq));
 
+            // Gonnet projection pruning sorts both cells along the center-to-center
+            // axis e_AB and only visits pairs where |p_j - p_i| <= cutoff. Projection
+            // distance is a lower bound on Euclidean distance, so the exact cutoff
+            // check in neighbors() remains the only emitted-pair criterion. See
+            // Gonnet, J. Comput. Chem. 28, 570-573 (2007), doi:10.1002/jcc.20563;
+            // linked-cell efficiency context: Welling and Germano, Comput. Phys.
+            // Commun. 182, 611-615 (2011), doi:10.1016/j.cpc.2010.11.002.
             auto image_position = [&](const Point& atom, CellShift extra_shift) {
                 auto shift = extra_shift - atom.shift;
                 return points[atom.index] + shift.cartesian(box_);

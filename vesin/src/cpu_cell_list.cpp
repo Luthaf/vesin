@@ -38,7 +38,7 @@ void vesin::cpu::neighbors(
     auto neighbors = GrowableNeighborList{raw_neighbors, raw_neighbors.length, options};
     neighbors.reset();
 
-    cell_list.foreach_pair(points, [&](size_t first, size_t second, CellShift shift) {
+    cell_list.foreach_pair([&](size_t first, size_t second, CellShift shift) {
         if (!options.full) {
             // filter out some pairs for half neighbor lists
             if (first > second) {
@@ -211,9 +211,7 @@ void CellList::add_point(size_t index, Vector position) {
 
 // clang-format off
 template <typename Function>
-void CellList::foreach_pair(const Vector* points, Function callback) {
-    static_cast<void>(points);
-
+void CellList::foreach_pair(Function callback) {
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
     for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
     for (int32_t cell_i_z=0; cell_i_z<static_cast<int32_t>(cells_shape_[2]); cell_i_z++) {

@@ -37,7 +37,7 @@ public:
 
     /// Iterate over all possible pairs, calling the given callback every time
     template <typename Function>
-    void foreach_pair(const Vector* points, Function callback);
+    void foreach_pair(Function callback);
 
 private:
     /// How many cells do we need to look at when searching neighbors to include

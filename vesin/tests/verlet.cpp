@@ -24,8 +24,8 @@ TEST_CASE("Verlet recompute keeps allocation capacity across shorter output") {
     };
     double low_output_points[][3] = {
         {0.0, 0.0, 0.0},
-        {1.2, 0.0, 0.0},
-        {1.5, 0.0, 0.0},
+        {1.19, 0.0, 0.0},
+        {1.51, 0.0, 0.0},
         {2.7, 0.0, 0.0},
     };
 

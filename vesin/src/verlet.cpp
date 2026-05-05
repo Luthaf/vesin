@@ -102,7 +102,9 @@ void vesin::verlet_rebuild(
     );
     if (status != EXIT_SUCCESS) {
         std::string msg = "verlet_rebuild: ";
-        if (rebuild_error) msg += rebuild_error;
+        if (rebuild_error) {
+            msg += rebuild_error;
+        }
         throw std::runtime_error(msg);
     }
 

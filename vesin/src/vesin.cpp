@@ -3,9 +3,9 @@
 #include <string>
 
 #include "cpu_cell_list.hpp"
+#include "verlet.hpp"
 #include "vesin.h"
 #include "vesin_cuda.hpp"
-#include "verlet.hpp"
 
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user

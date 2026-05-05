@@ -87,6 +87,11 @@ extern "C" int vesin_neighbors(
                 return EXIT_FAILURE;
             }
 
+            if (options.algorithm != VesinAutoAlgorithm && options.algorithm != VesinCellList) {
+                *error_message = "only VesinAutoAlgorithm and VesinCellList are supported on CPU";
+                return EXIT_FAILURE;
+            }
+
             if (neighbors->opaque == nullptr) {
                 neighbors->opaque = new vesin::VerletState();
             }

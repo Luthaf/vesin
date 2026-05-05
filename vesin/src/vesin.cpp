@@ -1,22 +1,15 @@
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <string>
 
 #include "cpu_cell_list.hpp"
-#include "verlet.hpp"
 #include "vesin.h"
 #include "vesin_cuda.hpp"
 
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user
 thread_local std::string LAST_ERROR;
-
-static void free_cpu_verlet_state(VesinNeighborList* neighbors) {
-    if (neighbors->device.type == VesinCPU && neighbors->opaque != nullptr) {
-        delete static_cast<vesin::VerletState*>(neighbors->opaque);
-        neighbors->opaque = nullptr;
-    }
-}
 
 extern "C" int vesin_neighbors(
     const double (*points)[3],
@@ -62,6 +55,11 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    if (options.skin > 0.0 && device.type != VesinCPU) {
+        *error_message = "Verlet caching with skin > 0 is only supported on CPU";
+        return EXIT_FAILURE;
+    }
+
     if (neighbors->device.type != VesinUnknownDevice && neighbors->device.type != device.type) {
         *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
         return EXIT_FAILURE;
@@ -81,37 +79,7 @@ extern "C" int vesin_neighbors(
     }
 
     try {
-        if (options.skin > 0.0) {
-            if (device.type != VesinCPU) {
-                *error_message = "Verlet caching with skin > 0 is only supported on CPU";
-                return EXIT_FAILURE;
-            }
-
-            if (options.algorithm != VesinAutoAlgorithm && options.algorithm != VesinCellList) {
-                *error_message = "only VesinAutoAlgorithm and VesinCellList are supported on CPU";
-                return EXIT_FAILURE;
-            }
-
-            if (neighbors->opaque == nullptr) {
-                neighbors->opaque = new vesin::VerletState();
-            }
-
-            auto* state = static_cast<vesin::VerletState*>(neighbors->opaque);
-            vesin::verlet_set_options(*state, options);
-
-            if (vesin::verlet_needs_rebuild(*state, points, n_points, box, periodic)) {
-                vesin::verlet_rebuild(*state, points, n_points, box, periodic);
-            } else {
-                state->did_rebuild_flag = false;
-            }
-
-            vesin::verlet_recompute(*state, points, box, options, *neighbors);
-            return EXIT_SUCCESS;
-        }
-
         if (device.type == VesinCPU) {
-            free_cpu_verlet_state(neighbors);
-
             auto matrix = vesin::Matrix{{{
                 {{box[0][0], box[0][1], box[0][2]}},
                 {{box[1][0], box[1][1], box[1][2]}},
@@ -165,7 +133,6 @@ extern "C" void vesin_free(VesinNeighborList* neighbors) {
         if (neighbors->device.type == VesinUnknownDevice) {
             // nothing to do
         } else if (neighbors->device.type == VesinCPU) {
-            free_cpu_verlet_state(neighbors);
             vesin::cpu::free_neighbors(*neighbors);
         } else if (neighbors->device.type == VesinCUDA) {
             vesin::cuda::free_neighbors(*neighbors);

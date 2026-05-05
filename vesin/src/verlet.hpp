@@ -1,24 +1,56 @@
 #ifndef VESIN_VERLET_HPP
 #define VESIN_VERLET_HPP
 
+#include <array>
 #include <cstddef>
-#include <cstdint>
 #include <vector>
 
+#include "types.hpp"
 #include "vesin.h"
 
 namespace vesin {
+namespace cpu {
 
 struct VerletState {
+    VerletState() = default;
+    ~VerletState();
+
+    VerletState(const VerletState&) = delete;
+    VerletState& operator=(const VerletState&) = delete;
+    VerletState(VerletState&&) = delete;
+    VerletState& operator=(VerletState&&) = delete;
+
+    void set_options(VesinOptions options);
+
+    bool needs_rebuild(
+        const Vector* points,
+        size_t n_points,
+        const BoundingBox& box
+    ) const;
+
+    void rebuild(
+        const Vector* points,
+        size_t n_points,
+        const BoundingBox& box
+    );
+
+    void recompute(
+        const Vector* points,
+        const BoundingBox& box,
+        VesinOptions options,
+        VesinNeighborList& neighbors
+    );
+
+    size_t candidate_count() const {
+        return candidates.length;
+    }
+
     std::vector<double> ref_positions;
-    double ref_box[3][3] = {{0.0}};
-    bool ref_periodic[3] = {false, false, false};
+    Matrix ref_matrix = {};
+    std::array<bool, 3> ref_periodic = {false, false, false};
     size_t n_points = 0;
 
-    std::vector<size_t> pairs_i;
-    std::vector<size_t> pairs_j;
-    std::vector<int32_t> shifts;
-    size_t n_pairs = 0;
+    VesinNeighborList candidates;
     size_t output_capacity = 0;
 
     double cutoff = 0.0;
@@ -28,34 +60,12 @@ struct VerletState {
 
     bool did_rebuild_flag = false;
     bool has_cache = false;
+
+private:
+    void clear_candidates();
 };
 
-void verlet_set_options(VerletState& state, VesinOptions options);
-
-bool verlet_needs_rebuild(
-    const VerletState& state,
-    const double (*points)[3],
-    size_t n_points,
-    const double box[3][3],
-    const bool periodic[3]
-);
-
-void verlet_rebuild(
-    VerletState& state,
-    const double (*points)[3],
-    size_t n_points,
-    const double box[3][3],
-    const bool periodic[3]
-);
-
-void verlet_recompute(
-    VerletState& state,
-    const double (*points)[3],
-    const double box[3][3],
-    VesinOptions options,
-    VesinNeighborList& neighbors
-);
-
+} // namespace cpu
 } // namespace vesin
 
 #endif

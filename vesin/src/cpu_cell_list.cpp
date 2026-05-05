@@ -7,10 +7,16 @@
 #include <tuple>
 
 #include "cpu_cell_list.hpp"
+#include "verlet.hpp"
 
 using namespace vesin::cpu;
 
-void vesin::cpu::neighbors(
+static void free_verlet_state(VesinNeighborList& neighbors) {
+    delete static_cast<VerletState*>(neighbors.opaque);
+    neighbors.opaque = nullptr;
+}
+
+void vesin::cpu::stateless_neighbors(
     const Vector* points,
     size_t n_points,
     BoundingBox box,
@@ -97,6 +103,38 @@ void vesin::cpu::neighbors(
     if (options.sorted) {
         neighbors.sort();
     }
+}
+
+void vesin::cpu::neighbors(
+    const Vector* points,
+    size_t n_points,
+    BoundingBox box,
+    VesinOptions options,
+    VesinNeighborList& raw_neighbors
+) {
+    if (options.skin > 0.0) {
+        if (raw_neighbors.opaque == nullptr) {
+            raw_neighbors.opaque = new VerletState();
+        }
+
+        auto& state = *static_cast<VerletState*>(raw_neighbors.opaque);
+        state.set_options(options);
+
+        if (state.needs_rebuild(points, n_points, box)) {
+            state.rebuild(points, n_points, box);
+        } else {
+            state.did_rebuild_flag = false;
+        }
+
+        state.recompute(points, box, options, raw_neighbors);
+        return;
+    }
+
+    if (raw_neighbors.opaque != nullptr) {
+        free_verlet_state(raw_neighbors);
+    }
+
+    stateless_neighbors(points, n_points, std::move(box), options, raw_neighbors);
 }
 
 /* ========================================================================== */
@@ -532,6 +570,10 @@ void GrowableNeighborList::sort() {
 
 void vesin::cpu::free_neighbors(VesinNeighborList& neighbors) {
     assert(neighbors.device.type == VesinCPU);
+
+    if (neighbors.opaque != nullptr) {
+        free_verlet_state(neighbors);
+    }
 
     std::free(neighbors.pairs);
     std::free(neighbors.shifts);

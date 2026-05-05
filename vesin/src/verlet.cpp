@@ -1,56 +1,67 @@
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
-#include <stdexcept>
-#include <string>
 
 #include "cpu_cell_list.hpp"
 #include "verlet.hpp"
 
 using namespace vesin;
 
-void vesin::verlet_set_options(VerletState& state, VesinOptions options) {
-    if (state.cutoff != options.cutoff || state.skin != options.skin || state.full_list != options.full) {
-        state.has_cache = false;
-        state.ref_positions.clear();
-        state.pairs_i.clear();
-        state.pairs_j.clear();
-        state.shifts.clear();
-        state.n_points = 0;
-        state.n_pairs = 0;
-        state.output_capacity = 0;
-    }
-
-    state.cutoff = options.cutoff;
-    state.skin = options.skin;
-    state.half_skin_sq = (options.skin / 2.0) * (options.skin / 2.0);
-    state.full_list = options.full;
+static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, size_t n_points) {
+    auto periodic = std::array<bool, 3>{box.periodic(0), box.periodic(1), box.periodic(2)};
+    auto candidate_box = BoundingBox(box.matrix(), periodic.data());
+    candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points);
+    return candidate_box;
 }
 
-bool vesin::verlet_needs_rebuild(
-    const VerletState& state,
-    const double (*points)[3],
+cpu::VerletState::~VerletState() {
+    this->clear_candidates();
+}
+
+void cpu::VerletState::clear_candidates() {
+    if (this->candidates.device.type == VesinCPU) {
+        cpu::free_neighbors(this->candidates);
+    }
+
+    this->candidates = VesinNeighborList();
+    this->has_cache = false;
+    this->ref_positions.clear();
+    this->n_points = 0;
+}
+
+void cpu::VerletState::set_options(VesinOptions options) {
+    if (this->cutoff != options.cutoff || this->skin != options.skin || this->full_list != options.full) {
+        this->clear_candidates();
+        this->output_capacity = 0;
+    }
+
+    this->cutoff = options.cutoff;
+    this->skin = options.skin;
+    this->half_skin_sq = (options.skin / 2.0) * (options.skin / 2.0);
+    this->full_list = options.full;
+}
+
+bool cpu::VerletState::needs_rebuild(
+    const Vector* points,
     size_t n_points,
-    const double box[3][3],
-    const bool periodic[3]
-) {
-    if (!state.has_cache) {
+    const BoundingBox& box
+) const {
+    if (!this->has_cache) {
         return true;
     }
 
-    if (n_points != state.n_points) {
+    if (n_points != this->n_points) {
         return true;
     }
 
-    for (int d = 0; d < 3; d++) {
-        if (periodic[d] != state.ref_periodic[d]) {
+    for (size_t d = 0; d < 3; d++) {
+        if (box.periodic(d) != this->ref_periodic[d]) {
             return true;
         }
     }
 
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            if (std::abs(box[i][j] - state.ref_box[i][j]) > 1e-12) {
+    for (size_t i = 0; i < 3; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            if (std::abs(box.matrix()[i][j] - this->ref_matrix[i][j]) > 1e-12) {
                 return true;
             }
         }
@@ -62,11 +73,11 @@ bool vesin::verlet_needs_rebuild(
     // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
     // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
     for (size_t i = 0; i < n_points; i++) {
-        double dx = points[i][0] - state.ref_positions[i * 3 + 0];
-        double dy = points[i][1] - state.ref_positions[i * 3 + 1];
-        double dz = points[i][2] - state.ref_positions[i * 3 + 2];
+        double dx = points[i][0] - this->ref_positions[i * 3 + 0];
+        double dy = points[i][1] - this->ref_positions[i * 3 + 1];
+        double dz = points[i][2] - this->ref_positions[i * 3 + 2];
         double disp_sq = dx * dx + dy * dy + dz * dz;
-        if (disp_sq > state.half_skin_sq) {
+        if (disp_sq > this->half_skin_sq) {
             return true;
         }
     }
@@ -74,18 +85,16 @@ bool vesin::verlet_needs_rebuild(
     return false;
 }
 
-void vesin::verlet_rebuild(
-    VerletState& state,
-    const double (*points)[3],
+void cpu::VerletState::rebuild(
+    const Vector* points,
     size_t n_points,
-    const double box[3][3],
-    const bool periodic[3]
+    const BoundingBox& box
 ) {
-    double expanded_cutoff = state.cutoff + state.skin;
+    this->clear_candidates();
 
     auto options = VesinOptions();
-    options.cutoff = expanded_cutoff;
-    options.full = state.full_list;
+    options.cutoff = this->cutoff + this->skin;
+    options.full = this->full_list;
     options.sorted = false;
     options.algorithm = VesinCellList;
     options.return_shifts = true;
@@ -93,70 +102,31 @@ void vesin::verlet_rebuild(
     options.return_vectors = false;
     options.skin = 0.0;
 
-    VesinNeighborList tmp_neighbors;
-    const char* rebuild_error = nullptr;
-    int status = vesin_neighbors(
-        points,
-        n_points,
-        box,
-        periodic,
-        VesinDevice{VesinCPU, 0},
-        options,
-        &tmp_neighbors,
-        &rebuild_error
-    );
-    if (status != EXIT_SUCCESS) {
-        std::string msg = "verlet_rebuild: ";
-        if (rebuild_error) {
-            msg += rebuild_error;
-        }
-        throw std::runtime_error(msg);
+    this->candidates.device = {VesinCPU, 0};
+    auto candidate_box = make_box_like(box, points, n_points);
+    cpu::stateless_neighbors(points, n_points, std::move(candidate_box), options, this->candidates);
+
+    this->n_points = n_points;
+    this->ref_positions.resize(n_points * 3);
+    std::memcpy(this->ref_positions.data(), points, n_points * 3 * sizeof(double));
+    this->ref_matrix = box.matrix();
+    for (size_t d = 0; d < 3; d++) {
+        this->ref_periodic[d] = box.periodic(d);
     }
 
-    state.n_pairs = tmp_neighbors.length;
-    state.pairs_i.resize(state.n_pairs);
-    state.pairs_j.resize(state.n_pairs);
-    state.shifts.resize(state.n_pairs * 3);
-
-    for (size_t k = 0; k < state.n_pairs; k++) {
-        state.pairs_i[k] = tmp_neighbors.pairs[k][0];
-        state.pairs_j[k] = tmp_neighbors.pairs[k][1];
-        state.shifts[k * 3 + 0] = tmp_neighbors.shifts[k][0];
-        state.shifts[k * 3 + 1] = tmp_neighbors.shifts[k][1];
-        state.shifts[k * 3 + 2] = tmp_neighbors.shifts[k][2];
-    }
-
-    state.n_points = n_points;
-    state.ref_positions.resize(n_points * 3);
-    std::memcpy(state.ref_positions.data(), points, n_points * 3 * sizeof(double));
-    std::memcpy(state.ref_box, box, 9 * sizeof(double));
-    for (int d = 0; d < 3; d++) {
-        state.ref_periodic[d] = periodic[d];
-    }
-
-    state.has_cache = true;
-    state.did_rebuild_flag = true;
-
-    vesin_free(&tmp_neighbors);
+    this->has_cache = true;
+    this->did_rebuild_flag = true;
 }
 
-void vesin::verlet_recompute(
-    VerletState& state,
-    const double (*points)[3],
-    const double box[3][3],
+void cpu::VerletState::recompute(
+    const Vector* points,
+    const BoundingBox& box,
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
-    auto matrix = Matrix{{{
-        {{box[0][0], box[0][1], box[0][2]}},
-        {{box[1][0], box[1][1], box[1][2]}},
-        {{box[2][0], box[2][1], box[2][2]}},
-    }}};
-    auto bounding_box = BoundingBox(matrix, state.ref_periodic);
+    double cutoff_sq = this->cutoff * this->cutoff;
 
-    double cutoff_sq = state.cutoff * state.cutoff;
-
-    auto output_capacity = state.output_capacity;
+    auto output_capacity = this->output_capacity;
     if (output_capacity == 0) {
         output_capacity = neighbors.length;
     }
@@ -166,19 +136,17 @@ void vesin::verlet_recompute(
 
     // The cached list is an over-complete Verlet candidate list. Each call
     // filters candidates with the exact cutoff and requested shift/vector outputs.
-    for (size_t k = 0; k < state.n_pairs; k++) {
-        size_t i = state.pairs_i[k];
-        size_t j = state.pairs_j[k];
+    for (size_t k = 0; k < this->candidates.length; k++) {
+        size_t i = this->candidates.pairs[k][0];
+        size_t j = this->candidates.pairs[k][1];
 
         auto shift = CellShift{{
-            state.shifts[k * 3 + 0],
-            state.shifts[k * 3 + 1],
-            state.shifts[k * 3 + 2],
+            this->candidates.shifts[k][0],
+            this->candidates.shifts[k][1],
+            this->candidates.shifts[k][2],
         }};
 
-        auto pi = Vector{{points[i][0], points[i][1], points[i][2]}};
-        auto pj = Vector{{points[j][0], points[j][1], points[j][2]}};
-        auto vec = pj - pi + shift.cartesian(bounding_box);
+        auto vec = points[j] - points[i] + shift.cartesian(box);
         double dist_sq = vec.dot(vec);
 
         if (dist_sq < cutoff_sq) {
@@ -205,5 +173,5 @@ void vesin::verlet_recompute(
         growable.sort();
     }
 
-    state.output_capacity = growable.capacity;
+    this->output_capacity = growable.capacity;
 }

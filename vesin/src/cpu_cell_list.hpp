@@ -12,6 +12,14 @@ namespace cpu {
 
 void free_neighbors(VesinNeighborList& neighbors);
 
+void stateless_neighbors(
+    const Vector* points,
+    size_t n_points,
+    BoundingBox box,
+    VesinOptions options,
+    VesinNeighborList& neighbors
+);
+
 void neighbors(
     const Vector* points,
     size_t n_points,

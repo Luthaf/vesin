@@ -212,7 +212,7 @@ void CellList::add_point(size_t index, Vector position) {
 // clang-format off
 template <typename Function>
 void CellList::foreach_pair(Function callback) {
-    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 32;
+    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 256;
 
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
     for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {

@@ -457,26 +457,21 @@ Usage example
     .. tab-item:: |logo-torch| TorchScript
 
         The entry point for the TorchScript API is the
-        :py:class:`vesin_torch.NeighborList` class in Python, and the
-        corresponding :cpp:class:`vesin_torch::NeighborListHolder` class in C++;
-        both modeled after vesin's Python API.
+        :py:class:`vesin_torch.NeighborList` class in Python, modeled after
+        vesin's Python API. This class can be used with TorchScript and
+        ``torch.compile``.
 
-        In both cases, the code is integrated with PyTorch autograd framework,
-        meaning if the ``points`` or ``box`` argument have
-        ``requires_grad=True``, then the ``d`` (distances) and ``D`` (distance
-        vectors) outputs will be integrated to the computational graph.
-
-        |logo-python| **Python:**
-
-        For Python, the ``NeighborList`` class is available in the
-        ``vesin_torch`` module.
+        The code is integrated with PyTorch autograd framework, meaning if the
+        ``points`` or ``box`` argument have ``requires_grad=True``, then the
+        ``d`` (distances) and ``D`` (distance vectors) outputs will be
+        integrated to the computational graph.
 
         .. code-block:: Python
 
             import torch
             from vesin_torch import NeighborList
 
-            positions = torch.tensor(
+            points = torch.tensor(
                 [[0.0, 0.0, 0.0],
                  [0.0, 1.3, 1.3]],
                 dtype=torch.float64,
@@ -491,49 +486,6 @@ Usage example
                 periodic=True,
                 quantities="ijSd"
             )
-
-        |logo-cxx| **C++:**
-
-        For C++, the class is available in the ``vesin_torch.hpp`` header.
-
-        .. code-block:: C++
-
-            #include <torch/torch.h>
-
-            #include <vesin_torch.hpp>
-
-            int main() {
-                auto options = torch::TensorOptions().dtype(torch::kFloat64);
-                auto positions = torch.tensor(
-                    {{0.0, 0.0, 0.0},
-                     {0.0, 1.3, 1.3}},
-                    options
-                );
-                positions.requires_grad_(true);
-
-                auto box = 3.2 * torch.eye(3, options);
-
-                auto calculator = torch::make_intrusive<NeighborListHolder>(
-                    /*cutoff=*/ 4.2,
-                    /*full_list=*/ true
-                );
-
-                calculator.
-                auto outputs = calculator.compute(
-                    /*points=*/ points,
-                    /*box=*/ box,
-                    /*periodic=*/ true,
-                    /*quantities=*/ "ijSd",
-                    /*copy=*/ true,
-                );
-
-                auto i = outputs[0];
-                auto j = outputs[1];
-                auto S = outputs[2];
-                auto d = outputs[3];
-
-                // ...
-            }
 
 
 API Reference

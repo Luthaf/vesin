@@ -1,0 +1,63 @@
+name: Torch tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # Check all PR
+
+concurrency:
+  group: torch-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  torch-tests:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }} / torch ${{ matrix.torch-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python-version: "3.10"
+            torch-version: "2.3"
+          - os: ubuntu-24.04
+            # TorchScript support is dropped in Python 3.14, so we keep a runner
+            # for testing Python 3.13, making sure everything works fine there.
+            python-version: "3.13"
+            torch-version: "2.14"
+          - os: ubuntu-24.04
+            python-version: "3.14"
+            torch-version: "2.14"
+          - os: macos-15
+            python-version: "3.14"
+            torch-version: "2.14"
+          - os: windows-2022
+            python-version: "3.14"
+            torch-version: "2.14"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # inductor needs `cl.exe` in the PATH on Windows to compile the code
+      - name: setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: install tests dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install tox
+
+      - name: run tests
+        run: tox -e torch-tests,torch-cxx-tests
+        env:
+          # Use the CPU only version of torch when building/running the code
+          PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+          VESIN_TESTS_TORCH_VERSION: ${{ matrix.torch-version }}

@@ -102,7 +102,7 @@ def _check_dll(path):
         raise ImportError("Could not determine pointer size of Python")
 
 
-def _load_library():
+def load_library():
     # load the C++ operators and custom classes
     try:
         torch.ops.load_library(_lib_path())

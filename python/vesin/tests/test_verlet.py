@@ -140,6 +140,7 @@ class TestVerletCaching:
             dtype=np.float64,
         )
         i2, j2 = nl.compute(pos2, box, periodic=True, quantities="ij")
+        assert len(i2) == n1
 
         # Verify correctness
         ref = _stateless_nl(pos2.tolist(), box.tolist(), True, 3.0, True)

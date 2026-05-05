@@ -214,6 +214,13 @@ template <typename Function>
 void CellList::foreach_pair(const Vector* points, Function callback) {
     constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 256;
 
+    struct ProjectedPoint {
+        double projection;
+        const Point* atom;
+    };
+    auto current_projections = std::vector<ProjectedPoint>();
+    auto neighbor_projections = std::vector<ProjectedPoint>();
+
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
     for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
     for (int32_t cell_i_z=0; cell_i_z<static_cast<int32_t>(cells_shape_[2]); cell_i_z++) {
@@ -285,17 +292,12 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             }
             axis = axis * (1.0 / std::sqrt(axis_norm_sq));
 
-            struct ProjectedPoint {
-                double projection;
-                const Point* atom;
-            };
-
             auto image_position = [&](const Point& atom, CellShift extra_shift) {
                 auto shift = extra_shift - atom.shift;
                 return points[atom.index] + shift.cartesian(box_);
             };
 
-            auto current_projections = std::vector<ProjectedPoint>();
+            current_projections.clear();
             current_projections.reserve(current_cell.size());
             for (const auto& atom: current_cell) {
                 current_projections.push_back(ProjectedPoint{
@@ -304,7 +306,7 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
                 });
             }
 
-            auto neighbor_projections = std::vector<ProjectedPoint>();
+            neighbor_projections.clear();
             neighbor_projections.reserve(neighbor_cell.size());
             for (const auto& atom: neighbor_cell) {
                 neighbor_projections.push_back(ProjectedPoint{

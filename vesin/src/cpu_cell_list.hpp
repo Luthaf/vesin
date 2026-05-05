@@ -56,7 +56,6 @@ private:
     std::vector<Cell> cells_;
     // shape of the cell array
     std::array<size_t, 3> cells_shape_;
-    size_t n_points_;
 
     BoundingBox box_;
     double cutoff_;

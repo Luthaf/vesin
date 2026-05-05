@@ -64,6 +64,11 @@ struct VesinOptions {
     bool return_distances;
     /// Should the returned `VesinNeighborList` contain `vector`?
     bool return_vectors;
+
+    /// Skin size for Verlet caching. A positive value enables caching: vesin
+    /// builds the cached topology with `cutoff + skin` and reuses it until an
+    /// atom moves more than `skin / 2` from the cached reference positions.
+    double skin;
 };
 
 /// Device on which the data can be

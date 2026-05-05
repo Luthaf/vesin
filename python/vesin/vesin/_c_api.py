@@ -29,6 +29,7 @@ class VesinOptions(ctypes.Structure):
         ("return_shifts", ctypes.c_bool),
         ("return_distances", ctypes.c_bool),
         ("return_vectors", ctypes.c_bool),
+        ("skin", ctypes.c_double),
     ]
 
 

@@ -212,14 +212,7 @@ void CellList::add_point(size_t index, Vector position) {
 // clang-format off
 template <typename Function>
 void CellList::foreach_pair(const Vector* points, Function callback) {
-    constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 256;
-
-    struct ProjectedPoint {
-        double projection;
-        const Point* atom;
-    };
-    auto current_projections = std::vector<ProjectedPoint>();
-    auto neighbor_projections = std::vector<ProjectedPoint>();
+    static_cast<void>(points);
 
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
     for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
@@ -247,101 +240,18 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
 
             const auto& neighbor_cell = this->get_cell(neighbor_cell_i);
 
-            auto visit_pair = [&](const Point& atom_i, const Point& atom_j) {
-                auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
-                auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
+            for (const auto& atom_i: current_cell) {
+                for (const auto& atom_j: neighbor_cell) {
+                    auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
+                    auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
 
-                if (atom_i.index == atom_j.index && shift_is_zero) {
-                    // only create pairs with the same atom twice if the pair
-                    // spans more than one bounding box
-                    return;
-                }
-
-                callback(atom_i.index, atom_j.index, shift);
-            };
-
-            auto visit_all_pairs = [&]() {
-                for (const auto& atom_i: current_cell) {
-                    for (const auto& atom_j: neighbor_cell) {
-                        visit_pair(atom_i, atom_j);
+                    if (atom_i.index == atom_j.index && shift_is_zero) {
+                        // only create pairs with the same atom twice if the pair
+                        // spans more than one bounding box
+                        continue;
                     }
-                }
-            };
 
-            auto n_candidates = current_cell.size() * neighbor_cell.size();
-            if (n_candidates < GONNET_MIN_CELL_PAIR_CANDIDATES) {
-                visit_all_pairs();
-                continue;
-            }
-
-            auto current_center = Vector{
-                (static_cast<double>(cell_i_x) + 0.5) / static_cast<double>(cells_shape_[0]),
-                (static_cast<double>(cell_i_y) + 0.5) / static_cast<double>(cells_shape_[1]),
-                (static_cast<double>(cell_i_z) + 0.5) / static_cast<double>(cells_shape_[2]),
-            };
-            auto neighbor_center = Vector{
-                (static_cast<double>(cell_i_x + delta_x) + 0.5) / static_cast<double>(cells_shape_[0]),
-                (static_cast<double>(cell_i_y + delta_y) + 0.5) / static_cast<double>(cells_shape_[1]),
-                (static_cast<double>(cell_i_z + delta_z) + 0.5) / static_cast<double>(cells_shape_[2]),
-            };
-            auto axis = box_.fractional_to_cartesian(neighbor_center) - box_.fractional_to_cartesian(current_center);
-            auto axis_norm_sq = axis.dot(axis);
-            if (axis_norm_sq < 1e-24) {
-                visit_all_pairs();
-                continue;
-            }
-            axis = axis * (1.0 / std::sqrt(axis_norm_sq));
-
-            // Gonnet projection pruning sorts both cells along the center-to-center
-            // axis e_AB and only visits pairs where |p_j - p_i| <= cutoff. Projection
-            // distance is a lower bound on Euclidean distance, so the exact cutoff
-            // check in neighbors() remains the only emitted-pair criterion. See
-            // Gonnet, J. Comput. Chem. 28, 570-573 (2007), doi:10.1002/jcc.20563;
-            // linked-cell efficiency context: Welling and Germano, Comput. Phys.
-            // Commun. 182, 611-615 (2011), doi:10.1016/j.cpc.2010.11.002.
-            auto image_position = [&](const Point& atom, CellShift extra_shift) {
-                auto shift = extra_shift - atom.shift;
-                return points[atom.index] + shift.cartesian(box_);
-            };
-
-            current_projections.clear();
-            current_projections.reserve(current_cell.size());
-            for (const auto& atom: current_cell) {
-                current_projections.push_back(ProjectedPoint{
-                    image_position(atom, CellShift{{0, 0, 0}}).dot(axis),
-                    &atom,
-                });
-            }
-
-            neighbor_projections.clear();
-            neighbor_projections.reserve(neighbor_cell.size());
-            for (const auto& atom: neighbor_cell) {
-                neighbor_projections.push_back(ProjectedPoint{
-                    image_position(atom, CellShift{cell_shift}).dot(axis),
-                    &atom,
-                });
-            }
-
-            auto by_projection = [](const ProjectedPoint& first, const ProjectedPoint& second) {
-                return first.projection < second.projection;
-            };
-            std::sort(current_projections.begin(), current_projections.end(), by_projection);
-            std::sort(neighbor_projections.begin(), neighbor_projections.end(), by_projection);
-
-            size_t first_candidate = 0;
-            for (const auto& projected_i: current_projections) {
-                while (first_candidate < neighbor_projections.size() &&
-                       neighbor_projections[first_candidate].projection < projected_i.projection - cutoff_)
-                {
-                    first_candidate += 1;
-                }
-
-                for (auto candidate = first_candidate; candidate < neighbor_projections.size(); candidate++) {
-                    const auto& projected_j = neighbor_projections[candidate];
-                    if (projected_j.projection > projected_i.projection + cutoff_) {
-                        break;
-                    }
-                    visit_pair(*projected_i.atom, *projected_j.atom);
+                    callback(atom_i.index, atom_j.index, shift);
                 }
             }
         }}}

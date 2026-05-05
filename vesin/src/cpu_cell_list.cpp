@@ -6,7 +6,6 @@
 #include <new>
 #include <numeric>
 #include <tuple>
-#include <utility>
 
 #include "cpu_cell_list.hpp"
 
@@ -137,8 +136,7 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
     cells_shape_({0, 0, 0}),
-    box_(std::move(box)),
-    cutoff_(cutoff) {
+    box_(std::move(box)) {
     auto distances_between_faces = box_.distances_between_faces();
 
     auto n_cells = Vector{
@@ -229,29 +227,30 @@ void CellList::foreach_pair(Function callback) {
             // shift vector from one cell to the other and index of
             // the neighboring cell
             auto [cell_shift, neighbor_cell_i] = divmod(cell_i, cells_shape_);
-            if ((cell_shift[0] != 0 && !box_.periodic(0)) ||
-                (cell_shift[1] != 0 && !box_.periodic(1)) ||
-                (cell_shift[2] != 0 && !box_.periodic(2)))
-            {
-                continue;
-            }
-
-            const auto& neighbor_cell = this->get_cell(neighbor_cell_i);
 
             for (const auto& atom_i: current_cell) {
-                for (const auto& atom_j: neighbor_cell) {
+                for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {
                     auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
                     auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
 
+                    if ((shift[0] != 0 && !box_.periodic(0)) ||
+                        (shift[1] != 0 && !box_.periodic(1)) ||
+                        (shift[2] != 0 && !box_.periodic(2)))
+                    {
+                        // do not create pairs crossing the periodic
+                        // boundaries in a non-periodic box
+                        continue;
+                    }
+
                     if (atom_i.index == atom_j.index && shift_is_zero) {
-                        // only create pairs with the same atom twice if the pair
-                        // spans more than one bounding box
+                        // only create pairs with the same atom twice if the
+                        // pair spans more than one bounding box
                         continue;
                     }
 
                     callback(atom_i.index, atom_j.index, shift);
                 }
-            }
+            } // loop over atoms in current neighbor cells
         }}}
     }}} // loop over neighboring cells
 }

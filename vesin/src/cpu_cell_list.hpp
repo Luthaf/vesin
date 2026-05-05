@@ -58,7 +58,6 @@ private:
     std::array<size_t, 3> cells_shape_;
 
     BoundingBox box_;
-    double cutoff_;
 
     Cell& get_cell(std::array<int32_t, 3> index);
 };

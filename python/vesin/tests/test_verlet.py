@@ -17,7 +17,9 @@ def _stateless_nl(positions, box, periodic, cutoff, full_list):
         periodic=periodic,
         quantities="ijS",
     )
-    return set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
+    return set(
+        zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)], strict=True)
+    )
 
 
 class TestVerletBasic:
@@ -46,7 +48,14 @@ class TestVerletBasic:
             periodic=True,
             quantities="ijS",
         )
-        verlet = set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
+        verlet = set(
+            zip(
+                i.tolist(),
+                j.tolist(),
+                *[S[:, k].tolist() for k in range(3)],
+                strict=True,
+            )
+        )
 
         for p in ref:
             assert p in verlet, f"Missing pair {p}"
@@ -69,7 +78,14 @@ class TestVerletBasic:
             periodic=True,
             quantities="ijS",
         )
-        verlet = set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
+        verlet = set(
+            zip(
+                i.tolist(),
+                j.tolist(),
+                *[S[:, k].tolist() for k in range(3)],
+                strict=True,
+            )
+        )
 
         for p in ref:
             assert p in verlet
@@ -82,12 +98,12 @@ class TestVerletCaching:
 
         pos1 = np.array([[0.0, 0.0, 0.0], [1.10, 0.0, 0.0]], dtype=np.float64)
         i1, j1 = nl.compute(pos1, box, periodic=False, quantities="ij")
-        assert list(zip(i1.tolist(), j1.tolist())) == []
+        assert list(zip(i1.tolist(), j1.tolist(), strict=True)) == []
 
         pos2 = np.array([[0.0, 0.0, 0.0], [0.95, 0.0, 0.0]], dtype=np.float64)
         i2, j2, d2 = nl.compute(pos2, box, periodic=False, quantities="ijd")
 
-        assert list(zip(i2.tolist(), j2.tolist())) == [(0, 1)]
+        assert list(zip(i2.tolist(), j2.tolist(), strict=True)) == [(0, 1)]
         assert d2.tolist() == pytest.approx([0.95])
 
     def test_cpu_brute_force_algorithm_is_still_rejected(self):
@@ -179,6 +195,7 @@ class TestVerletTrajectory:
                     i.tolist(),
                     j.tolist(),
                     *[S[:, k].tolist() for k in range(3)],
+                    strict=True,
                 )
             )
 
@@ -216,6 +233,13 @@ class TestVerletNonPeriodic:
             periodic=False,
             quantities="ijS",
         )
-        verlet = set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
+        verlet = set(
+            zip(
+                i.tolist(),
+                j.tolist(),
+                *[S[:, k].tolist() for k in range(3)],
+                strict=True,
+            )
+        )
 
         assert verlet == ref

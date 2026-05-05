@@ -16,6 +16,12 @@ static void free_verlet_state(VesinNeighborList& neighbors) {
     neighbors.opaque = nullptr;
 }
 
+static void validate_algorithm(VesinOptions options) {
+    if (options.algorithm != VesinAutoAlgorithm && options.algorithm != VesinCellList) {
+        throw std::runtime_error("only VesinAutoAlgorithm and VesinCellList are supported on CPU");
+    }
+}
+
 void vesin::cpu::stateless_neighbors(
     const Vector* points,
     size_t n_points,
@@ -23,11 +29,7 @@ void vesin::cpu::stateless_neighbors(
     VesinOptions options,
     VesinNeighborList& raw_neighbors
 ) {
-    if (options.algorithm == VesinAutoAlgorithm || options.algorithm == VesinCellList) {
-        // all good, this is the only thing we implement
-    } else {
-        throw std::runtime_error("only VesinAutoAlgorithm and VesinCellList are supported on CPU");
-    }
+    validate_algorithm(options);
 
     auto cell_list = CellList(std::move(box), options.cutoff);
 
@@ -112,6 +114,8 @@ void vesin::cpu::neighbors(
     VesinOptions options,
     VesinNeighborList& raw_neighbors
 ) {
+    validate_algorithm(options);
+
     if (options.skin > 0.0) {
         if (raw_neighbors.opaque == nullptr) {
             raw_neighbors.opaque = new VerletState();

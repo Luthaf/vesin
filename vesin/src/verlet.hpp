@@ -19,6 +19,7 @@ struct VerletState {
     std::vector<size_t> pairs_j;
     std::vector<int32_t> shifts;
     size_t n_pairs = 0;
+    size_t output_capacity = 0;
 
     double cutoff = 0.0;
     double skin = 0.0;
@@ -48,7 +49,7 @@ void verlet_rebuild(
 );
 
 void verlet_recompute(
-    const VerletState& state,
+    VerletState& state,
     const double (*points)[3],
     const double box[3][3],
     VesinOptions options,

@@ -18,6 +18,7 @@ void vesin::verlet_set_options(VerletState& state, VesinOptions options) {
         state.shifts.clear();
         state.n_points = 0;
         state.n_pairs = 0;
+        state.output_capacity = 0;
     }
 
     state.cutoff = options.cutoff;
@@ -133,7 +134,7 @@ void vesin::verlet_rebuild(
 }
 
 void vesin::verlet_recompute(
-    const VerletState& state,
+    VerletState& state,
     const double (*points)[3],
     const double box[3][3],
     VesinOptions options,
@@ -148,7 +149,12 @@ void vesin::verlet_recompute(
 
     double cutoff_sq = state.cutoff * state.cutoff;
 
-    auto growable = cpu::GrowableNeighborList{neighbors, neighbors.length, options};
+    auto output_capacity = state.output_capacity;
+    if (output_capacity == 0) {
+        output_capacity = neighbors.length;
+    }
+
+    auto growable = cpu::GrowableNeighborList{neighbors, output_capacity, options};
     growable.reset();
 
     for (size_t k = 0; k < state.n_pairs; k++) {
@@ -189,4 +195,6 @@ void vesin::verlet_recompute(
     if (options.sorted) {
         growable.sort();
     }
+
+    state.output_capacity = growable.capacity;
 }

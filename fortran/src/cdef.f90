@@ -55,8 +55,9 @@ module vesin_c
         !! and `j -> i` pairs) or a half list (include only `i -> j`)?
         logical(c_bool) :: full
 
-        !> Should the neighbor list be sorted? If yes, the returned pairs will be
-        !! sorted using lexicographic order.
+        !> Should the neighbor list be sorted? If `.true.`, the returned pairs
+        !! will be sorted by the first point index (`i`). The order of the second
+        !! point index (`j`) and shifts in the list of pairs is unspecified.
         logical(c_bool) :: sorted = .false.
 
         !> Which algorithm to use for the calculation

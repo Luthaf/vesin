@@ -52,8 +52,9 @@ struct VesinOptions {
     /// Should the returned neighbor list be a full list (include both `i -> j`
     /// and `j -> i` pairs) or a half list (include only `i -> j`)?
     bool full;
-    /// Should the neighbor list be sorted? If yes, the returned pairs will be
-    /// sorted using lexicographic order.
+    /// Should the neighbor list be sorted? If `true`, the returned pairs will
+    /// be sorted by the first point index (`i`). The order of the second point
+    /// index (`j`) and shifts in the list of pairs is unspecified.
     bool sorted;
     /// Which algorithm to use for the calculation
     VesinAlgorithm algorithm;

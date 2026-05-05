@@ -81,8 +81,9 @@ class NeighborList:
         :param cutoff: spherical cutoff for this neighbor list
         :param full_list: should we return each pair twice (as ``i-j`` and ``j-i``) or
             only once
-        :param sorted: Should vesin sort the returned pairs in lexicographic order
-            (sorting both ``i`` and then ``j`` at constant ``i``)?
+        :param sorted: Should the neighbor list be sorted? If ``True``, the returned
+            pairs will be sorted by the first point index (``i``). The order of the
+            second point index (``j``) and shifts in the list of pairs is unspecified.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         """

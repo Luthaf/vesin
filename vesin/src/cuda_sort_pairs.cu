@@ -1,54 +1,12 @@
 __device__ inline bool pair_less(
     const size_t* pairs,
-    const int* shifts,
     size_t a,
-    size_t b,
-    bool with_shifts
+    size_t b
 ) {
     size_t ai = pairs[a * 2 + 0];
-    size_t aj = pairs[a * 2 + 1];
     size_t bi = pairs[b * 2 + 0];
-    size_t bj = pairs[b * 2 + 1];
 
-    if (ai < bi) {
-        return true;
-    }
-    if (ai > bi) {
-        return false;
-    }
-    if (aj < bj) {
-        return true;
-    }
-    if (aj > bj) {
-        return false;
-    }
-
-    if (!with_shifts) {
-        return false;
-    }
-
-    int asx = shifts[a * 3 + 0];
-    int asy = shifts[a * 3 + 1];
-    int asz = shifts[a * 3 + 2];
-    int bsx = shifts[b * 3 + 0];
-    int bsy = shifts[b * 3 + 1];
-    int bsz = shifts[b * 3 + 2];
-
-    if (asx < bsx) {
-        return true;
-    }
-    if (asx > bsx) {
-        return false;
-    }
-
-    if (asy < bsy) {
-        return true;
-    }
-    if (asy > bsy) {
-        return false;
-    }
-
-    return asz < bsz;
+    return ai < bi;
 }
 
 __device__ inline void swap_pair_payload(
@@ -184,7 +142,7 @@ __global__ void sort_pairs_bitonic_step(
     }
 
     bool ascending = ((idx & k) == 0);
-    bool idx_less = pair_less(pairs, shifts, idx, ixj, return_shifts);
+    bool idx_less = pair_less(pairs, idx, ixj);
     bool should_swap = ascending ? !idx_less : idx_less;
 
     if (should_swap) {

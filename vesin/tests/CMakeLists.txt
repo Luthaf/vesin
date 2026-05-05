@@ -39,6 +39,6 @@ foreach(_file_ ${ALL_TESTS})
 
     if (CUDAToolkit_FOUND)
         target_compile_definitions(${_name_} PRIVATE VESIN_TESTS_WITH_CUDA)
-        target_link_libraries(${_name_} CUDA::cudart)
+        target_link_libraries(${_name_} gpulite)
     endif()
 endforeach()

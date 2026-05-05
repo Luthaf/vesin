@@ -5,19 +5,38 @@
 #include <cmath>
 #include <thread>
 
-#include <cuda_runtime.h>
+#include <dlfcn.h>
+
+#include <gpulite/gpulite.hpp>
 
 #include <vesin.h>
 
 void check_cuda(cudaError_t status) {
     if (status != cudaSuccess) {
-        const char* message = cudaGetErrorString(status);
+        const char* message = "CUDA runtime error";
+        if (gpulite::CUDART::loaded()) {
+            message = gpulite::CUDART::instance().cudaGetErrorString(status);
+        }
         FAIL(message);
     }
 }
 
+template <typename T>
+void cuda_malloc(T** ptr, size_t size) {
+    check_cuda(gpulite::CUDART::instance().cudaMalloc(reinterpret_cast<void**>(ptr), size));
+}
+
+void cuda_device_reset() {
+    using cudaDeviceReset_t = cudaError_t (*)();
+    auto* reset = reinterpret_cast<cudaDeviceReset_t>(
+        dlsym(gpulite::CUDART::instance().cudartHandle, "cudaDeviceReset")
+    );
+    REQUIRE(reset != nullptr);
+    check_cuda(reset());
+}
+
 void run_cuda_test(int device_id) {
-    check_cuda(cudaSetDevice(device_id));
+    check_cuda(gpulite::CUDART::instance().cudaSetDevice(device_id));
 
     double points[][3] = {
         {0.0, 0.0, 0.0},
@@ -26,8 +45,8 @@ void run_cuda_test(int device_id) {
     };
     size_t n_points = 3;
     double (*d_points)[3] = nullptr;
-    check_cuda(cudaMalloc(&d_points, sizeof(double) * n_points * 3));
-    check_cuda(cudaMemcpy(d_points, points, sizeof(double) * n_points * 3, cudaMemcpyHostToDevice));
+    cuda_malloc(&d_points, sizeof(double) * n_points * 3);
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(d_points, points, sizeof(double) * n_points * 3, cudaMemcpyHostToDevice));
 
     double box[3][3] = {
         {0.0, 3.0, 3.0},
@@ -35,13 +54,13 @@ void run_cuda_test(int device_id) {
         {3.0, 3.0, 0.0},
     };
     double (*d_box)[3] = nullptr;
-    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
-    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
+    cuda_malloc(&d_box, sizeof(double) * 9);
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
 
     bool periodic[3] = {true, true, true};
     bool* d_periodic = nullptr;
-    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
-    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+    cuda_malloc(&d_periodic, sizeof(bool) * 3);
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
 
     VesinNeighborList neighbors;
 
@@ -76,16 +95,16 @@ void run_cuda_test(int device_id) {
     CHECK(neighbors.vectors != nullptr);
 
     auto* h_pairs = static_cast<size_t (*)[2]>(malloc(sizeof(size_t) * neighbors.length * 2));
-    check_cuda(cudaMemcpy(h_pairs, neighbors.pairs, sizeof(size_t) * neighbors.length * 2, cudaMemcpyDeviceToHost));
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(h_pairs, neighbors.pairs, sizeof(size_t) * neighbors.length * 2, cudaMemcpyDeviceToHost));
 
     auto* h_shifts = static_cast<int32_t (*)[3]>(malloc(sizeof(int32_t) * neighbors.length * 3));
-    check_cuda(cudaMemcpy(h_shifts, neighbors.shifts, sizeof(int32_t) * neighbors.length * 3, cudaMemcpyDeviceToHost));
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(h_shifts, neighbors.shifts, sizeof(int32_t) * neighbors.length * 3, cudaMemcpyDeviceToHost));
 
     auto* h_distances = static_cast<double*>(malloc(sizeof(double) * neighbors.length));
-    check_cuda(cudaMemcpy(h_distances, neighbors.distances, sizeof(double) * neighbors.length, cudaMemcpyDeviceToHost));
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(h_distances, neighbors.distances, sizeof(double) * neighbors.length, cudaMemcpyDeviceToHost));
 
     auto* h_vectors = static_cast<double (*)[3]>(malloc(sizeof(double) * neighbors.length * 3));
-    check_cuda(cudaMemcpy(h_vectors, neighbors.vectors, sizeof(double) * neighbors.length * 3, cudaMemcpyDeviceToHost));
+    check_cuda(gpulite::CUDART::instance().cudaMemcpy(h_vectors, neighbors.vectors, sizeof(double) * neighbors.length * 3, cudaMemcpyDeviceToHost));
 
     for (size_t i = 0; i < neighbors.length; ++i) {
         if (h_pairs[i][0] == 0 && h_pairs[i][1] == 2) {
@@ -133,15 +152,16 @@ void run_cuda_test(int device_id) {
     free(h_distances);
     free(h_vectors);
 
-    check_cuda(cudaFree(d_points));
-    check_cuda(cudaFree(d_box));
-    check_cuda(cudaFree(d_periodic));
+    check_cuda(gpulite::CUDART::instance().cudaFree(d_points));
+    check_cuda(gpulite::CUDART::instance().cudaFree(d_box));
+    check_cuda(gpulite::CUDART::instance().cudaFree(d_periodic));
 }
 
 TEST_CASE("Test CUDA") {
     // get the number of CUDA devices
+    REQUIRE(gpulite::CUDART::loaded());
     int n_devices = 0;
-    check_cuda(cudaGetDeviceCount(&n_devices));
+    check_cuda(gpulite::CUDART::instance().cudaGetDeviceCount(&n_devices));
     REQUIRE(n_devices > 0);
 
     // start multiple threads to test concurrent execution
@@ -156,8 +176,8 @@ TEST_CASE("Test CUDA") {
     }
 
     for (int device_id = 0; device_id < n_devices; ++device_id) {
-        check_cuda(cudaSetDevice(device_id));
-        check_cuda(cudaDeviceReset());
+        check_cuda(gpulite::CUDART::instance().cudaSetDevice(device_id));
+        cuda_device_reset();
     }
 }
 

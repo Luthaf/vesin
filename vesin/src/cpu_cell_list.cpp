@@ -38,7 +38,7 @@ void vesin::cpu::neighbors(
     auto neighbors = GrowableNeighborList{raw_neighbors, raw_neighbors.length, options};
     neighbors.reset();
 
-    cell_list.foreach_pair([&](size_t first, size_t second, CellShift shift) {
+    cell_list.foreach_pair(points, [&](size_t first, size_t second, CellShift shift) {
         if (!options.full) {
             // filter out some pairs for half neighbor lists
             if (first > second) {
@@ -206,12 +206,12 @@ void CellList::add_point(size_t index, Vector position) {
         assert(box_.periodic(spatial) || shift[spatial] == 0);
     }
 
-    this->get_cell(cell_index).emplace_back(Point{index, shift, position});
+    this->get_cell(cell_index).emplace_back(Point{index, shift});
 }
 
 // clang-format off
 template <typename Function>
-void CellList::foreach_pair(Function callback) {
+void CellList::foreach_pair(const Vector* points, Function callback) {
     constexpr size_t GONNET_MIN_CELL_PAIR_CANDIDATES = 256;
 
     for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
@@ -292,7 +292,7 @@ void CellList::foreach_pair(Function callback) {
 
             auto image_position = [&](const Point& atom, CellShift extra_shift) {
                 auto shift = extra_shift - atom.shift;
-                return atom.position + shift.cartesian(box_);
+                return points[atom.index] + shift.cartesian(box_);
             };
 
             auto current_projections = std::vector<ProjectedPoint>();

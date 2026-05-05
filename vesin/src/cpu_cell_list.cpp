@@ -137,6 +137,7 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(BoundingBox box, double cutoff):
     n_search_({0, 0, 0}),
     cells_shape_({0, 0, 0}),
+    n_points_(0),
     box_(std::move(box)),
     cutoff_(cutoff) {
     auto distances_between_faces = box_.distances_between_faces();
@@ -207,6 +208,7 @@ void CellList::add_point(size_t index, Vector position) {
     }
 
     this->get_cell(cell_index).emplace_back(Point{index, shift});
+    n_points_ += 1;
 }
 
 // clang-format off
@@ -220,10 +222,7 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
         double projection;
         const Point* atom;
     };
-    auto n_points = std::accumulate(cells_.begin(), cells_.end(), size_t{0}, [](size_t total, const Cell& cell) {
-        return total + cell.size();
-    });
-    auto mean_cell_occupancy = static_cast<double>(n_points) / static_cast<double>(cells_.size());
+    auto mean_cell_occupancy = static_cast<double>(n_points_) / static_cast<double>(cells_.size());
     // Dense cells amortize one-sided projection sorting; lower-occupancy
     // cells keep the two-sided sliding scan from the original Gonnet scheme.
     auto dense_projection_pruning = mean_cell_occupancy >= GONNET_DENSE_MIN_MEAN_CELL_OCCUPANCY;
@@ -300,13 +299,6 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             }
             axis = axis * (1.0 / std::sqrt(axis_norm_sq));
 
-            const auto& box_matrix = box_.matrix();
-            auto box_projection = Vector{
-                box_matrix[0][0] * axis[0] + box_matrix[0][1] * axis[1] + box_matrix[0][2] * axis[2],
-                box_matrix[1][0] * axis[0] + box_matrix[1][1] * axis[1] + box_matrix[1][2] * axis[2],
-                box_matrix[2][0] * axis[0] + box_matrix[2][1] * axis[1] + box_matrix[2][2] * axis[2],
-            };
-
             // Gonnet projection pruning sorts both cells along the center-to-center
             // axis e_AB and only visits pairs where |p_j - p_i| <= cutoff. Projection
             // distance is a lower bound on Euclidean distance, so the exact cutoff
@@ -314,16 +306,6 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             // Gonnet, J. Comput. Chem. 28, 570-573 (2007), doi:10.1002/jcc.20563;
             // linked-cell efficiency context: Welling and Germano, Comput. Phys.
             // Commun. 182, 611-615 (2011), doi:10.1016/j.cpc.2010.11.002.
-            auto shift_projection = [&](CellShift shift) {
-                return static_cast<double>(shift[0]) * box_projection[0]
-                     + static_cast<double>(shift[1]) * box_projection[1]
-                     + static_cast<double>(shift[2]) * box_projection[2];
-            };
-
-            auto image_projection = [&](const Point& atom, CellShift extra_shift) {
-                return points[atom.index].dot(axis) + shift_projection(extra_shift) - shift_projection(atom.shift);
-            };
-
             auto image_position = [&](const Point& atom, CellShift extra_shift) {
                 auto shift = extra_shift - atom.shift;
                 return points[atom.index] + shift.cartesian(box_);
@@ -334,43 +316,6 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             };
             auto projection_is_before = [](const ProjectedPoint& projected, double value) {
                 return projected.projection < value;
-            };
-
-            auto visit_projected_pairs = [&](const Cell& sorted_cell,
-                                             CellShift sorted_extra_shift,
-                                             const Cell& query_cell,
-                                             CellShift query_extra_shift,
-                                             bool sorted_cell_is_current) {
-                sorted_projections.clear();
-                sorted_projections.reserve(sorted_cell.size());
-                for (const auto& atom: sorted_cell) {
-                    sorted_projections.push_back(ProjectedPoint{
-                        image_projection(atom, sorted_extra_shift),
-                        &atom,
-                    });
-                }
-                std::sort(sorted_projections.begin(), sorted_projections.end(), by_projection);
-
-                for (const auto& query_atom: query_cell) {
-                    auto projection = image_projection(query_atom, query_extra_shift);
-                    auto first_candidate = std::lower_bound(
-                        sorted_projections.begin(),
-                        sorted_projections.end(),
-                        projection - cutoff_,
-                        projection_is_before
-                    );
-
-                    for (auto candidate = first_candidate; candidate != sorted_projections.end(); candidate++) {
-                        if (candidate->projection > projection + cutoff_) {
-                            break;
-                        }
-                        if (sorted_cell_is_current) {
-                            visit_pair(*candidate->atom, query_atom);
-                        } else {
-                            visit_pair(query_atom, *candidate->atom);
-                        }
-                    }
-                }
             };
 
             auto visit_sliding_projected_pairs = [&]() {
@@ -415,18 +360,74 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
 
             if (!dense_projection_pruning) {
                 visit_sliding_projected_pairs();
-            } else if (current_cell.size() <= neighbor_cell.size()) {
-                visit_projected_pairs(
-                    current_cell, CellShift{{0, 0, 0}},
-                    neighbor_cell, CellShift{cell_shift},
-                    true
-                );
             } else {
-                visit_projected_pairs(
-                    neighbor_cell, CellShift{cell_shift},
-                    current_cell, CellShift{{0, 0, 0}},
-                    false
-                );
+                const auto& box_matrix = box_.matrix();
+                auto box_projection = Vector{
+                    box_matrix[0][0] * axis[0] + box_matrix[0][1] * axis[1] + box_matrix[0][2] * axis[2],
+                    box_matrix[1][0] * axis[0] + box_matrix[1][1] * axis[1] + box_matrix[1][2] * axis[2],
+                    box_matrix[2][0] * axis[0] + box_matrix[2][1] * axis[1] + box_matrix[2][2] * axis[2],
+                };
+
+                auto shift_projection = [&](CellShift shift) {
+                    return static_cast<double>(shift[0]) * box_projection[0]
+                         + static_cast<double>(shift[1]) * box_projection[1]
+                         + static_cast<double>(shift[2]) * box_projection[2];
+                };
+
+                auto image_projection = [&](const Point& atom, CellShift extra_shift) {
+                    return points[atom.index].dot(axis) + shift_projection(extra_shift) - shift_projection(atom.shift);
+                };
+
+                auto visit_projected_pairs = [&](const Cell& sorted_cell,
+                                                 CellShift sorted_extra_shift,
+                                                 const Cell& query_cell,
+                                                 CellShift query_extra_shift,
+                                                 bool sorted_cell_is_current) {
+                    sorted_projections.clear();
+                    sorted_projections.reserve(sorted_cell.size());
+                    for (const auto& atom: sorted_cell) {
+                        sorted_projections.push_back(ProjectedPoint{
+                            image_projection(atom, sorted_extra_shift),
+                            &atom,
+                        });
+                    }
+                    std::sort(sorted_projections.begin(), sorted_projections.end(), by_projection);
+
+                    for (const auto& query_atom: query_cell) {
+                        auto projection = image_projection(query_atom, query_extra_shift);
+                        auto first_candidate = std::lower_bound(
+                            sorted_projections.begin(),
+                            sorted_projections.end(),
+                            projection - cutoff_,
+                            projection_is_before
+                        );
+
+                        for (auto candidate = first_candidate; candidate != sorted_projections.end(); candidate++) {
+                            if (candidate->projection > projection + cutoff_) {
+                                break;
+                            }
+                            if (sorted_cell_is_current) {
+                                visit_pair(*candidate->atom, query_atom);
+                            } else {
+                                visit_pair(query_atom, *candidate->atom);
+                            }
+                        }
+                    }
+                };
+
+                if (current_cell.size() <= neighbor_cell.size()) {
+                    visit_projected_pairs(
+                        current_cell, CellShift{{0, 0, 0}},
+                        neighbor_cell, CellShift{cell_shift},
+                        true
+                    );
+                } else {
+                    visit_projected_pairs(
+                        neighbor_cell, CellShift{cell_shift},
+                        current_cell, CellShift{{0, 0, 0}},
+                        false
+                    );
+                }
             }
         }}}
     }}} // loop over neighboring cells

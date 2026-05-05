@@ -1,14 +1,18 @@
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <mutex>
 #include <sstream>
+#include <string>
+#include <tuple>
 
 #include <torch/torch.h>
 
 #include <vesin.h>
 
-#include "vesin_torch.hpp"
+namespace {
 
-using namespace vesin_torch;
-
-static VesinDevice torch_to_vesin_device(torch::Device device) {
+VesinDevice torch_to_vesin_device(torch::Device device) {
     if (device.is_cpu()) {
         return {VesinCPU, 0};
     } else if (device.is_cuda()) {
@@ -18,7 +22,7 @@ static VesinDevice torch_to_vesin_device(torch::Device device) {
     }
 }
 
-static torch::Device vesin_to_torch_device(VesinDevice device) {
+torch::Device vesin_to_torch_device(VesinDevice device) {
     if (device.type == VesinCPU) {
         return torch::Device(torch::kCPU);
     } else if (device.type == VesinCUDA) {
@@ -28,81 +32,95 @@ static torch::Device vesin_to_torch_device(VesinDevice device) {
     }
 }
 
-/// Custom autograd function that only registers a custom backward corresponding
-/// to the neighbors list calculation
-class AutogradNeighbors: public torch::autograd::Function<AutogradNeighbors> {
+/// State of the neighbor list calculation, kept between calls. This contains
+/// the memory allocated by vesin, which is re-used across calls, as well as the
+/// cached neighbor list when using a skin.
+///
+/// This is registered as a TorchBind class, which allows it to be stored in
+/// TorchScript and `torch.export` models.
+class State: public torch::CustomClassHolder {
 public:
-    static std::vector<torch::Tensor> forward(
-        torch::autograd::AutogradContext* ctx,
-        torch::Tensor points,
-        torch::Tensor box,
-        torch::Tensor periodic,
-        torch::Tensor pairs,
-        torch::optional<torch::Tensor> shifts,
-        torch::optional<torch::Tensor> distances,
-        torch::optional<torch::Tensor> vectors
-    );
-
-    static std::vector<torch::Tensor> backward(
-        torch::autograd::AutogradContext* ctx,
-        std::vector<torch::Tensor> outputs_grad
-    );
-};
-
-NeighborListHolder::NeighborListHolder(
-    double cutoff,
-    bool full_list,
-    bool sorted,
-    std::string algorithm,
-    double skin,
-    int64_t n_threads
-):
-    cutoff_(cutoff),
-    full_list_(full_list),
-    sorted_(sorted),
-    algorithm_(std::move(algorithm)),
-    skin_(skin),
-    n_threads_(n_threads),
-    data_(nullptr) {
-    if (n_threads_ < 0) {
-        throw std::runtime_error("n_threads must be zero or a positive integer");
+    State() = default;
+    ~State() override {
+        vesin_free(&data_);
     }
 
-    data_ = new VesinNeighborList();
+    State(const State&) = delete;
+    State& operator=(const State&) = delete;
+    State(State&&) = delete;
+    State& operator=(State&&) = delete;
+
+    /// Memory allocated by vesin. This must only be used while holding the
+    /// lock returned by `lock()`.
+    VesinNeighborList* data() {
+        return &data_;
+    }
+
+    /// Lock this state, preventing concurrent use (for example when the same
+    /// model is executed from multiple threads). This emits a warning (once
+    /// per process) if another thread is already using this state.
+    std::unique_lock<std::mutex> lock() {
+        auto lock = std::unique_lock<std::mutex>(mutex_, std::try_to_lock);
+        if (!lock.owns_lock()) {
+            TORCH_WARN_ONCE(
+                "the same vesin neighbor list is being used from multiple threads "
+                "at the same time. The calculations will run one after the other, "
+                "use a separate NeighborList (or a separate model) in each thread "
+                "to run them in parallel."
+            );
+            lock.lock();
+        }
+        return lock;
+    }
+
+private:
+    VesinNeighborList data_;
+    std::mutex mutex_;
+};
+
+VesinAlgorithm algorithm_from_string(const std::string& algorithm) {
+    if (algorithm == "auto") {
+        return VesinAutoAlgorithm;
+    } else if (algorithm == "brute_force") {
+        return VesinBruteForce;
+    } else if (algorithm == "cell_list") {
+        return VesinCellList;
+    } else {
+        throw std::runtime_error(
+            "unknown algorithm '" + algorithm + "', expected one of "
+            "'auto', 'brute_force', or 'cell_list'"
+        );
+    }
 }
 
-NeighborListHolder::~NeighborListHolder() {
-    vesin_free(data_);
-    delete data_;
-}
-
-std::vector<torch::Tensor> NeighborListHolder::compute(
+/// Compute the neighbor list with the given `options`, without any autograd
+/// integration. Pairs are always returned, the other outputs are empty tensors
+/// if not requested in `options`.
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_neighbors(
+    VesinNeighborList* data,
     torch::Tensor points,
     torch::Tensor box,
     torch::Tensor periodic,
-    std::string quantities,
+    VesinOptions options,
     bool copy
 ) {
     // check input data
     if (points.device() != box.device()) {
-        // clang-format off
         C10_THROW_ERROR(ValueError,
             "expected `points` and `box` to have the same device, got " +
             points.device().str() + " and " + box.device().str()
         );
-        // clang-format on
     }
     auto vesin_device = torch_to_vesin_device(points.device());
 
     if (points.scalar_type() != box.scalar_type()) {
-        // clang-format off
         C10_THROW_ERROR(ValueError,
             std::string("expected `points` and `box` to have the same dtype, got ") +
             torch::toString(points.scalar_type()) + " and " +
             torch::toString(box.scalar_type())
         );
-        // clang-format on
     }
+
     if (points.scalar_type() != torch::kFloat64) {
         C10_THROW_ERROR(ValueError, "only float64 is supported for `points` and `box`");
     }
@@ -135,59 +153,13 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, "`periodic` must be either a single bool or a tensor of 3 bool");
     }
 
-    // create calculation options
     auto n_points = static_cast<size_t>(points.size(0));
 
     // reset vesin data if device changed
-    if (data_->device.type != VesinUnknownDevice && data_->device.type != vesin_device.type) {
-        vesin_free(data_);
-        std::memset(data_, 0, sizeof(VesinNeighborList));
+    if (data->device.type != VesinUnknownDevice && data->device.type != vesin_device.type) {
+        vesin_free(data);
+        std::memset(data, 0, sizeof(VesinNeighborList));
     }
-
-    auto return_shifts = quantities.find('S') != std::string::npos;
-    if (box.requires_grad()) {
-        return_shifts = true;
-    }
-
-    auto return_distances = quantities.find('d') != std::string::npos;
-    auto return_vectors = quantities.find('D') != std::string::npos;
-    if ((points.requires_grad() || box.requires_grad()) &&
-        (return_distances || return_vectors)) {
-        // gradients requires both distances & vectors data to be present
-        return_distances = true;
-        return_vectors = true;
-    }
-
-    VesinAlgorithm algorithm = VesinAutoAlgorithm;
-    if (algorithm_ == "auto") {
-        algorithm = VesinAutoAlgorithm;
-    } else if (algorithm_ == "brute_force") {
-        algorithm = VesinBruteForce;
-    } else if (algorithm_ == "cell_list") {
-        algorithm = VesinCellList;
-    } else {
-        throw std::runtime_error(
-            "unknown algorithm '" + algorithm_ + "', expected one of "
-                                                 "'auto', 'brute_force', or 'cell_list'"
-        );
-    }
-
-    auto n_threads = static_cast<int32_t>(n_threads_);
-    if (n_threads == 0) {
-        n_threads = at::get_num_threads();
-    }
-
-    auto options = VesinOptions{
-        /*cutoff=*/this->cutoff_,
-        /*full=*/this->full_list_,
-        /*sorted=*/this->sorted_,
-        /*algorithm=*/algorithm,
-        /*skin=*/this->skin_,
-        /*n_threads=*/n_threads,
-        /*return_shifts=*/return_shifts,
-        /*return_distances=*/return_distances,
-        /*return_vectors=*/return_vectors,
-    };
 
     if (!points.is_contiguous()) {
         points = points.contiguous();
@@ -205,7 +177,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         periodic.data_ptr<bool>(),
         vesin_device,
         options,
-        data_,
+        data,
         &error_message
     );
 
@@ -214,8 +186,8 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
     }
 
     // wrap vesin data in tensors
-    auto size_t_options =
-        torch::TensorOptions().device(vesin_to_torch_device(data_->device));
+    auto device = vesin_to_torch_device(data->device);
+    auto size_t_options = torch::TensorOptions().device(device);
     if (sizeof(size_t) == sizeof(uint32_t)) {
         size_t_options = size_t_options.dtype(torch::kUInt32);
     } else if (sizeof(size_t) == sizeof(uint64_t)) {
@@ -224,262 +196,124 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
-    int64_t length = static_cast<int64_t>(data_->length);
-    auto pairs = torch::from_blob(data_->pairs, {length, 2}, size_t_options)
+    int64_t length = static_cast<int64_t>(data->length);
+    auto pairs = torch::from_blob(data->pairs, {length, 2}, size_t_options)
                      .to(torch::kInt64);
 
-    auto shifts = torch::Tensor();
-    if (data_->shifts != nullptr) {
-        auto int32_options = torch::TensorOptions()
-                                 .device(vesin_to_torch_device(data_->device))
-                                 .dtype(torch::kInt32);
-
-        shifts = torch::from_blob(data_->shifts, {length, 3}, int32_options);
-
+    auto int32_options = torch::TensorOptions().device(device).dtype(torch::kInt32);
+    auto shifts = torch::empty({0, 3}, int32_options);
+    if (options.return_shifts) {
+        shifts = torch::from_blob(data->shifts, {length, 3}, int32_options);
         if (copy) {
             shifts = shifts.clone();
         }
     }
 
-    auto double_options = torch::TensorOptions()
-                              .device(vesin_to_torch_device(data_->device))
-                              .dtype(torch::kDouble);
-
-    auto distances = torch::Tensor();
-    if (data_->distances != nullptr) {
-        distances = torch::from_blob(data_->distances, {length}, double_options);
-
+    auto double_options = torch::TensorOptions().device(device).dtype(torch::kDouble);
+    auto distances = torch::empty({0}, double_options);
+    if (options.return_distances) {
+        distances = torch::from_blob(data->distances, {length}, double_options);
         if (copy) {
             distances = distances.clone();
         }
     }
 
-    auto vectors = torch::Tensor();
-    if (data_->vectors != nullptr) {
-        vectors = torch::from_blob(data_->vectors, {length, 3}, double_options);
-
+    auto vectors = torch::empty({0, 3}, double_options);
+    if (options.return_vectors) {
+        vectors = torch::from_blob(data->vectors, {length, 3}, double_options);
         if (copy) {
             vectors = vectors.clone();
         }
     }
 
-    // handle autograd
-    if ((return_distances || return_vectors)) {
-        // we use optional for these three because otherwise torch autograd
-        // tries to access data inside the undefined `torch::Tensor()`.
-        torch::optional<torch::Tensor> shifts_optional = torch::nullopt;
-        if (shifts.defined()) {
-            shifts_optional = shifts;
-        }
-
-        torch::optional<torch::Tensor> distances_optional = torch::nullopt;
-        if (distances.defined()) {
-            distances_optional = distances;
-        }
-
-        torch::optional<torch::Tensor> vectors_optional = torch::nullopt;
-        if (vectors.defined()) {
-            vectors_optional = vectors;
-        }
-
-        auto outputs =
-            AutogradNeighbors::apply(points, box, periodic, pairs, shifts_optional, distances_optional, vectors_optional);
-
-        if (return_distances && return_vectors) {
-            distances = outputs[0];
-            vectors = outputs[1];
-        } else if (return_distances) {
-            distances = outputs[0];
-        } else {
-            assert(return_vectors);
-            vectors = outputs[0];
-        }
-    }
-
-    // assemble the output
-    auto output = std::vector<torch::Tensor>();
-    for (auto c : quantities) {
-        if (c == 'i') {
-            output.push_back(pairs.index({torch::indexing::Slice(), 0}));
-        } else if (c == 'j') {
-            output.push_back(pairs.index({torch::indexing::Slice(), 1}));
-        } else if (c == 'P') {
-            output.push_back(pairs);
-        } else if (c == 'S') {
-            output.push_back(shifts);
-        } else if (c == 'd') {
-            output.push_back(distances);
-        } else if (c == 'D') {
-            output.push_back(vectors);
-        } else {
-            C10_THROW_ERROR(ValueError, "unexpected character in `quantities`: " + std::string(1, c));
-        }
-    }
-
-    return output;
+    return {pairs, shifts, distances, vectors};
 }
 
-TORCH_LIBRARY(vesin, m) {
-    std::string DOCSTRING;
-
-    // clang-format off
-    m.class_<NeighborListHolder>("_NeighborList")
-        .def(
-            torch::init<double, bool, bool, std::string, double, int64_t>(), DOCSTRING, {
-                torch::arg("cutoff"),
-                torch::arg("full_list"),
-                torch::arg("sorted") = false,
-                torch::arg("algorithm") = "auto",
-                torch::arg("skin") = 0.0,
-                torch::arg("n_threads") = 0,
-            }
-        )
-        .def("compute", &NeighborListHolder::compute, DOCSTRING, {
-            torch::arg("points"),
-            torch::arg("box"),
-            torch::arg("periodic"),
-            torch::arg("quantities"),
-            torch::arg("copy") = true
-        })
-        .def_pickle(
-            [](const c10::intrusive_ptr<NeighborListHolder>& self) -> c10::Dict<std::string, c10::IValue> {
-                c10::impl::GenericDict dict(c10::StringType::get(), c10::AnyType::get());
-                dict.insert("cutoff", self->cutoff());
-                dict.insert("full_list", self->full_list());
-                dict.insert("sorted", self->sorted());
-                dict.insert("algorithm", self->algorithm());
-                dict.insert("skin", self->skin());
-                dict.insert("n_threads", self->n_threads());
-
-                return c10::impl::toTypedDict<std::string, c10::IValue>(dict);
-            },
-            [](c10::Dict<std::string, c10::IValue> data) -> c10::intrusive_ptr<NeighborListHolder> {
-                return c10::make_intrusive<NeighborListHolder>(
-                    data.at("cutoff").toDouble(),
-                    data.at("full_list").toBool(),
-                    data.at("sorted").toBool(),
-                    data.at("algorithm").toStringRef(),
-                    data.at("skin").toDouble(),
-                    data.at("n_threads").toInt()
-                );
-            }
-        );
-    // clang-format on
-}
-
-// ========================================================================== //
-//                                                                            //
-// ========================================================================== //
-
-std::vector<torch::Tensor> AutogradNeighbors::forward(
-    torch::autograd::AutogradContext* ctx,
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors(
+    c10::intrusive_ptr<State> state,
     torch::Tensor points,
     torch::Tensor box,
     torch::Tensor periodic,
-    torch::Tensor pairs,
-    torch::optional<torch::Tensor> shifts,
-    torch::optional<torch::Tensor> distances,
-    torch::optional<torch::Tensor> vectors
+    double cutoff,
+    bool full_list,
+    bool sorted,
+    std::string algorithm,
+    double skin,
+    int64_t n_threads,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors,
+    bool copy
 ) {
-    auto shifts_tensor = shifts.value_or(torch::Tensor());
-    auto distances_tensor = distances.value_or(torch::Tensor());
-    auto vectors_tensor = vectors.value_or(torch::Tensor());
-
-    ctx->save_for_backward(
-        {points, box, periodic, pairs, shifts_tensor, distances_tensor, vectors_tensor}
-    );
-
-    auto return_distances = distances.has_value();
-    auto return_vectors = vectors.has_value();
-    ctx->saved_data["return_distances"] = return_distances;
-    ctx->saved_data["return_vectors"] = return_vectors;
-
-    // only return defined tensors to make sure torch can use `get_autograd_meta()`
-    if (return_distances && return_vectors) {
-        return {distances_tensor, vectors_tensor};
-    } else if (return_distances) {
-        return {distances_tensor};
-    } else if (return_vectors) {
-        return {vectors_tensor};
-    } else {
-        return {};
+    if (n_threads == 0) {
+        n_threads = static_cast<int64_t>(at::get_num_threads());
     }
+
+    auto options = VesinOptions{
+        /*cutoff=*/cutoff,
+        /*full=*/full_list,
+        /*sorted=*/sorted,
+        /*algorithm=*/algorithm_from_string(algorithm),
+        /*skin=*/skin,
+        /*n_threads=*/static_cast<int32_t>(n_threads),
+        /*return_shifts=*/return_shifts,
+        /*return_distances=*/return_distances,
+        /*return_vectors=*/return_vectors,
+    };
+
+    auto lock = state->lock();
+    return compute_neighbors(
+        state->data(),
+        std::move(points),
+        std::move(box),
+        std::move(periodic),
+        options,
+        copy
+    );
 }
 
-std::vector<torch::Tensor> AutogradNeighbors::backward(
-    torch::autograd::AutogradContext* ctx,
-    std::vector<torch::Tensor> outputs_grad
-) {
-    auto saved_variables = ctx->get_saved_variables();
-    const auto& points = saved_variables[0];
-    const auto& box = saved_variables[1];
-    const auto& periodic = saved_variables[2];
+} // namespace
 
-    const auto& pairs = saved_variables[3];
-    const auto& shifts = saved_variables[4];
-    const auto& distances = saved_variables[5];
-    const auto& vectors = saved_variables[6];
+TORCH_LIBRARY(vesin, m) {
+    m.class_<State>("State")
+        .def(torch::init<>())
+        // used by `torch.compile` and `torch.export` to create the fake version
+        // of this class (see `_compile.py`). The state does not influence the
+        // shape of the outputs, so there is nothing to inspect here.
+        .def("__obj_flatten__", [](const c10::intrusive_ptr<State>&) {
+            return std::tuple<>();
+        })
+        // the content of the state is not saved, loading a model creates a new
+        // empty state instead. The integer is a version number for the
+        // serialization format.
+        .def_pickle(
+            [](const c10::intrusive_ptr<State>&) -> int64_t {
+                return 0;
+            },
+            [](int64_t) -> c10::intrusive_ptr<State> {
+                return c10::make_intrusive<State>();
+            }
+        );
 
-    auto return_distances = ctx->saved_data["return_distances"].toBool();
-    auto return_vectors = ctx->saved_data["return_vectors"].toBool();
+    m.def(
+        "neighbors("
+            "__torch__.torch.classes.vesin.State state, Tensor points, Tensor box, Tensor periodic, "
+            "float cutoff, bool full_list, bool sorted, str algorithm, float skin, int n_threads, "
+            "bool return_shifts, bool return_distances, bool return_vectors, bool copy"
+        ") -> (Tensor pairs, Tensor shifts, Tensor distances, Tensor vectors)"
+    );
+}
 
-    auto distances_grad = torch::Tensor();
-    auto vectors_grad = torch::Tensor();
-    if (return_distances && return_vectors) {
-        distances_grad = outputs_grad[0];
-        vectors_grad = outputs_grad[1];
-    } else if (return_distances) {
-        distances_grad = outputs_grad[0];
-    } else if (return_vectors) {
-        vectors_grad = outputs_grad[0];
-    } else {
-        // nothing to do
-        return {
-            torch::Tensor(),
-            torch::Tensor(),
-            torch::Tensor(),
-            torch::Tensor(),
-            torch::Tensor(),
-            torch::Tensor(),
-            torch::Tensor(),
-        };
-    }
+TORCH_LIBRARY_IMPL(vesin, CPU, m) {
+    m.impl("neighbors", neighbors);
+}
 
-    if (points.requires_grad() || box.requires_grad()) {
-        // Do a first backward step from distances_grad to vectors_grad
-        vectors_grad += distances_grad.index({torch::indexing::Slice(), torch::indexing::None}) * vectors / distances.index({torch::indexing::Slice(), torch::indexing::None});
-    }
+TORCH_LIBRARY_IMPL(vesin, CUDA, m) {
+    m.impl("neighbors", neighbors);
+}
 
-    auto points_grad = torch::Tensor();
-    if (points.requires_grad()) {
-        points_grad = torch::zeros_like(points);
-        points_grad =
-            torch::index_add(points_grad,
-                             /*dim=*/0,
-                             /*index=*/pairs.index({torch::indexing::Slice(), 1}),
-                             /*source=*/vectors_grad,
-                             /*alpha=*/1.0);
-        points_grad =
-            torch::index_add(points_grad,
-                             /*dim=*/0,
-                             /*index=*/pairs.index({torch::indexing::Slice(), 0}),
-                             /*source=*/vectors_grad,
-                             /*alpha=*/-1.0);
-    }
-
-    auto box_grad = torch::Tensor();
-    if (torch::any(periodic).item<bool>() && box.requires_grad()) {
-        auto cell_shifts = shifts.to(box.scalar_type());
-        box_grad = cell_shifts.t().matmul(vectors_grad);
-    }
-
-    return {
-        points_grad,
-        box_grad,
-        torch::Tensor(),
-        torch::Tensor(),
-        torch::Tensor(),
-        torch::Tensor(),
-        torch::Tensor(),
-    };
+// `neighbors` is not differentiable, autograd is handled in Python by
+// re-computing distances and vectors from pairs and shifts
+TORCH_LIBRARY_IMPL(vesin, Autograd, m) {
+    m.impl("neighbors", torch::CppFunction::makeFallthrough());
 }

@@ -52,8 +52,12 @@ include = ["vesin_torch"]
 [tool.pytest.ini_options]
 filterwarnings = [
     "error",
-    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.load` is not supported in Python 3.14+:DeprecationWarning",
+    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:",
+    "ignore:`torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`:",
+    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:",
+    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:",
+    "ignore:`torch.jit.load` is not supported in Python 3.14+:",
+    "ignore:`torch.jit.script_method` is not supported in Python 3.14+:",
+    # emitted inside torch when compiling with AOTInductor
+    "ignore:`isinstance\\(treespec, LeafSpec\\)` is deprecated:FutureWarning",
 ]

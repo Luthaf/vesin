@@ -17,6 +17,15 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+### Added
+
+- `vesin_torch.NeighborList` can now be used with `torch.compile`, including
+  with `fullgraph=True`, and supports higher order derivatives.
+- `vesin_torch.NeighborList` can now be serialized with `pickle`,
+  `copy.deepcopy` and `torch.save`.
+- Models using `vesin_torch.NeighborList` can now be exported with
+  `torch.export`, and compiled with AOTInductor to run from C++.
+
 ### Removed
 
 - The `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable and the
@@ -24,6 +33,9 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   any more: when the CUDA brute force search finds more pairs than it reserved
   room for, it now runs again with enough room for the number it counted, and
   keeps that allocation for all subsequent calls.
+- The C++ API of `vesin-torch` (the `vesin_torch.hpp` header and
+  `vesin_torch::NeighborListHolder` class) was removed. `vesin-torch` is now
+  only available from Python and TorchScript.
 
 ## [Version 0.6.2](https://github.com/Luthaf/vesin/releases/tag/v0.6.2) - 2026-09-28
 

@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Any, Dict, List, Union
 
 import torch
 
@@ -37,14 +37,84 @@ class NeighborList:
         if n_threads < 0:
             raise ValueError("n_threads must be zero or a positive integer")
 
-        self._c = torch.classes.vesin._NeighborList(
-            cutoff=cutoff,
-            full_list=full_list,
-            sorted=sorted,
-            algorithm=algorithm,
-            skin=skin,
-            n_threads=n_threads,
-        )
+        self._cutoff = float(cutoff)
+        self._full_list = bool(full_list)
+        self._sorted = bool(sorted)
+        self._algorithm = str(algorithm)
+        self._skin = float(skin)
+        self._n_threads = n_threads
+
+        self._state = torch.classes.vesin.State()
+
+    @property
+    def cutoff(self) -> float:
+        """The cutoff distance for this neighbor list."""
+        return self._cutoff
+
+    @property
+    def full_list(self) -> bool:
+        """Whether this neighbor list returns both ``i-j`` and ``j-i`` pairs."""
+        return self._full_list
+
+    @property
+    def sorted(self) -> bool:
+        """Whether this neighbor list is sorted by the first index ``i``."""
+        return self._sorted
+
+    @property
+    def algorithm(self) -> str:
+        """Algorithm used to compute this neighbor list."""
+        return self._algorithm
+
+    @property
+    def skin(self) -> float:
+        """Skin size used for Verlet caching."""
+        return self._skin
+
+    @property
+    def n_threads(self) -> int:
+        """Number of CPU threads requested for the calculation."""
+        return self._n_threads
+
+    def __getstate__(self) -> Dict[str, Any]:
+        # the state only contains memory allocated by vesin, which is not
+        # serialized. We save the options and create a new state when loading
+        return {
+            "cutoff": self._cutoff,
+            "full_list": self._full_list,
+            "sorted": self._sorted,
+            "algorithm": self._algorithm,
+            "skin": self._skin,
+            "n_threads": self._n_threads,
+        }
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        # TorchScript needs `isinstance` to refine the type of the values
+        cutoff = state["cutoff"]
+        assert isinstance(cutoff, float)
+        self._cutoff = cutoff
+
+        full_list = state["full_list"]
+        assert isinstance(full_list, bool)
+        self._full_list = full_list
+
+        sorted = state["sorted"]
+        assert isinstance(sorted, bool)
+        self._sorted = sorted
+
+        algorithm = state["algorithm"]
+        assert isinstance(algorithm, str)
+        self._algorithm = algorithm
+
+        skin = state["skin"]
+        assert isinstance(skin, float)
+        self._skin = skin
+
+        n_threads = state["n_threads"]
+        assert isinstance(n_threads, int)
+        self._n_threads = n_threads
+
+        self._state = torch.classes.vesin.State()
 
     def compute(
         self,
@@ -90,20 +160,94 @@ class NeighborList:
                 f"got {points.dtype} and {box.dtype}"
             )
 
-        points = points.to(torch.float64)
-        box = box.to(torch.float64)
+        for q in quantities:
+            if q not in "ijPSdD":
+                raise ValueError(f"unexpected character in `quantities`: {q}")
 
-        results = self._c.compute(
-            points=points,
-            box=box,
-            periodic=periodic,
-            quantities=quantities,
-            copy=copy,
+        # check the device here, since meta tensors would otherwise be sent to the
+        # fake implementation of `vesin::neighbors`
+        if points.device != box.device:
+            raise ValueError(
+                "expected `points` and `box` to have the same device, "
+                f"got {points.device} and {box.device}"
+            )
+
+        if points.device.type not in ("cpu", "cuda"):
+            raise RuntimeError(f"device {points.device} is not supported in vesin")
+
+        return_shifts = "S" in quantities
+        return_distances = "d" in quantities
+        return_vectors = "D" in quantities
+
+        requires_grad = (
+            torch.is_grad_enabled()
+            and (points.requires_grad or box.requires_grad)
+            and (return_distances or return_vectors)
         )
 
-        updated_results = []
-        for q, result in zip(quantities, results, strict=True):
-            if q in ("d", "D"):
-                result = result.to(initial_dtype)
-            updated_results.append(result)
-        return updated_results
+        points_f64 = points.to(torch.float64)
+        box_f64 = box.to(torch.float64)
+
+        if requires_grad:
+            # `vesin::neighbors` is not differentiable, so we re-compute the vectors
+            # and distances from the pairs and shifts with standard torch operations
+            # instead. This makes the calculation differentiable (to any order), and
+            # traceable by `torch.compile` and `torch.export`. The shifts are used in
+            # the backward pass, and must not be invalidated by the next call, so we
+            # always copy them.
+            pairs, shifts, _, _ = torch.ops.vesin.neighbors(
+                self._state,
+                points_f64.detach(),
+                box_f64.detach(),
+                periodic,
+                self._cutoff,
+                self._full_list,
+                self._sorted,
+                self._algorithm,
+                self._skin,
+                self._n_threads,
+                True,
+                False,
+                False,
+                True,
+            )
+
+            vectors = (
+                points_f64.index_select(0, pairs[:, 1])
+                - points_f64.index_select(0, pairs[:, 0])
+                + shifts.to(torch.float64) @ box_f64
+            )
+            distances = torch.linalg.vector_norm(vectors, dim=1)
+        else:
+            pairs, shifts, distances, vectors = torch.ops.vesin.neighbors(
+                self._state,
+                points_f64,
+                box_f64,
+                periodic,
+                self._cutoff,
+                self._full_list,
+                self._sorted,
+                self._algorithm,
+                self._skin,
+                self._n_threads,
+                return_shifts,
+                return_distances,
+                return_vectors,
+                copy,
+            )
+
+        results: List[torch.Tensor] = []
+        for q in quantities:
+            if q == "i":
+                results.append(pairs[:, 0])
+            elif q == "j":
+                results.append(pairs[:, 1])
+            elif q == "P":
+                results.append(pairs)
+            elif q == "S":
+                results.append(shifts)
+            elif q == "d":
+                results.append(distances.to(initial_dtype))
+            elif q == "D":
+                results.append(vectors.to(initial_dtype))
+        return results

@@ -346,12 +346,7 @@ static void reset(VesinNeighborList& neighbors) {
     neighbors.shifts = nullptr;
     neighbors.distances = nullptr;
     neighbors.vectors = nullptr;
-
-    GPULITE_CUDART_CALL(cudaFree(extras->length_ptr));
     extras->length_ptr = nullptr;
-
-    GPULITE_CUDART_CALL(cudaFree(extras->cell_check_ptr));
-    extras->cell_check_ptr = nullptr;
 
     // Free pinned memory if allocated
     if (extras->pinned_length_ptr != nullptr) {

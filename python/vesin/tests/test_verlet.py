@@ -46,9 +46,7 @@ class TestVerletBasic:
             periodic=True,
             quantities="ijS",
         )
-        verlet = set(
-            zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)])
-        )
+        verlet = set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
 
         for p in ref:
             assert p in verlet, f"Missing pair {p}"
@@ -71,9 +69,7 @@ class TestVerletBasic:
             periodic=True,
             quantities="ijS",
         )
-        verlet = set(
-            zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)])
-        )
+        verlet = set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
 
         for p in ref:
             assert p in verlet
@@ -220,8 +216,6 @@ class TestVerletNonPeriodic:
             periodic=False,
             quantities="ijS",
         )
-        verlet = set(
-            zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)])
-        )
+        verlet = set(zip(i.tolist(), j.tolist(), *[S[:, k].tolist() for k in range(3)]))
 
         assert verlet == ref

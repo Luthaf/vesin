@@ -6,6 +6,7 @@
 #include <new>
 #include <numeric>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include "cpu_cell_list.hpp"
@@ -225,10 +226,12 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
     auto mean_cell_occupancy = static_cast<double>(n_points_) / static_cast<double>(cells_.size());
     // Dense cells amortize one-sided projection sorting; lower-occupancy
     // cells keep the two-sided sliding scan from the original Gonnet scheme.
-    auto dense_projection_pruning = mean_cell_occupancy >= GONNET_DENSE_MIN_MEAN_CELL_OCCUPANCY;
+    auto use_dense_projection_pruning = mean_cell_occupancy >= GONNET_DENSE_MIN_MEAN_CELL_OCCUPANCY;
+
+    auto visit_cell_pairs = [&](auto dense_projection_tag) {
+    constexpr bool dense_projection_pruning = decltype(dense_projection_tag)::value;
     auto min_cell_pair_candidates = dense_projection_pruning ? GONNET_DENSE_MIN_CELL_PAIR_CANDIDATES
                                                             : GONNET_MIN_CELL_PAIR_CANDIDATES;
-
     auto current_projections = std::vector<ProjectedPoint>();
     auto neighbor_projections = std::vector<ProjectedPoint>();
     auto sorted_projections = std::vector<ProjectedPoint>();
@@ -363,7 +366,7 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
                 }
             };
 
-            if (!dense_projection_pruning) {
+            if constexpr (!dense_projection_pruning) {
                 visit_sliding_projected_pairs();
             } else {
                 const auto& box_matrix = box_.matrix();
@@ -436,6 +439,13 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
             }
         }}}
     }}} // loop over neighboring cells
+    };
+
+    if (use_dense_projection_pruning) {
+        visit_cell_pairs(std::true_type{});
+    } else {
+        visit_cell_pairs(std::false_type{});
+    }
 }
 
 CellList::Cell& CellList::get_cell(std::array<int32_t, 3> index) {

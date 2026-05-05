@@ -154,6 +154,11 @@ TEST_CASE("Test CUDA") {
     for (auto& t : threads) {
         t.join();
     }
+
+    for (int device_id = 0; device_id < n_devices; ++device_id) {
+        check_cuda(cudaSetDevice(device_id));
+        check_cuda(cudaDeviceReset());
+    }
 }
 
 #else

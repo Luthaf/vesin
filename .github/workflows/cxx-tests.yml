@@ -15,6 +15,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} / ${{ matrix.compiler }}
     container: ${{ matrix.container }}
+    env:
+      APT_OPTIONS: -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
     strategy:
       matrix:
         include:
@@ -26,8 +28,8 @@ jobs:
             do-valgrind: true
             setup-dependencies: |
               sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-              sudo apt-get update
-              sudo apt-get install -y gcc-14 g++-14 gfortran-14
+              sudo apt-get ${APT_OPTIONS} update
+              sudo apt-get ${APT_OPTIONS} install -y gcc-14 g++-14 gfortran-14
 
           - os: ubuntu-24.04
             compiler: Clang
@@ -36,9 +38,9 @@ jobs:
             fc: gfortran
             setup-dependencies: |
               wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-              sudo apt-get update
+              sudo apt-get ${APT_OPTIONS} update
               sudo apt-add-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main"
-              sudo apt-get install -y clang-21 gfortran
+              sudo apt-get ${APT_OPTIONS} install -y clang-21 gfortran
 
           # check the build on a stock Ubuntu 20.04, which uses cmake 3.16
           - os: ubuntu-24.04
@@ -83,8 +85,8 @@ jobs:
       - name: install valgrind
         if: matrix.do-valgrind
         run: |
-          sudo apt-get update
-          sudo apt-get install -y valgrind
+          sudo apt-get ${APT_OPTIONS} update
+          sudo apt-get ${APT_OPTIONS} install -y valgrind
 
       - name: configure cmake
         shell: bash

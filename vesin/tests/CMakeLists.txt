@@ -17,7 +17,7 @@ if (VALGRIND)
     set(TEST_COMMAND
         "${VALGRIND}" "--tool=memcheck" "--dsymutil=yes" "--error-exitcode=125"
         "--leak-check=full" "--show-leak-kinds=definite,indirect,possible" "--track-origins=yes"
-        "--gen-suppressions=all"
+        "--gen-suppressions=all" "--suppressions=${CMAKE_CURRENT_SOURCE_DIR}/cuda-valgrind.supp"
     )
 else()
     set(TEST_COMMAND "")

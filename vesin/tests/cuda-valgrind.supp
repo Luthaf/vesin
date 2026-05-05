@@ -1,0 +1,45 @@
+# CUDA driver initialization keeps process-global allocations that valgrind
+# reports during leak checking despite successful device teardown. These
+# suppressions stay restricted to libcuda/cuInit and dynamic-loader
+# initialization paths.
+{
+   cuda-driver-cuinit-calloc
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   obj:*libcuda.so*
+   ...
+   fun:cuInit
+   ...
+}
+{
+   cuda-driver-cuinit-malloc
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   obj:*libcuda.so*
+   ...
+   fun:cuInit
+   ...
+}
+{
+   cuda-driver-dlopen-init
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   obj:*
+   obj:*
+   obj:*
+   fun:call_init
+   fun:_dl_init
+   fun:_dl_catch_exception
+   fun:dl_open_worker
+   fun:dl_open_worker
+   fun:_dl_catch_exception
+   fun:_dl_open
+   fun:dlopen_doit
+   fun:_dl_catch_exception
+   fun:_dl_catch_error
+}

@@ -94,6 +94,22 @@ class TestVerletCaching:
         assert list(zip(i2.tolist(), j2.tolist())) == [(0, 1)]
         assert d2.tolist() == pytest.approx([0.95])
 
+    def test_cpu_brute_force_algorithm_is_still_rejected(self):
+        nl = NeighborList(
+            cutoff=1.0,
+            full_list=False,
+            skin=0.4,
+            algorithm="brute_force",
+        )
+        box = 10.0 * np.eye(3)
+        positions = np.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]])
+
+        with pytest.raises(
+            RuntimeError,
+            match="only VesinAutoAlgorithm and VesinCellList are supported on CPU",
+        ):
+            nl.compute(positions, box, periodic=False, quantities="ij")
+
     def test_small_movement_reuses_cache(self):
         """After small displacement, pair count should stay stable."""
         nl = NeighborList(cutoff=3.0, full_list=True, skin=1.0)

@@ -19,6 +19,13 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False, max_nbins=0
     - :py:class:`ase.Atoms` with mixed periodic boundary conditions
     - giving ``cutoff`` as a dictionary
 
+    .. note::
+
+        The returned neighbor list will be sorted by the first point index (``i``) since
+        this is what ASE does. This takes some time, so if you don't need the neighbor
+        list to be sorted, you can get better performance by using
+        :py:class:`NeighborList` directly.
+
     :param quantities: quantities to output from the neighbor list. Supported are
         ``"i"``, ``"j"``, ``"d"``, ``"D"``, and ``"S"`` with the same meaning as in ASE.
     :param a: :py:class:`ase.Atoms` instance

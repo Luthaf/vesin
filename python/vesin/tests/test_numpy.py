@@ -69,52 +69,27 @@ def test_sorting():
     atoms = ase.io.read(f"{CURRENT_DIR}/data/diamond.xyz")
 
     calculator = NeighborList(cutoff=2.0, full_list=True, sorted=False)
-    i, j = calculator.compute(
-        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="ij"
+    (unsorted_i,) = calculator.compute(
+        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="i"
     )
-    unsorted_ij = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1)), axis=1)
-    assert not np.all(unsorted_ij[np.lexsort((j, i))] == unsorted_ij)
+    assert not np.all(np.sort(unsorted_i) == unsorted_i)
 
     calculator = NeighborList(cutoff=2.0, full_list=True, sorted=True)
-    i, j = calculator.compute(
-        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="ij"
+    (sorted_i,) = calculator.compute(
+        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="i"
     )
-
-    sorted_ij = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1)), axis=1)
-    assert np.all(sorted_ij[np.lexsort((j, i))] == sorted_ij)
+    assert np.all(sorted_i == np.sort(sorted_i))
 
     # check that unsorted is not already sorted by chance
-    assert not np.all(sorted_ij == unsorted_ij)
+    assert not np.all(sorted_i == unsorted_i)
 
     # https://github.com/Luthaf/vesin/issues/34
     atoms = ase.io.read(f"{CURRENT_DIR}/data/Cd2I4O12.xyz")
     calculator = NeighborList(cutoff=5.0, full_list=True, sorted=True)
-    i, j = calculator.compute(
-        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="ij"
+    (sorted_i,) = calculator.compute(
+        points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="i"
     )
-    sorted_ij = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1)), axis=1)
-    assert np.all(sorted_ij[np.lexsort((j, i))] == sorted_ij)
-
-
-def test_sorting_tie_break_on_shifts():
-    points = np.array([[0.0, 0.0, 0.0]], dtype=np.float64)
-    box = np.array(
-        [
-            [0.5, 0.0, 0.0],
-            [0.0, 0.5, 0.0],
-            [0.0, 0.0, 0.5],
-        ],
-        dtype=np.float64,
-    )
-
-    calculator = NeighborList(cutoff=0.6, full_list=False, sorted=True)
-    i, j, S = calculator.compute(
-        points=points, box=box, periodic=True, quantities="ijS"
-    )
-
-    ijS = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1)
-    # sorted by i, then j, then shifts
-    assert np.all(ijS[np.lexsort(np.flip(ijS, axis=1).T)] == ijS)
+    assert np.all(sorted_i == np.sort(sorted_i))
 
 
 def test_errors():

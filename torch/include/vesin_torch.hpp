@@ -39,10 +39,12 @@ public:
     ///
     /// @param cutoff the spherical cutoff radius
     /// @param full_list whether pairs should be included twice in the output
-    ///                  (both as `i-j` and `j-i`) or only once
-    /// @param sorted whether pairs should be sorted in the output
+    ///        (both as `i-j` and `j-i`) or only once
+    /// @param sorted whether pairs should be sorted by the first point index in
+    //         the output. The order of the second point index (``j``) and
+    //         shifts in the list of pairs is unspecified.
     /// @param algorithm the algorithm to use for neighbor list calculation. One
-    ///                  of `"auto"`, `"brute_force"`, or `"cell_list"`.
+    ///        of `"auto"`, `"brute_force"`, or `"cell_list"`.
     NeighborListHolder(double cutoff, bool full_list, bool sorted = false, std::string algorithm = "auto");
     ~NeighborListHolder();
 

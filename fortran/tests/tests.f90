@@ -14,6 +14,8 @@ program vesin_test
     real :: expected_vectors(3, 10)
     real :: expected_distances(10)
 
+    integer :: i
+
 
     points(:, 1) = [0.0, 0.0, 0.0]
     points(:, 2) = [0.0, 1.3, 1.3]
@@ -48,32 +50,32 @@ program vesin_test
 
     if (neighbor_list%length /= 10) call print_and_exit("wrong number of pairs")
 
-    expected_pairs = reshape([0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1], [2, 10])
+    expected_pairs = reshape([0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1], [2, 10])
     expected_distances = [&
-        3.20000004, 3.2000000, 3.2000000, 2.6870059, 2.3021729, &
-        2.30217293, 1.8384776, 3.2000000, 3.2000000, 3.2000000  &
+        2.6870059, 2.3021729, 2.3021729, 1.8384775, 3.2000000, &
+        3.2000000, 3.2000000, 3.2000000, 3.2000000, 3.2000000  &
     ]
     expected_shifts = reshape([ &
-        0, 0, 1,    &
-        0, 1, 0,    &
-        1, 0, 0,    &
-        0, -1, -1,  &
-        0, -1, 0,   &
-        0, 0, -1,   &
-        0, 0, 0,    &
-        0, 0, 1,    &
-        0, 1, 0,    &
-        1, 0, 0     &
+        0, -1, -1, &
+        0, -1,  0, &
+        0,  0, -1, &
+        0,  0,  0, &
+        0,  0,  1, &
+        0,  1,  0, &
+        1,  0,  0, &
+        0,  0,  1, &
+        0,  1,  0, &
+        1,  0,  0  &
     ], [3, 10])
 
     expected_vectors = reshape([ &
+        0.0000000, -1.9000000, -1.9000000, &
+        0.0000000, -1.9000000,  1.2999999, &
+        0.0000000,  1.2999999, -1.9000000, &
+        0.0000000,  1.2999999,  1.2999999, &
         0.0000000,  0.0000000,  3.2000000, &
         0.0000000,  3.2000000,  0.0000000, &
         3.2000000,  0.0000000,  0.0000000, &
-        0.0000000, -1.9000000, -1.9000000, &
-        0.0000000, -1.9000000,  1.3000000, &
-        0.0000000,  1.3000000, -1.9000000, &
-        0.0000000,  1.3000000,  1.3000000, &
         0.0000000,  0.0000000,  3.2000000, &
         0.0000000,  3.2000000,  0.0000000, &
         3.2000000,  0.0000000,  0.0000000  &
@@ -97,6 +99,18 @@ program vesin_test
 
     call neighbor_list%compute(points, box, periodic=[.true., .true., .true.], status=ierr)
     if (ierr /= 0) call print_and_exit(neighbor_list%errmsg)
+
+    print *, "shifts: ["
+    do i=1,neighbor_list%length
+        print *, neighbor_list%shifts(:, i)
+    end do
+    print *, "]"
+
+    print *, "vectors: ["
+    do i=1,neighbor_list%length
+        print *, neighbor_list%vectors(:, i)
+    end do
+    print *, "]"
 
     if (neighbor_list%length /= 10) call print_and_exit("wrong number of pairs")
 

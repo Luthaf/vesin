@@ -286,12 +286,17 @@ void CellList::foreach_pair(const Vector* points, Function callback) {
                 continue;
             }
 
-            auto cell_pair_axis = Vector{
-                static_cast<double>(delta_x) / static_cast<double>(cells_shape_[0]),
-                static_cast<double>(delta_y) / static_cast<double>(cells_shape_[1]),
-                static_cast<double>(delta_z) / static_cast<double>(cells_shape_[2]),
+            auto current_center = Vector{
+                (static_cast<double>(cell_i_x) + 0.5) / static_cast<double>(cells_shape_[0]),
+                (static_cast<double>(cell_i_y) + 0.5) / static_cast<double>(cells_shape_[1]),
+                (static_cast<double>(cell_i_z) + 0.5) / static_cast<double>(cells_shape_[2]),
             };
-            auto axis = box_.fractional_to_cartesian(cell_pair_axis) - box_.fractional_to_cartesian(Vector{0, 0, 0});
+            auto neighbor_center = Vector{
+                (static_cast<double>(cell_i_x + delta_x) + 0.5) / static_cast<double>(cells_shape_[0]),
+                (static_cast<double>(cell_i_y + delta_y) + 0.5) / static_cast<double>(cells_shape_[1]),
+                (static_cast<double>(cell_i_z + delta_z) + 0.5) / static_cast<double>(cells_shape_[2]),
+            };
+            auto axis = box_.fractional_to_cartesian(neighbor_center) - box_.fractional_to_cartesian(current_center);
             auto axis_norm_sq = axis.dot(axis);
             if (axis_norm_sq < 1e-24) {
                 visit_all_pairs();

@@ -126,6 +126,23 @@ def test_errors():
         nl.compute(points, box, periodic=True, quantities="ij")
 
 
+def test_verlet_rejects_cpu_brute_force_with_skin():
+    points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float64)
+    box = np.eye(3, dtype=np.float64) * 10.0
+
+    with pytest.raises(
+        RuntimeError,
+        match="only VesinAutoAlgorithm and VesinCellList are supported on CPU",
+    ):
+        nl = NeighborList(
+            cutoff=1.0,
+            full_list=False,
+            skin=0.4,
+            algorithm="brute_force",
+        )
+        nl.compute(points, box, periodic=False, quantities="ij")
+
+
 @pytest.mark.parametrize(
     "periodic",
     list(itertools.product([False, True], repeat=3)),

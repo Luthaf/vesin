@@ -55,11 +55,6 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
-    if (options.skin > 0.0 && device.type != VesinCPU) {
-        *error_message = "Verlet caching with skin > 0 is only supported on CPU";
-        return EXIT_FAILURE;
-    }
-
     if (neighbors->device.type != VesinUnknownDevice && neighbors->device.type != device.type) {
         *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
         return EXIT_FAILURE;

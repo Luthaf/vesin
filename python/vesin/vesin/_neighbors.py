@@ -88,7 +88,8 @@ class NeighborList:
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables
-            displacement-based cache reuse on CPU.
+            caching the neighbor list until any atom moves farther than
+            ``skin / 2`` from its reference coordinates.
         """
         self._lib = _get_library()
         self.cutoff = float(cutoff)

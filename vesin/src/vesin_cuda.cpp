@@ -346,6 +346,9 @@ static void reset(VesinNeighborList& neighbors) {
     neighbors.shifts = nullptr;
     neighbors.distances = nullptr;
     neighbors.vectors = nullptr;
+    if (extras->length_ptr != nullptr) {
+        GPULITE_CUDART_CALL(cudaFree(extras->length_ptr));
+    }
     extras->length_ptr = nullptr;
 
     // Free pinned memory if allocated
@@ -498,6 +501,10 @@ void vesin::cuda::neighbors(
 
     // Check if CUDA is available
     checkCuda();
+
+    if (options.skin > 0.0) {
+        throw std::runtime_error("Verlet caching with skin > 0 is only supported on CPU");
+    }
 
     // check that all pointers are are device pointers
     if (!is_device_ptr(getPtrAttributes(points), "points")) {

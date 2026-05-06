@@ -69,3 +69,52 @@ TEST_CASE("Verlet recompute keeps allocation capacity across shorter output") {
     neighbors.device = {VesinCPU, 0};
     vesin_free(&neighbors);
 }
+
+TEST_CASE("Periodic wrapped coordinates use minimum-image distance for rebuild") {
+    double box_matrix[3][3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+    bool periodic[3] = {true, true, true};
+
+    auto options = VesinOptions();
+    options.cutoff = 0.25;
+    options.skin = 0.2;
+    options.full = false;
+    options.sorted = false;
+    options.algorithm = VesinCellList;
+    options.return_shifts = true;
+    options.return_distances = false;
+    options.return_vectors = false;
+
+    // Atom B starts near one boundary; after a small wrapped displacement across the
+    // boundary, physical motion is 0.07 but wrapped coordinates jump by 0.93.
+    double wrapped_pair_ref[][3] = {
+        {0.12, 0.11, 0.31},
+        {0.95, 0.11, 0.31},
+    };
+    auto ref_box = make_box(wrapped_pair_ref, 2, box_matrix, periodic);
+
+    auto state = vesin::cpu::VerletState();
+    state.set_options(options);
+    state.rebuild(reinterpret_cast<const vesin::Vector*>(wrapped_pair_ref), 2, ref_box);
+
+    double wrapped_pair_small_shift[][3] = {
+        {0.12, 0.11, 0.31},
+        {1.02, 0.11, 0.31},
+    };
+    auto small_shift_box = make_box(wrapped_pair_small_shift, 2, box_matrix, periodic);
+    REQUIRE_FALSE(state.needs_rebuild(
+        reinterpret_cast<const vesin::Vector*>(wrapped_pair_small_shift),
+        2,
+        small_shift_box
+    ));
+
+    double wrapped_pair_large_shift[][3] = {
+        {0.12, 0.11, 0.31},
+        {1.11, 0.11, 0.31},
+    };
+    auto large_shift_box = make_box(wrapped_pair_large_shift, 2, box_matrix, periodic);
+    REQUIRE(state.needs_rebuild(
+        reinterpret_cast<const vesin::Vector*>(wrapped_pair_large_shift),
+        2,
+        large_shift_box
+    ));
+}

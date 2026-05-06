@@ -89,7 +89,7 @@ class NeighborList:
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables
             caching the neighbor list until any atom moves farther than
-            ``skin / 2`` from its reference coordinates.
+            ``skin/2`` from its reference coordinates.
         """
         self._lib = _get_library()
         self.cutoff = float(cutoff)

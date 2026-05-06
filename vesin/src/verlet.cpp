@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -12,6 +13,31 @@ static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, s
     candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points);
     return candidate_box;
 }
+
+namespace {
+
+Vector minimum_image_displacement(const Vector& point, const Vector& reference, const BoundingBox& box) {
+    auto point_fractional = box.cartesian_to_fractional(point);
+    auto reference_fractional = box.cartesian_to_fractional(reference);
+
+    auto delta = point_fractional - reference_fractional;
+    for (size_t spatial = 0; spatial < 3; spatial++) {
+        if (!box.periodic(spatial)) {
+            continue;
+        }
+
+        while (delta[spatial] > 0.5) {
+            delta[spatial] -= 1.0;
+        }
+        while (delta[spatial] < -0.5) {
+            delta[spatial] += 1.0;
+        }
+    }
+
+    return box.fractional_to_cartesian(delta);
+}
+
+} // namespace
 
 cpu::VerletState::~VerletState() {
     this->clear_candidates();
@@ -73,10 +99,16 @@ bool cpu::VerletState::needs_rebuild(
     // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
     // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
     for (size_t i = 0; i < n_points; i++) {
-        double dx = points[i][0] - this->ref_positions[i * 3 + 0];
-        double dy = points[i][1] - this->ref_positions[i * 3 + 1];
-        double dz = points[i][2] - this->ref_positions[i * 3 + 2];
-        double disp_sq = dx * dx + dy * dy + dz * dz;
+        auto delta = minimum_image_displacement(
+            points[i],
+            Vector{
+                this->ref_positions[i * 3 + 0],
+                this->ref_positions[i * 3 + 1],
+                this->ref_positions[i * 3 + 2],
+            },
+            box
+        );
+        auto disp_sq = delta.dot(delta);
         if (disp_sq > this->half_skin_sq) {
             return true;
         }
@@ -126,10 +158,9 @@ void cpu::VerletState::recompute(
 ) {
     double cutoff_sq = this->cutoff * this->cutoff;
 
-    auto output_capacity = this->output_capacity;
-    if (output_capacity == 0) {
-        output_capacity = neighbors.length;
-    }
+    // Reuse the largest observed caller-visible output capacity so temporary
+    // output dips do not trigger repeated reallocation during long simulations.
+    auto output_capacity = std::max(this->output_capacity, neighbors.length);
 
     auto growable = cpu::GrowableNeighborList{neighbors, output_capacity, options};
     growable.reset();
@@ -173,5 +204,6 @@ void cpu::VerletState::recompute(
         growable.sort();
     }
 
-    this->output_capacity = growable.capacity;
+    // Keep the maximum observed output capacity for next recompute.
+    this->output_capacity = std::max(this->output_capacity, growable.capacity);
 }

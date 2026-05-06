@@ -24,9 +24,13 @@ struct VerletState {
     /// Release any GPU/CPU resources owned by the cached candidate list.
     ~VerletState();
 
+    /// Disallow copy construction; neighbor cache state is process-local.
     VerletState(const VerletState&) = delete;
+    /// Disallow copy assignment; neighbor cache state is process-local.
     VerletState& operator=(const VerletState&) = delete;
+    /// Disallow move construction; candidate storage is handled by explicit resets.
     VerletState(VerletState&&) = delete;
+    /// Disallow move assignment; candidate storage is handled by explicit resets.
     VerletState& operator=(VerletState&&) = delete;
 
     /// Copy options relevant to cache reuse from the user options.
@@ -107,6 +111,10 @@ struct VerletState {
 
 private:
     /// Release candidate buffers and reset cache metadata.
+    ///
+    /// This is called when a rebuild becomes invalid or when the state is
+    /// destroyed. It clears all retained storage so stale entries are never
+    /// reused after neighbor-list invalidation.
     void clear_candidates();
 };
 

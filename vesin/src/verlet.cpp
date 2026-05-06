@@ -16,6 +16,19 @@ static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, s
 
 namespace {
 
+Vector fractional_displacement_to_cartesian(Vector displacement, const BoundingBox& box) {
+    auto cartesian = displacement * box.matrix();
+    auto distances = box.distances_between_faces();
+
+    for (size_t spatial = 0; spatial < 3; spatial++) {
+        if (!box.periodic(spatial)) {
+            cartesian[spatial] = displacement[spatial] * distances[spatial];
+        }
+    }
+
+    return cartesian;
+}
+
 Vector minimum_image_displacement(const Vector& point, const Vector& reference, const BoundingBox& box) {
     auto point_fractional = box.cartesian_to_fractional(point);
     auto reference_fractional = box.cartesian_to_fractional(reference);
@@ -34,7 +47,7 @@ Vector minimum_image_displacement(const Vector& point, const Vector& reference, 
         }
     }
 
-    return box.fractional_to_cartesian(delta);
+    return fractional_displacement_to_cartesian(delta, box);
 }
 
 } // namespace

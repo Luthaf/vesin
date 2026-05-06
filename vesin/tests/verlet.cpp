@@ -118,3 +118,34 @@ TEST_CASE("Periodic wrapped coordinates use minimum-image distance for rebuild")
         large_shift_box
     ));
 }
+
+TEST_CASE("Non-periodic displacement validation is origin independent") {
+    double box_matrix[3][3] = {{0.0}};
+    bool periodic[3] = {false, false, false};
+
+    auto options = VesinOptions();
+    options.cutoff = 1.0;
+    options.skin = 0.4;
+    options.full = false;
+    options.sorted = false;
+    options.algorithm = VesinCellList;
+    options.return_shifts = true;
+    options.return_distances = false;
+    options.return_vectors = false;
+
+    double shifted_points[][3] = {
+        {10.0, 20.0, -30.0},
+        {10.7, 20.0, -30.0},
+    };
+
+    auto box = make_box(shifted_points, 2, box_matrix, periodic);
+    auto state = vesin::cpu::VerletState();
+    state.set_options(options);
+    state.rebuild(reinterpret_cast<const vesin::Vector*>(shifted_points), 2, box);
+
+    REQUIRE_FALSE(state.needs_rebuild(
+        reinterpret_cast<const vesin::Vector*>(shifted_points),
+        2,
+        box
+    ));
+}

@@ -16,21 +16,6 @@ static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, s
 
 namespace {
 
-Vector minimum_image_displacement(const Vector& point, const Vector& reference, const BoundingBox& box) {
-    auto delta_frac = box.cartesian_to_fractional(point) - box.cartesian_to_fractional(reference);
-
-    CellShift shift{{0, 0, 0}};
-    for (size_t spatial = 0; spatial < 3; spatial++) {
-        if (box.periodic(spatial)) {
-            // Standard MIC lattice shift calculation
-            shift[spatial] = -static_cast<int32_t>(std::round(delta_frac[spatial]));
-        }
-    }
-
-    // Use the existing CellShift cartesian conversion
-    return point - reference + shift.cartesian(box);
-}
-
 } // namespace
 
 cpu::VerletState::~VerletState() {
@@ -91,16 +76,10 @@ bool cpu::VerletState::needs_rebuild(
     // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
     // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
     for (size_t i = 0; i < n_points; i++) {
-        auto delta = minimum_image_displacement(
-            points[i],
-            Vector{
-                this->ref_positions[i * 3 + 0],
-                this->ref_positions[i * 3 + 1],
-                this->ref_positions[i * 3 + 2],
-            },
-            box
-        );
-        auto disp_sq = delta.dot(delta);
+        double dx = points[i][0] - this->ref_positions[i * 3 + 0];
+        double dy = points[i][1] - this->ref_positions[i * 3 + 1];
+        double dz = points[i][2] - this->ref_positions[i * 3 + 2];
+        double disp_sq = dx * dx + dy * dy + dz * dz;
         if (disp_sq > this->half_skin_sq) {
             return true;
         }

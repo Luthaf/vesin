@@ -503,7 +503,7 @@ void vesin::cuda::neighbors(
     checkCuda();
 
     if (options.skin > 0.0) {
-        throw std::runtime_error("Verlet caching with skin > 0 is only supported on CPU");
+        throw std::runtime_error("Verlet caching with skin > 0 is not supported with CUDA");
     }
 
     // check that all pointers are are device pointers

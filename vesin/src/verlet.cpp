@@ -16,34 +16,18 @@ static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, s
 
 namespace {
 
-Vector fractional_displacement_to_cartesian(Vector displacement, const BoundingBox& box) {
-    auto cartesian = displacement * box.matrix();
-    auto distances = box.distances_between_faces();
-
-    for (size_t spatial = 0; spatial < 3; spatial++) {
-        if (!box.periodic(spatial)) {
-            cartesian[spatial] = displacement[spatial] * distances[spatial];
-        }
-    }
-
-    return cartesian;
-}
-
 Vector minimum_image_displacement(const Vector& point, const Vector& reference, const BoundingBox& box) {
-    auto point_fractional = box.cartesian_to_fractional(point);
-    auto reference_fractional = box.cartesian_to_fractional(reference);
-    auto delta_frac = point_fractional - reference_fractional;
+    auto delta_frac = box.cartesian_to_fractional(point) - box.cartesian_to_fractional(reference);
 
     CellShift shift{{0, 0, 0}};
     for (size_t spatial = 0; spatial < 3; spatial++) {
         if (box.periodic(spatial)) {
-            // std::round for the minimum image lattice shift
+            // Standard MIC lattice shift calculation
             shift[spatial] = -static_cast<int32_t>(std::round(delta_frac[spatial]));
         }
     }
 
-    // Applying the lattice shift to the raw Cartesian displacement
-    // exactly cancels the periodic boundary crossings.
+    // Use the existing CellShift cartesian conversion
     return point - reference + shift.cartesian(box);
 }
 
@@ -65,15 +49,13 @@ void cpu::VerletState::clear_candidates() {
 }
 
 void cpu::VerletState::set_options(VesinOptions options) {
-    if (this->cutoff != options.cutoff || this->skin != options.skin || this->full_list != options.full) {
+    if (this->options.cutoff != options.cutoff || this->options.skin != options.skin || this->options.full != options.full) {
         this->clear_candidates();
         this->output_capacity = 0;
     }
 
-    this->cutoff = options.cutoff;
-    this->skin = options.skin;
+    this->options = options;
     this->half_skin_sq = (options.skin / 2.0) * (options.skin / 2.0);
-    this->full_list = options.full;
 }
 
 bool cpu::VerletState::needs_rebuild(
@@ -134,19 +116,19 @@ void cpu::VerletState::rebuild(
 ) {
     this->clear_candidates();
 
-    auto options = VesinOptions();
-    options.cutoff = this->cutoff + this->skin;
-    options.full = this->full_list;
-    options.sorted = false;
-    options.algorithm = VesinCellList;
-    options.return_shifts = true;
-    options.return_distances = false;
-    options.return_vectors = false;
-    options.skin = 0.0;
+    auto build_options = VesinOptions();
+    build_options.cutoff = this->options.cutoff + this->options.skin;
+    build_options.full = this->options.full;
+    build_options.sorted = false;
+    build_options.algorithm = VesinCellList;
+    build_options.return_shifts = true;
+    build_options.return_distances = false;
+    build_options.return_vectors = false;
+    build_options.skin = 0.0;
 
     this->candidates.device = {VesinCPU, 0};
     auto candidate_box = make_box_like(box, points, n_points);
-    cpu::stateless_neighbors(points, n_points, std::move(candidate_box), options, this->candidates);
+    cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates);
 
     this->n_points = n_points;
     this->ref_positions.resize(n_points * 3);
@@ -157,7 +139,6 @@ void cpu::VerletState::rebuild(
     }
 
     this->has_cache = true;
-    this->did_rebuild_flag = true;
 }
 
 void cpu::VerletState::recompute(
@@ -166,7 +147,7 @@ void cpu::VerletState::recompute(
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
-    double cutoff_sq = this->cutoff * this->cutoff;
+    double cutoff_sq = this->options.cutoff * this->options.cutoff;
 
     // Reuse the largest observed caller-visible output capacity so temporary
     // output dips do not trigger repeated reallocation during long simulations.

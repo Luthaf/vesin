@@ -95,17 +95,11 @@ struct VerletState {
     /// Capacity that should be preserved across recomputes when output grows/shrinks.
     size_t output_capacity = 0;
 
-    /// User cutoff at the time of current cache.
-    double cutoff = 0.0;
-    /// User skin at the time of current cache.
-    double skin = 0.0;
+    /// Options used to build the current cache.
+    VesinOptions options = {};
     /// Rebuild threshold used to invalidate a cache (`(skin/2)^2`).
     double half_skin_sq = 0.0;
-    /// Whether cached candidates should contain half or full neighbor pairs.
-    bool full_list = false;
 
-    /// Whether the current recompute call rebuilt the cache.
-    bool did_rebuild_flag = false;
     /// Whether a usable cache is currently available.
     bool has_cache = false;
 

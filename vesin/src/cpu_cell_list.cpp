@@ -126,8 +126,6 @@ void vesin::cpu::neighbors(
 
         if (state.needs_rebuild(points, n_points, box)) {
             state.rebuild(points, n_points, box);
-        } else {
-            state.did_rebuild_flag = false;
         }
 
         state.recompute(points, box, options, raw_neighbors);

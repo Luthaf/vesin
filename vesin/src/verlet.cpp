@@ -32,22 +32,19 @@ Vector fractional_displacement_to_cartesian(Vector displacement, const BoundingB
 Vector minimum_image_displacement(const Vector& point, const Vector& reference, const BoundingBox& box) {
     auto point_fractional = box.cartesian_to_fractional(point);
     auto reference_fractional = box.cartesian_to_fractional(reference);
+    auto delta_frac = point_fractional - reference_fractional;
 
-    auto delta = point_fractional - reference_fractional;
+    CellShift shift{{0, 0, 0}};
     for (size_t spatial = 0; spatial < 3; spatial++) {
-        if (!box.periodic(spatial)) {
-            continue;
-        }
-
-        while (delta[spatial] > 0.5) {
-            delta[spatial] -= 1.0;
-        }
-        while (delta[spatial] < -0.5) {
-            delta[spatial] += 1.0;
+        if (box.periodic(spatial)) {
+            // std::round for the minimum image lattice shift
+            shift[spatial] = -static_cast<int32_t>(std::round(delta_frac[spatial]));
         }
     }
 
-    return fractional_displacement_to_cartesian(delta, box);
+    // Applying the lattice shift to the raw Cartesian displacement
+    // exactly cancels the periodic boundary crossings.
+    return point - reference + shift.cartesian(box);
 }
 
 } // namespace

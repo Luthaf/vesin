@@ -5,6 +5,3 @@ dist/
 __pycache__/
 
 *.egg-info
-
-vesin-single-build.cpp
-vesin-single-build-v*.tar.gz

@@ -218,6 +218,16 @@ def test_cpu_brute_force_error():
         nl.compute(points, box, periodic=False, quantities="ij")
 
 
+def test_invalid_n_threads():
+    points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
+    box = np.eye(3, 3)
+
+    message = "n_threads must be zero or a positive integer"
+    with pytest.raises(ValueError, match=message):
+        nl = NeighborList(cutoff=1.2, full_list=True, n_threads=-1)
+        nl.compute(points, box, periodic=True, quantities="ij")
+
+
 @pytest.mark.parametrize(
     "periodic",
     list(itertools.product([False, True], repeat=3)),

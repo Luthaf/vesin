@@ -44,6 +44,10 @@ def test_errors():
             quantities="ij",
         )
 
+    message = "n_threads must be zero or a positive integer"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=2.8, full_list=True, n_threads=-1)
+
 
 @pytest.mark.parametrize("quantities", ["ijS", "D", "d", "ijSDd"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])

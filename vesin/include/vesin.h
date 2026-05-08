@@ -58,6 +58,11 @@ struct VesinOptions {
     bool sorted;
     /// Which algorithm to use for the calculation
     VesinAlgorithm algorithm;
+    /// Number of CPU threads to use. This must be zero or positive. A value of
+    /// zero means using the `OMP_NUM_THREADS` environment variable when set to a
+    /// positive value, or otherwise defaulting to the number of available CPU
+    /// cores.
+    int32_t n_threads;
 
     /// Should the returned `VesinNeighborList` contain `shifts`?
     bool return_shifts;

@@ -63,6 +63,11 @@ module vesin_c
         !> Which algorithm to use for the calculation
         integer(c_int) :: algorithm = VesinAutoAlgorithm
 
+        !> Number of CPU threads to use. Must be zero or positive. If zero,
+        !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
+        !! otherwise defaults to the number of available CPU cores.
+        integer(c_int32_t) :: n_threads = 0
+
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical(c_bool) :: return_shifts = .false.
 

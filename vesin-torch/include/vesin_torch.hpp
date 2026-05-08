@@ -45,7 +45,15 @@ public:
     //         shifts in the list of pairs is unspecified.
     /// @param algorithm the algorithm to use for neighbor list calculation. One
     ///        of `"auto"`, `"brute_force"`, or `"cell_list"`.
-    NeighborListHolder(double cutoff, bool full_list, bool sorted = false, std::string algorithm = "auto");
+    /// @param n_threads number of CPU threads to use. Must be zero or positive.
+    ///        A value of 0 lets Vesin choose from `OMP_NUM_THREADS` or CPU cores.
+    NeighborListHolder(
+        double cutoff,
+        bool full_list,
+        bool sorted = false,
+        std::string algorithm = "auto",
+        int64_t n_threads = 0
+    );
     ~NeighborListHolder();
 
     /// Compute the neighbor list for the system defined by `positions`, `box`,
@@ -87,12 +95,15 @@ public:
     bool sorted() const { return sorted_; }
     /// Get the algorithm used for neighbor list calculation
     std::string algorithm() const { return algorithm_; }
+    /// Get the number of CPU threads requested for neighbor list calculation
+    int64_t n_threads() const { return n_threads_; }
 
 private:
     double cutoff_;
     bool full_list_;
     bool sorted_;
     std::string algorithm_;
+    int64_t n_threads_;
     VesinNeighborList* data_;
 };
 

@@ -12,6 +12,7 @@ class NeighborList:
         full_list: bool,
         sorted: bool = False,
         algorithm: str = "auto",
+        n_threads: int = 0,
     ):
         """
         :param cutoff: spherical cutoff for this neighbor list
@@ -22,12 +23,20 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
+        :param n_threads: number of CPU threads to use. Must be 0 or a positive
+            integer. If set to 0, Vesin uses ``OMP_NUM_THREADS`` when set to a
+            positive integer, and otherwise the number of available CPU cores.
         """
+        n_threads = int(n_threads)
+        if n_threads < 0:
+            raise ValueError("n_threads must be zero or a positive integer")
+
         self._c = torch.classes.vesin._NeighborList(
             cutoff=cutoff,
             full_list=full_list,
             sorted=sorted,
             algorithm=algorithm,
+            n_threads=n_threads,
         )
 
     def compute(

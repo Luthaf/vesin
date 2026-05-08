@@ -1,7 +1,11 @@
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+
 #include <iostream>
 #include <string>
+#include <thread>
 
 #include "cpu_cell_list.hpp"
 #include "vesin.h"
@@ -10,6 +14,29 @@
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user
 thread_local std::string LAST_ERROR;
+
+static size_t resolve_n_threads(int32_t n_threads) {
+    if (n_threads > 0) {
+        return static_cast<size_t>(n_threads);
+    }
+
+    const char* omp_num_threads = std::getenv("OMP_NUM_THREADS");
+    if (omp_num_threads != nullptr) {
+        errno = 0;
+        char* end = nullptr;
+        auto parsed = std::strtol(omp_num_threads, &end, 10);
+        if (errno == 0 && end != omp_num_threads && *end == '\0' && parsed > 0 && parsed <= INT32_MAX) {
+            return static_cast<size_t>(parsed);
+        }
+    }
+
+    auto hardware_threads = std::thread::hardware_concurrency();
+    if (hardware_threads > 0) {
+        return static_cast<size_t>(hardware_threads);
+    }
+
+    return 1;
+}
 
 extern "C" int vesin_neighbors(
     const double (*points)[3],
@@ -52,6 +79,10 @@ extern "C" int vesin_neighbors(
 
     if (!std::isfinite(options.skin) || options.skin < 0.0) {
         *error_message = "skin must be a finite, non-negative number";
+    }
+
+    if (options.n_threads < 0) {
+        *error_message = "n_threads must be zero or a positive integer";
         return EXIT_FAILURE;
     }
 
@@ -74,6 +105,8 @@ extern "C" int vesin_neighbors(
     }
 
     try {
+        options.n_threads = static_cast<int32_t>(resolve_n_threads(options.n_threads));
+
         if (device.type == VesinCPU) {
             auto matrix = vesin::Matrix{{{
                 {{box[0][0], box[0][1], box[0][2]}},

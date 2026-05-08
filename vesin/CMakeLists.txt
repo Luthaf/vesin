@@ -99,8 +99,10 @@ endif()
 
 FetchContent_MakeAvailable(gpulite)
 
-target_link_libraries(vesin_objects PRIVATE gpulite)
-target_link_libraries(vesin PRIVATE gpulite)
+find_package(Threads REQUIRED)
+
+target_link_libraries(vesin_objects PRIVATE gpulite Threads::Threads)
+target_link_libraries(vesin PRIVATE gpulite Threads::Threads)
 
 # Create generated directory
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)

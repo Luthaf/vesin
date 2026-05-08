@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <numeric>
 #include <tuple>
+#include <type_traits>
 
 #include "cpu_cell_list.hpp"
+#include "threadpool.hpp"
 #include "verlet.hpp"
 
 using namespace vesin::cpu;
@@ -34,6 +36,28 @@ ExtraDataCpu::~ExtraDataCpu() {
     delete this->verlet_state;
 }
 
+struct ThreadLocalNeighborLists {
+    ThreadLocalNeighborLists(size_t n_threads):
+        raw(n_threads - 1) {
+        for (auto& list : raw) {
+            list.device = {VesinCPU, 0};
+        }
+    }
+
+    std::vector<VesinNeighborList> raw;
+
+    ~ThreadLocalNeighborLists() {
+        for (auto& list : raw) {
+            vesin::cpu::free_neighbors(list);
+        }
+    }
+};
+
+static ThreadPool& global_thread_pool() {
+    static auto pool = ThreadPool();
+    return pool;
+}
+
 void vesin::cpu::cell_list_neighbors(
     const Vector* points,
     size_t n_points,
@@ -58,7 +82,22 @@ void vesin::cpu::cell_list_neighbors(
     auto neighbors = GrowableNeighborList{raw_neighbors, initial_capacity, options};
     neighbors.reset();
 
-    cell_list.foreach_pair([&](size_t first, size_t second, CellShift shift) {
+    auto thread_count = std::max<size_t>(1, static_cast<size_t>(options.n_threads));
+    thread_count = std::min(thread_count, cell_list.n_cells());
+    auto& thread_pool = global_thread_pool();
+
+    auto thread_locals = ThreadLocalNeighborLists(thread_count);
+
+    auto local_thread_neighbors = std::vector<GrowableNeighborList>();
+    local_thread_neighbors.reserve(thread_locals.raw.size());
+    for (auto& local_raw : thread_locals.raw) {
+        local_raw.device = {VesinCPU, 0};
+        auto list = GrowableNeighborList{local_raw, 0, options};
+        list.reset();
+        local_thread_neighbors.emplace_back(list);
+    }
+
+    cell_list.foreach_pair(thread_pool, thread_count, [&](size_t first, size_t second, CellShift shift, size_t thread_id) {
         if (!options.full) {
             // filter out some pairs for half neighbor lists
             if (first > second) {
@@ -97,24 +136,71 @@ void vesin::cpu::cell_list_neighbors(
         auto distance2 = vector.dot(vector);
 
         if (distance2 < cutoff2) {
-            auto index = neighbors.length();
-            neighbors.set_pair(index, first, second);
+            GrowableNeighborList* local_list = nullptr;
+            if (thread_id == 0) {
+                local_list = &neighbors;
+            } else {
+                local_list = &local_thread_neighbors[thread_id - 1];
+            }
+
+            auto index = local_list->length();
+            local_list->set_pair(index, first, second);
 
             if (options.return_shifts) {
-                neighbors.set_shift(index, shift);
+                local_list->set_shift(index, shift);
             }
 
             if (options.return_distances) {
-                neighbors.set_distance(index, std::sqrt(distance2));
+                local_list->set_distance(index, std::sqrt(distance2));
             }
 
             if (options.return_vectors) {
-                neighbors.set_vector(index, vector);
+                local_list->set_vector(index, vector);
             }
 
-            neighbors.increment_length();
+            local_list->increment_length();
         }
     });
+
+    // Threads 1 to n-1 have their neighbors in `thread_locals`; merge them
+    // into the list created by thread 0 (`raw_neighbors`).
+    auto final_length = neighbors.length();
+    auto local_offsets = std::vector<size_t>(thread_locals.raw.size(), 0);
+    for (size_t local_i = 0; local_i < thread_locals.raw.size(); local_i++) {
+        local_offsets[local_i] = final_length;
+        final_length += thread_locals.raw[local_i].length;
+    }
+
+    neighbors.grow(final_length);
+
+    thread_pool.run(thread_count, thread_locals.raw.size(), [&](size_t local_i, size_t /*thread_id*/) {
+        const auto& local_neighbors = thread_locals.raw[local_i];
+        auto offset = local_offsets[local_i];
+
+        for (size_t i = 0; i < local_neighbors.length; i++) {
+            auto index = offset + i;
+            neighbors.neighbors.pairs[index][0] = local_neighbors.pairs[i][0];
+            neighbors.neighbors.pairs[index][1] = local_neighbors.pairs[i][1];
+
+            if (options.return_shifts) {
+                neighbors.neighbors.shifts[index][0] = local_neighbors.shifts[i][0];
+                neighbors.neighbors.shifts[index][1] = local_neighbors.shifts[i][1];
+                neighbors.neighbors.shifts[index][2] = local_neighbors.shifts[i][2];
+            }
+
+            if (options.return_distances) {
+                neighbors.neighbors.distances[index] = local_neighbors.distances[i];
+            }
+
+            if (options.return_vectors) {
+                neighbors.neighbors.vectors[index][0] = local_neighbors.vectors[i][0];
+                neighbors.neighbors.vectors[index][1] = local_neighbors.vectors[i][1];
+                neighbors.neighbors.vectors[index][2] = local_neighbors.vectors[i][2];
+            }
+        }
+    });
+
+    neighbors.neighbors.length = final_length;
 
     if (options.sorted) {
         neighbors.sort();
@@ -287,78 +373,92 @@ void CellList::add_point(size_t index, Vector position) {
     this->get_cell(cell_index).emplace_back(Point{index, shift});
 }
 
-// clang-format off
 template <typename Function>
-void CellList::foreach_pair(Function callback) {
-    for (int32_t cell_i_x=0; cell_i_x<static_cast<int32_t>(cells_shape_[0]); cell_i_x++) {
-    for (int32_t cell_i_y=0; cell_i_y<static_cast<int32_t>(cells_shape_[1]); cell_i_y++) {
-    for (int32_t cell_i_z=0; cell_i_z<static_cast<int32_t>(cells_shape_[2]); cell_i_z++) {
+void CellList::foreach_pair(ThreadPool& thread_pool, size_t n_threads, Function callback) {
+    auto total_cells = cells_shape_[0] * cells_shape_[1] * cells_shape_[2];
+
+    thread_pool.run(n_threads, total_cells, [&](size_t linear_cell_i, size_t thread_id) {
+        auto stride_x = cells_shape_[0];
+        auto stride_xy = cells_shape_[0] * cells_shape_[1];
+
+        auto cell_i_x = static_cast<int32_t>(linear_cell_i % stride_x);
+        auto cell_i_y = static_cast<int32_t>((linear_cell_i / stride_x) % cells_shape_[1]);
+        auto cell_i_z = static_cast<int32_t>(linear_cell_i / stride_xy);
+
         const auto& current_cell = this->get_cell({cell_i_x, cell_i_y, cell_i_z});
+
         // look through each neighboring cell
-        for (int32_t delta_x=-n_search_[0]; delta_x<=n_search_[0]; delta_x++) {
-        for (int32_t delta_y=-n_search_[1]; delta_y<=n_search_[1]; delta_y++) {
-        for (int32_t delta_z=-n_search_[2]; delta_z<=n_search_[2]; delta_z++) {
-            // shift vector from one cell to the other
-            auto cell_shift = std::array<int32_t, 3>{0, 0, 0};
-            // index of the neighboring cell
-            auto neighbor_cell_i = std::array<int32_t, 3>{
-                cell_i_x + delta_x,
-                cell_i_y + delta_y,
-                cell_i_z + delta_z,
-            };
+        for (int32_t delta_x = -n_search_[0]; delta_x <= n_search_[0]; delta_x++) {
+            for (int32_t delta_y = -n_search_[1]; delta_y <= n_search_[1]; delta_y++) {
+                for (int32_t delta_z = -n_search_[2]; delta_z <= n_search_[2]; delta_z++) {
+                    // shift vector from one cell to the other
+                    auto cell_shift = std::array<int32_t, 3>{0, 0, 0};
+                    // index of the neighboring cell
+                    auto neighbor_cell_i = std::array<int32_t, 3>{
+                        cell_i_x + delta_x,
+                        cell_i_y + delta_y,
+                        cell_i_z + delta_z,
+                    };
 
-            // only wrap (i.e. call divmod) cell indices in periodic dimensions,
-            // skip out-of-bounds cells in non-periodic ones
-            bool cell_is_valid = true;
-            for (int d = 0; d < 3; d++) {
-                if (box_.periodic(d)) {
-                    auto [q, r] = divmod(neighbor_cell_i[d], cells_shape_[d]);
-                    cell_shift[d] = q;
-                    neighbor_cell_i[d] = r;
-                } else if (neighbor_cell_i[d] < 0 || neighbor_cell_i[d] >= static_cast<int32_t>(cells_shape_[d])) {
-                    cell_is_valid = false;
-                    break;
-                }
-            }
+                    // only wrap (i.e. call divmod) cell indices in periodic dimensions,
+                    // skip out-of-bounds cells in non-periodic ones
+                    bool cell_is_valid = true;
+                    for (int d = 0; d < 3; d++) {
+                        if (box_.periodic(d)) {
+                            auto [q, r] = divmod(neighbor_cell_i[d], cells_shape_[d]);
+                            cell_shift[d] = q;
+                            neighbor_cell_i[d] = r;
+                        } else if (neighbor_cell_i[d] < 0 || neighbor_cell_i[d] >= static_cast<int32_t>(cells_shape_[d])) {
+                            cell_is_valid = false;
+                            break;
+                        }
+                    }
 
-            if (!cell_is_valid) {
-                continue;
-            }
-
-            for (const auto& atom_i: current_cell) {
-                for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {
-                    auto shift = CellShift(cell_shift) + atom_i.shift - atom_j.shift;
-                    auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
-
-                    if ((shift[0] != 0 && !box_.periodic(0)) ||
-                        (shift[1] != 0 && !box_.periodic(1)) ||
-                        (shift[2] != 0 && !box_.periodic(2)))
-                    {
-                        // do not create pairs crossing the periodic
-                        // boundaries in a non-periodic box
+                    if (!cell_is_valid) {
                         continue;
                     }
 
-                    if (atom_i.index == atom_j.index && shift_is_zero) {
-                        // only create pairs with the same atom twice if the
-                        // pair spans more than one bounding box
-                        continue;
-                    }
+                    for (const auto& atom_i : current_cell) {
+                        for (const auto& atom_j : this->get_cell(neighbor_cell_i)) {
+                            auto shift = CellShift(cell_shift) + atom_i.shift - atom_j.shift;
+                            auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
 
-                    callback(atom_i.index, atom_j.index, shift);
+                            if ((shift[0] != 0 && !box_.periodic(0)) ||
+                                (shift[1] != 0 && !box_.periodic(1)) ||
+                                (shift[2] != 0 && !box_.periodic(2))) {
+                                // do not create pairs crossing the periodic
+                                // boundaries in a non-periodic box
+                                continue;
+                            }
+
+                            if (atom_i.index == atom_j.index && shift_is_zero) {
+                                // only create pairs with the same atom twice if the
+                                // pair spans more than one bounding box
+                                continue;
+                            }
+
+                            if constexpr (std::is_invocable_v<Function, size_t, size_t, CellShift, size_t>) {
+                                callback(atom_i.index, atom_j.index, shift, thread_id);
+                            } else {
+                                callback(atom_i.index, atom_j.index, shift);
+                            }
+                        }
+                    } // loop over atoms in current neighbor cells
                 }
-            } // loop over atoms in current neighbor cells
-        }}}
-    }}} // loop over neighboring cells
+            }
+        }
+    });
 }
 
 CellList::Cell& CellList::get_cell(std::array<int32_t, 3> index) {
-    size_t linear_index = (cells_shape_[0] * cells_shape_[1] * index[2])
-                        + (cells_shape_[0] * index[1])
-                        + index[0];
+    size_t linear_index = (cells_shape_[0] * cells_shape_[1] * index[2]) + (cells_shape_[0] * index[1]) + index[0];
     return cells_[linear_index];
 }
-// clang-format on
+
+const CellList::Cell& CellList::get_cell(std::array<int32_t, 3> index) const {
+    size_t linear_index = (cells_shape_[0] * cells_shape_[1] * index[2]) + (cells_shape_[0] * index[1]) + index[0];
+    return cells_[linear_index];
+}
 
 /* ========================================================================== */
 
@@ -434,12 +534,11 @@ static scalar_t* alloc(scalar_t* ptr, size_t size, size_t new_size) {
     return new_ptr;
 }
 
-void GrowableNeighborList::grow() {
+void GrowableNeighborList::grow(size_t new_size) {
     assert(this->neighbors.device.type == VesinCPU);
 
-    auto new_size = neighbors.length * 2;
     if (new_size == 0) {
-        new_size = 1;
+        new_size = neighbors.length == 0 ? 1 : neighbors.length * 2;
     }
 
     auto* new_pairs = alloc<size_t, 2>(neighbors.pairs, neighbors.length, new_size);

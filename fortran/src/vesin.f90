@@ -77,7 +77,16 @@ module vesin
     end interface NeighborList
 
 contains
-    function vesin_construct_c_double(cutoff, full, sorted, algorithm, return_shifts, return_distances, return_vectors) result(self)
+    function vesin_construct_c_double(      &
+        cutoff,                             &
+        full,                               &
+        sorted,                             &
+        algorithm,                          &
+        n_threads,                          &
+        return_shifts,                      &
+        return_distances,                   &
+        return_vectors                      &
+    ) result(self)
         !> Spherical cutoff, only pairs below this cutoff will be included
         real(c_double), intent(in) :: cutoff
 
@@ -95,6 +104,11 @@ contains
         !! `VesinCellListAlgorithm`)
         integer(c_int32_t), intent(in), optional :: algorithm
 
+        !> Number of CPU threads to use. Must be zero or positive. If zero,
+        !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
+        !! otherwise defaults to the number of available CPU cores.
+        integer(c_int32_t), intent(in), optional :: n_threads
+
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
 
@@ -111,6 +125,7 @@ contains
 
         if (present(sorted)) self%options%sorted = sorted
         if (present(algorithm)) self%options%algorithm = algorithm
+        if (present(n_threads)) self%options%n_threads = n_threads
         if (present(return_shifts)) self%options%return_shifts = return_shifts
         if (present(return_distances)) self%options%return_distances = return_distances
         if (present(return_vectors)) self%options%return_vectors = return_vectors
@@ -118,7 +133,16 @@ contains
         self%initialized = .true.
     end function vesin_construct_c_double
 
-    function vesin_construct_c_float(cutoff, full, sorted, algorithm, return_shifts, return_distances, return_vectors) result(self)
+    function vesin_construct_c_float(       &
+        cutoff,                             &
+        full,                               &
+        sorted,                             &
+        algorithm,                          &
+        n_threads,                          &
+        return_shifts,                      &
+        return_distances,                   &
+        return_vectors                      &
+    ) result(self)
         !> Spherical cutoff, only pairs below this cutoff will be included
         real(c_float), intent(in) :: cutoff
 
@@ -136,6 +160,11 @@ contains
         !! `VesinCellListAlgorithm`)
         integer(c_int32_t), intent(in), optional :: algorithm
 
+        !> Number of CPU threads to use. Must be zero or positive. If zero,
+        !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
+        !! otherwise defaults to the number of available CPU cores.
+        integer(c_int32_t), intent(in), optional :: n_threads
+
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
 
@@ -152,6 +181,7 @@ contains
             full,                               &
             sorted,                             &
             algorithm,                          &
+            n_threads,                          &
             return_shifts,                      &
             return_distances,                   &
             return_vectors                      &

@@ -173,11 +173,12 @@ Installation
 
             git clone https://github.com/Luthaf/vesin.git
             cd vesin
-            python create-single-cpp.py
+            python ./vesin/scripts/create-single-cpp.py
 
         Then you'll need to copy both ``include/vesin.h`` and
         ``vesin-single-build.cpp`` in your project and configure your build
-        system accordingly.
+        system accordingly. If you don't need CUDA support, you can use
+        ``vesin-single-build-nocuda.cpp`` instead of ``vesin-single-build.cpp``.
 
         You should define ``VESIN_SHARED`` as a preprocessor constant
         (``-DVESIN_SHARED``) when compiling the code if you want to build vesin

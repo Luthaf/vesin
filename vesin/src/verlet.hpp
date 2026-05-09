@@ -92,7 +92,12 @@ struct VerletState {
     /// The list is kept in normal neighbor-list representation so rebuild and
     /// recompute paths can share storage and filtering logic.
     VesinNeighborList candidates;
-    /// Capacity that should be preserved across recomputes when output grows/shrinks.
+    /// Persisted GrowableNeighborList output capacity.
+    ///
+    /// Stored in the opaque pointer (this `VerletState`) attached to the
+    /// caller's `VesinNeighborList`, this is the actual buffer capacity grown
+    /// by the previous recompute. Reusing it across calls avoids realloc churn
+    /// when the filtered output count fluctuates.
     size_t output_capacity = 0;
 
     /// Options used to build the current cache.

@@ -128,11 +128,15 @@ void cpu::VerletState::recompute(
 ) {
     double cutoff_sq = this->options.cutoff * this->options.cutoff;
 
-    // Reuse the largest observed caller-visible output capacity so temporary
-    // output dips do not trigger repeated reallocation during long simulations.
-    auto output_capacity = std::max(this->output_capacity, neighbors.length);
+    // The starting capacity is taken from the opaque-stored value, which
+    // tracks the GrowableNeighborList capacity grown during the previous
+    // recompute. On the first call after a non-Verlet (skin == 0) path,
+    // `this->output_capacity` is 0 but `neighbors.length` carries the count
+    // from that prior stateless call; using the larger of the two avoids a
+    // shrink-then-regrow cycle of the existing buffer.
+    auto initial_capacity = std::max(this->output_capacity, neighbors.length);
 
-    auto growable = cpu::GrowableNeighborList{neighbors, output_capacity, options};
+    auto growable = cpu::GrowableNeighborList{neighbors, initial_capacity, options};
     growable.reset();
 
     // The cached list is an over-complete Verlet candidate list. Each call
@@ -174,6 +178,8 @@ void cpu::VerletState::recompute(
         growable.sort();
     }
 
-    // Keep the maximum observed output capacity for next recompute.
-    this->output_capacity = std::max(this->output_capacity, growable.capacity);
+    // GrowableNeighborList only ever expands its capacity, so the post-fill
+    // value is always >= initial_capacity. Persist it in the opaque pointer
+    // so the next recompute call resumes with the same buffer footprint.
+    this->output_capacity = growable.capacity;
 }

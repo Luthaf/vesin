@@ -173,12 +173,11 @@ TEST_CASE("CPU extra data persists across stateless and Verlet calls") {
     };
 
     auto neighbors = VesinNeighborList();
-    auto box = make_box(points, 4, box_matrix, periodic);
 
     vesin::cpu::neighbors(
         reinterpret_cast<const vesin::Vector*>(points),
         4,
-        box,
+        make_box(points, 4, box_matrix, periodic),
         options,
         neighbors
     );
@@ -186,22 +185,20 @@ TEST_CASE("CPU extra data persists across stateless and Verlet calls") {
     auto* opaque = neighbors.opaque;
 
     options.skin = 0.6;
-    box = make_box(points, 4, box_matrix, periodic);
     vesin::cpu::neighbors(
         reinterpret_cast<const vesin::Vector*>(points),
         4,
-        box,
+        make_box(points, 4, box_matrix, periodic),
         options,
         neighbors
     );
     CHECK(neighbors.opaque == opaque);
 
     options.skin = 0.0;
-    box = make_box(points, 4, box_matrix, periodic);
     vesin::cpu::neighbors(
         reinterpret_cast<const vesin::Vector*>(points),
         4,
-        box,
+        make_box(points, 4, box_matrix, periodic),
         options,
         neighbors
     );

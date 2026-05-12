@@ -17,7 +17,6 @@ namespace cpu {
 /// - a candidate neighbor list generated at `cutoff + skin`
 /// - the reference coordinates and box state used to build that cache
 /// - configuration parameters that invalidate the cache when changed
-/// - output-capacity bookkeeping for amortized allocation reuse
 struct VerletState {
     /// Initialize an empty cache state.
     VerletState() = default;
@@ -70,7 +69,8 @@ struct VerletState {
         const Vector* points,
         const BoundingBox& box,
         VesinOptions options,
-        VesinNeighborList& neighbors
+        VesinNeighborList& neighbors,
+        size_t& output_capacity
     );
 
     /// Number of pairs currently stored in the cached candidate list.
@@ -92,13 +92,6 @@ struct VerletState {
     /// The list is kept in normal neighbor-list representation so rebuild and
     /// recompute paths can share storage and filtering logic.
     VesinNeighborList candidates;
-    /// Persisted GrowableNeighborList output capacity.
-    ///
-    /// Stored in the opaque pointer (this `VerletState`) attached to the
-    /// caller's `VesinNeighborList`, this is the actual buffer capacity grown
-    /// by the previous recompute. Reusing it across calls avoids realloc churn
-    /// when the filtered output count fluctuates.
-    size_t output_capacity = 0;
 
     /// Options used to build the current cache.
     VesinOptions options = {};

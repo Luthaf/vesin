@@ -14,10 +14,6 @@ static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, s
     return candidate_box;
 }
 
-namespace {
-
-} // namespace
-
 cpu::VerletState::~VerletState() {
     this->clear_candidates();
 }
@@ -36,7 +32,6 @@ void cpu::VerletState::clear_candidates() {
 void cpu::VerletState::set_options(VesinOptions options) {
     if (this->options.cutoff != options.cutoff || this->options.skin != options.skin || this->options.full != options.full) {
         this->clear_candidates();
-        this->output_capacity = 0;
     }
 
     this->options = options;
@@ -107,7 +102,8 @@ void cpu::VerletState::rebuild(
 
     this->candidates.device = {VesinCPU, 0};
     auto candidate_box = make_box_like(box, points, n_points);
-    cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates);
+    size_t candidate_capacity = 0;
+    cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates, candidate_capacity);
 
     this->n_points = n_points;
     this->ref_positions.resize(n_points * 3);
@@ -124,17 +120,12 @@ void cpu::VerletState::recompute(
     const Vector* points,
     const BoundingBox& box,
     VesinOptions options,
-    VesinNeighborList& neighbors
+    VesinNeighborList& neighbors,
+    size_t& output_capacity
 ) {
     double cutoff_sq = this->options.cutoff * this->options.cutoff;
 
-    // The starting capacity is taken from the opaque-stored value, which
-    // tracks the GrowableNeighborList capacity grown during the previous
-    // recompute. On the first call after a non-Verlet (skin == 0) path,
-    // `this->output_capacity` is 0 but `neighbors.length` carries the count
-    // from that prior stateless call; using the larger of the two avoids a
-    // shrink-then-regrow cycle of the existing buffer.
-    auto initial_capacity = std::max(this->output_capacity, neighbors.length);
+    auto initial_capacity = std::max(output_capacity, neighbors.length);
 
     auto growable = cpu::GrowableNeighborList{neighbors, initial_capacity, options};
     growable.reset();
@@ -178,8 +169,5 @@ void cpu::VerletState::recompute(
         growable.sort();
     }
 
-    // GrowableNeighborList only ever expands its capacity, so the post-fill
-    // value is always >= initial_capacity. Persist it in the opaque pointer
-    // so the next recompute call resumes with the same buffer footprint.
-    this->output_capacity = growable.capacity;
+    output_capacity = growable.capacity;
 }

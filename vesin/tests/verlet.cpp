@@ -44,6 +44,7 @@ TEST_CASE("Verlet recompute keeps allocation capacity across shorter output") {
 
     auto state = vesin::cpu::VerletState();
     state.set_options(options);
+    size_t output_capacity = 0;
 
     auto high_output_box = make_box(high_output_points, 4, box, periodic);
     state.rebuild(reinterpret_cast<const vesin::Vector*>(high_output_points), 4, high_output_box);
@@ -53,19 +54,19 @@ TEST_CASE("Verlet recompute keeps allocation capacity across shorter output") {
     REQUIRE_FALSE(state.needs_rebuild(reinterpret_cast<const vesin::Vector*>(low_output_points), 4, low_output_box));
 
     auto neighbors = VesinNeighborList();
-    state.recompute(reinterpret_cast<const vesin::Vector*>(high_output_points), high_output_box, options, neighbors);
+    state.recompute(reinterpret_cast<const vesin::Vector*>(high_output_points), high_output_box, options, neighbors, output_capacity);
     REQUIRE(neighbors.length == 3);
-    REQUIRE(state.output_capacity >= 3);
+    REQUIRE(output_capacity >= 3);
 
-    const auto high_output_capacity = state.output_capacity;
+    const auto high_output_capacity = output_capacity;
 
-    state.recompute(reinterpret_cast<const vesin::Vector*>(low_output_points), low_output_box, options, neighbors);
+    state.recompute(reinterpret_cast<const vesin::Vector*>(low_output_points), low_output_box, options, neighbors, output_capacity);
     REQUIRE(neighbors.length == 1);
-    CHECK(state.output_capacity == high_output_capacity);
+    CHECK(output_capacity == high_output_capacity);
 
-    state.recompute(reinterpret_cast<const vesin::Vector*>(high_output_points), high_output_box, options, neighbors);
+    state.recompute(reinterpret_cast<const vesin::Vector*>(high_output_points), high_output_box, options, neighbors, output_capacity);
     REQUIRE(neighbors.length == 3);
-    CHECK(state.output_capacity == high_output_capacity);
+    CHECK(output_capacity == high_output_capacity);
 
     neighbors.device = {VesinCPU, 0};
     vesin_free(&neighbors);
@@ -183,6 +184,9 @@ TEST_CASE("CPU extra data persists across stateless and Verlet calls") {
     );
     REQUIRE(neighbors.opaque != nullptr);
     auto* opaque = neighbors.opaque;
+    auto* extra = static_cast<vesin::cpu::ExtraDataCpu*>(neighbors.opaque);
+    REQUIRE(extra->capacity >= neighbors.length);
+    REQUIRE(extra->verlet_state == nullptr);
 
     options.skin = 0.6;
     vesin::cpu::neighbors(
@@ -193,6 +197,8 @@ TEST_CASE("CPU extra data persists across stateless and Verlet calls") {
         neighbors
     );
     CHECK(neighbors.opaque == opaque);
+    CHECK(extra->capacity >= neighbors.length);
+    CHECK(extra->verlet_state != nullptr);
 
     options.skin = 0.0;
     vesin::cpu::neighbors(
@@ -203,6 +209,8 @@ TEST_CASE("CPU extra data persists across stateless and Verlet calls") {
         neighbors
     );
     CHECK(neighbors.opaque == opaque);
+    CHECK(extra->capacity >= neighbors.length);
+    CHECK(extra->verlet_state == nullptr);
 
     neighbors.device = {VesinCPU, 0};
     vesin_free(&neighbors);

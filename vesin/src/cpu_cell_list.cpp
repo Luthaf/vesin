@@ -11,9 +11,17 @@
 
 using namespace vesin::cpu;
 
-static void free_verlet_state(VesinNeighborList& neighbors) {
-    delete static_cast<VerletState*>(neighbors.opaque);
+static void free_extra_data(VesinNeighborList& neighbors) {
+    delete static_cast<ExtraDataCpu*>(neighbors.opaque);
     neighbors.opaque = nullptr;
+}
+
+static ExtraDataCpu& extra_data(VesinNeighborList& neighbors) {
+    if (neighbors.opaque == nullptr) {
+        neighbors.opaque = new ExtraDataCpu();
+    }
+
+    return *static_cast<ExtraDataCpu*>(neighbors.opaque);
 }
 
 static void validate_algorithm(VesinOptions options) {
@@ -22,12 +30,17 @@ static void validate_algorithm(VesinOptions options) {
     }
 }
 
+ExtraDataCpu::~ExtraDataCpu() {
+    delete this->verlet_state;
+}
+
 void vesin::cpu::stateless_neighbors(
     const Vector* points,
     size_t n_points,
     BoundingBox box,
     VesinOptions options,
-    VesinNeighborList& raw_neighbors
+    VesinNeighborList& raw_neighbors,
+    size_t& capacity
 ) {
     validate_algorithm(options);
 
@@ -41,7 +54,8 @@ void vesin::cpu::stateless_neighbors(
 
     // the cell list creates too many pairs, we only need to keep the
     // one where the distance is actually below the cutoff
-    auto neighbors = GrowableNeighborList{raw_neighbors, raw_neighbors.length, options};
+    auto initial_capacity = std::max(capacity, raw_neighbors.length);
+    auto neighbors = GrowableNeighborList{raw_neighbors, initial_capacity, options};
     neighbors.reset();
 
     cell_list.foreach_pair([&](size_t first, size_t second, CellShift shift) {
@@ -105,6 +119,8 @@ void vesin::cpu::stateless_neighbors(
     if (options.sorted) {
         neighbors.sort();
     }
+
+    capacity = neighbors.capacity;
 }
 
 void vesin::cpu::neighbors(
@@ -116,27 +132,28 @@ void vesin::cpu::neighbors(
 ) {
     validate_algorithm(options);
 
+    auto& extra = extra_data(raw_neighbors);
+
     if (options.skin > 0.0) {
-        if (raw_neighbors.opaque == nullptr) {
-            raw_neighbors.opaque = new VerletState();
+        if (extra.verlet_state == nullptr) {
+            extra.verlet_state = new VerletState();
         }
 
-        auto& state = *static_cast<VerletState*>(raw_neighbors.opaque);
+        auto& state = *extra.verlet_state;
         state.set_options(options);
 
         if (state.needs_rebuild(points, n_points, box)) {
             state.rebuild(points, n_points, box);
         }
 
-        state.recompute(points, box, options, raw_neighbors);
+        state.recompute(points, box, options, raw_neighbors, extra.capacity);
         return;
     }
 
-    if (raw_neighbors.opaque != nullptr) {
-        free_verlet_state(raw_neighbors);
-    }
+    delete extra.verlet_state;
+    extra.verlet_state = nullptr;
 
-    stateless_neighbors(points, n_points, std::move(box), options, raw_neighbors);
+    stateless_neighbors(points, n_points, std::move(box), options, raw_neighbors, extra.capacity);
 }
 
 /* ========================================================================== */
@@ -574,7 +591,7 @@ void vesin::cpu::free_neighbors(VesinNeighborList& neighbors) {
     assert(neighbors.device.type == VesinCPU);
 
     if (neighbors.opaque != nullptr) {
-        free_verlet_state(neighbors);
+        free_extra_data(neighbors);
     }
 
     std::free(neighbors.pairs);

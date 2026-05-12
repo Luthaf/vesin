@@ -35,7 +35,7 @@ struct VerletState {
     /// Copy options relevant to cache reuse from the user options.
     ///
     /// If the cache-driving options changed (cutoff, skin, full-list flag),
-    /// clear existing cached candidates and reset capacity.
+    /// clear existing cached candidates.
     void set_options(VesinOptions options);
 
     /// Return `true` if the cache should be rebuilt for the current frame.

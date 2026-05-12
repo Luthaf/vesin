@@ -334,3 +334,17 @@ def test_max_pairs():
             _ = calculator.compute(points, box, True, "ijSDd")
 
     del os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"]
+
+
+def test_gigantic_cell():
+    """Check that the code properly handles very large periodic cells"""
+    cell = 1e7 * cp.eye(3)
+
+    np.random.seed(34)
+    positions = np.random.randn(3000, 3) * 100
+    positions = cp.asarray(positions)
+
+    calc = NeighborList(cutoff=8.0, full_list=True)
+
+    (P,) = calc.compute(positions, cell, periodic=True, quantities="P")
+    assert len(P) == 412

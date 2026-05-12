@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  rust-tests:
+  cxx-tests:
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} / ${{ matrix.compiler }}
     container: ${{ matrix.container }}
@@ -133,3 +133,19 @@ jobs:
         run: |
           cd fortran/build
           ctest --output-on-failure --build-config Debug --parallel 2
+
+      - name: setup Python
+        uses: actions/setup-python@v6
+        if: matrix.container == null
+        with:
+          python-version: "3.14"
+
+      - name: install tox
+        if: matrix.container == null
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install tox
+
+      - name: run single file build tests
+        if: matrix.container == null
+        run: python -m tox -e single-build-tests

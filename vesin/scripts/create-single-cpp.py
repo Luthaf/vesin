@@ -78,7 +78,7 @@ if __name__ == "__main__":
     with open(os.path.join(ROOT, "vesin", "VERSION")) as fd:
         version = fd.read().strip()
 
-    with tempfile.TemporaryDirectory() as tempdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tempdir:
         os.chdir(tempdir)
         subprocess.run(
             ["cmake", os.path.join(ROOT, "vesin")],
@@ -96,6 +96,7 @@ if __name__ == "__main__":
         with open(os.path.join(DIST, "vesin-single-build.cpp"), "w") as output:
             add_version(output)
             merge_files("cpu_cell_list.cpp", output)
+            merge_files("verlet.cpp", output)
             merge_files("vesin_cuda.cpp", output)
             merge_files("vesin.cpp", output)
 
@@ -103,6 +104,7 @@ if __name__ == "__main__":
         with open(os.path.join(DIST, "vesin-single-build-nocuda.cpp"), "w") as output:
             add_version(output)
             merge_files("cpu_cell_list.cpp", output)
+            merge_files("verlet.cpp", output)
             merge_files("vesin_cuda_stub.cpp", output)
             merge_files("vesin.cpp", output)
 

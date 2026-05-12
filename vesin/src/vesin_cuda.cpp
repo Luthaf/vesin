@@ -499,6 +499,10 @@ void vesin::cuda::neighbors(
     // Check if CUDA is available
     checkCuda();
 
+    if (options.skin > 0.0) {
+        throw std::runtime_error("Verlet caching with skin > 0 is not supported with CUDA");
+    }
+
     // check that all pointers are are device pointers
     if (!is_device_ptr(getPtrAttributes(points), "points")) {
         throw std::runtime_error("`points` pointer is not allocated on a CUDA device");

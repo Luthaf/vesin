@@ -42,6 +42,7 @@ set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet.cpp
 )
 
 if (BUILD_VESIN_FOR_PYTHON)

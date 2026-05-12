@@ -1,6 +1,7 @@
 #ifndef VESIN_CPU_CELL_LIST_HPP
 #define VESIN_CPU_CELL_LIST_HPP
 
+#include <cstddef>
 #include <vector>
 
 #include "vesin.h"
@@ -10,7 +11,40 @@
 namespace vesin {
 namespace cpu {
 
+struct VerletState;
+
+/// Extra CPU allocation metadata stored in `VesinNeighborList::opaque`.
+struct ExtraDataCpu {
+    /// Initialize empty CPU-side metadata.
+    ExtraDataCpu() = default;
+    /// Release optional Verlet cache state.
+    ~ExtraDataCpu();
+
+    /// Disallow copy construction; this object owns CPU-side cache metadata.
+    ExtraDataCpu(const ExtraDataCpu&) = delete;
+    /// Disallow copy assignment; this object owns CPU-side cache metadata.
+    ExtraDataCpu& operator=(const ExtraDataCpu&) = delete;
+    /// Disallow move construction; the C API stores this object by pointer.
+    ExtraDataCpu(ExtraDataCpu&&) = delete;
+    /// Disallow move assignment; the C API stores this object by pointer.
+    ExtraDataCpu& operator=(ExtraDataCpu&&) = delete;
+
+    /// Persisted GrowableNeighborList output capacity.
+    size_t capacity = 0;
+    /// Optional cached Verlet state for `skin > 0` calculations.
+    VerletState* verlet_state = nullptr;
+};
+
 void free_neighbors(VesinNeighborList& neighbors);
+
+void stateless_neighbors(
+    const Vector* points,
+    size_t n_points,
+    BoundingBox box,
+    VesinOptions options,
+    VesinNeighborList& neighbors,
+    size_t& capacity
+);
 
 void neighbors(
     const Vector* points,

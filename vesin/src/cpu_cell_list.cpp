@@ -499,20 +499,39 @@ void GrowableNeighborList::sort() {
     std::iota(std::begin(indices), std::end(indices), 0);
 
     struct compare_pairs {
-        compare_pairs(size_t (*pairs_)[2]):
-            pairs(pairs_) {}
+        compare_pairs(size_t (*pairs_)[2], int32_t (*shifts_)[3]):
+            pairs(pairs_),
+            shifts(shifts_) {}
 
         bool operator()(int64_t a, int64_t b) const {
-            return pairs[a][0] < pairs[b][0];
+            auto ia = static_cast<size_t>(a);
+            auto ib = static_cast<size_t>(b);
+
+            if (pairs[ia][0] != pairs[ib][0]) {
+                return pairs[ia][0] < pairs[ib][0];
+            }
+            if (pairs[ia][1] != pairs[ib][1]) {
+                return pairs[ia][1] < pairs[ib][1];
+            }
+            if (shifts != nullptr) {
+                for (size_t dim = 0; dim < 3; dim++) {
+                    if (shifts[ia][dim] != shifts[ib][dim]) {
+                        return shifts[ia][dim] < shifts[ib][dim];
+                    }
+                }
+            }
+
+            return false;
         }
 
         size_t (*pairs)[2];
+        int32_t (*shifts)[3];
     };
 
     std::sort(
         std::begin(indices),
         std::end(indices),
-        compare_pairs(this->neighbors.pairs)
+        compare_pairs(this->neighbors.pairs, this->neighbors.shifts)
     );
 
     // step 2: move all data according to the sorted indices.

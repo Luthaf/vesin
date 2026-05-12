@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "../src/cpu_cell_list.hpp"
 #include "../src/verlet.hpp"
 
 static vesin::BoundingBox make_box(const double (*points)[3], size_t n_points, const double matrix[3][3], const bool periodic[3]) {
@@ -148,4 +149,64 @@ TEST_CASE("Non-periodic displacement validation is origin independent") {
         2,
         box
     ));
+}
+
+TEST_CASE("CPU extra data persists across stateless and Verlet calls") {
+    double box_matrix[3][3] = {{0.0}};
+    bool periodic[3] = {false, false, false};
+
+    auto options = VesinOptions();
+    options.cutoff = 1.0;
+    options.skin = 0.0;
+    options.full = false;
+    options.sorted = false;
+    options.algorithm = VesinCellList;
+    options.return_shifts = true;
+    options.return_distances = false;
+    options.return_vectors = false;
+
+    double points[][3] = {
+        {0.0, 0.0, 0.0},
+        {0.9, 0.0, 0.0},
+        {1.8, 0.0, 0.0},
+        {2.7, 0.0, 0.0},
+    };
+
+    auto neighbors = VesinNeighborList();
+    auto box = make_box(points, 4, box_matrix, periodic);
+
+    vesin::cpu::neighbors(
+        reinterpret_cast<const vesin::Vector*>(points),
+        4,
+        box,
+        options,
+        neighbors
+    );
+    REQUIRE(neighbors.opaque != nullptr);
+    auto* opaque = neighbors.opaque;
+
+    options.skin = 0.6;
+    box = make_box(points, 4, box_matrix, periodic);
+    vesin::cpu::neighbors(
+        reinterpret_cast<const vesin::Vector*>(points),
+        4,
+        box,
+        options,
+        neighbors
+    );
+    CHECK(neighbors.opaque == opaque);
+
+    options.skin = 0.0;
+    box = make_box(points, 4, box_matrix, periodic);
+    vesin::cpu::neighbors(
+        reinterpret_cast<const vesin::Vector*>(points),
+        4,
+        box,
+        options,
+        neighbors
+    );
+    CHECK(neighbors.opaque == opaque);
+
+    neighbors.device = {VesinCPU, 0};
+    vesin_free(&neighbors);
 }

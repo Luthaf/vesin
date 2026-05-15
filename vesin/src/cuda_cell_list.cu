@@ -16,6 +16,23 @@ __device__ inline double dot3(const double3& a, const double3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+__device__ inline double3 cross3(const double3& a, const double3& b) {
+    return make_double3(
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    );
+}
+
+__device__ inline double norm3(const double3& v) {
+    return sqrt(dot3(v, v));
+}
+
+__device__ inline double3 normalize3(const double3& v) {
+    double n = norm3(v);
+    return make_double3(v.x / n, v.y / n, v.z / n);
+}
+
 __global__ void compute_bounding_box(
     const double* __restrict__ positions,
     size_t n_points,
@@ -95,16 +112,60 @@ __global__ void compute_cell_grid_params(
         return;
     }
 
-    // Box matrix elements
-    double a = box[0];
-    double b = box[1];
-    double c = box[2];
-    double d = box[3];
-    double e = box[4];
-    double f = box[5];
-    double g = box[6];
-    double h = box[7];
-    double i = box[8];
+    // Normalize non-periodic box directions like the CPU BoundingBox logic,
+    // then use the normalized matrix for inverse and distance calculations.
+    double3 rows[3] = {
+        make_double3(box[0], box[1], box[2]),
+        make_double3(box[3], box[4], box[5]),
+        make_double3(box[6], box[7], box[8]),
+    };
+
+    int n_periodic = 0;
+    int periodic_idx_1 = -1;
+    int periodic_idx_2 = -1;
+    for (int d = 0; d < 3; d++) {
+        if (periodic[d]) {
+            n_periodic += 1;
+            if (periodic_idx_1 == -1) {
+                periodic_idx_1 = d;
+            } else if (periodic_idx_2 == -1) {
+                periodic_idx_2 = d;
+            }
+        }
+    }
+
+    if (n_periodic == 0) {
+        rows[0] = make_double3(1.0, 0.0, 0.0);
+        rows[1] = make_double3(0.0, 1.0, 0.0);
+        rows[2] = make_double3(0.0, 0.0, 1.0);
+    } else if (n_periodic == 1) {
+        double3 a = rows[periodic_idx_1];
+        double3 b = make_double3(0.0, 1.0, 0.0);
+        if (fabs(dot3(normalize3(a), b)) > 0.9) {
+            b = make_double3(0.0, 0.0, 1.0);
+        }
+        double3 c = normalize3(cross3(a, b));
+        b = normalize3(cross3(c, a));
+
+        rows[(periodic_idx_1 + 1) % 3] = b;
+        rows[(periodic_idx_1 + 2) % 3] = c;
+    } else if (n_periodic == 2) {
+        double3 a = rows[periodic_idx_1];
+        double3 b = rows[periodic_idx_2];
+        double3 c = normalize3(cross3(a, b));
+        rows[3 - periodic_idx_1 - periodic_idx_2] = c;
+    }
+
+    // Box matrix elements (possibly normalized)
+    double a = rows[0].x;
+    double b = rows[0].y;
+    double c = rows[0].z;
+    double d = rows[1].x;
+    double e = rows[1].y;
+    double f = rows[1].z;
+    double g = rows[2].x;
+    double h = rows[2].y;
+    double i = rows[2].z;
 
     // Determinant
     double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
@@ -122,9 +183,9 @@ __global__ void compute_cell_grid_params(
     inv_box[8] = (a * e - b * d) * invdet;
 
     // Box vectors
-    double va[3] = {box[0], box[1], box[2]};
-    double vb[3] = {box[3], box[4], box[5]};
-    double vc[3] = {box[6], box[7], box[8]};
+    double va[3] = {rows[0].x, rows[0].y, rows[0].z};
+    double vb[3] = {rows[1].x, rows[1].y, rows[1].z};
+    double vc[3] = {rows[2].x, rows[2].y, rows[2].z};
 
     // Cross products for face normals
     double bc[3] = {vb[1] * vc[2] - vb[2] * vc[1], vb[2] * vc[0] - vb[0] * vc[2], vb[0] * vc[1] - vb[1] * vc[0]};

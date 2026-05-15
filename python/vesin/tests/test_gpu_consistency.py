@@ -173,11 +173,21 @@ def naphthalene_cluster() -> SystemForTests:
     )
 
 
+def partial_periodic() -> SystemForTests:
+    return SystemForTests(
+        name="issue_153",
+        points=np.asarray([[0.0, 2.5, 0.0], [2.0, 0.0, 0.0]], dtype=np.float64),
+        box=np.diag([4.0, 4.5, 0.0]).astype(np.float64),
+        periodic=(True, True, False),
+    )
+
+
 SYSTEMS_FOR_TESTS = [
     naphthalene_cluster(),
     polymer_chain(),
     graphene_sheet(),
     diamond_crystal(),
+    partial_periodic(),
 ]
 
 CUTOFFS = [3.0, 5.0, 7.0, 10.0]
@@ -222,5 +232,5 @@ def test_gpu_matches_cpu_for_fixed_systems(
     if not gpu_algorithm_is_applicable(system, cutoff, gpu_algorithm):
         return
 
-    monkeypatch.setenv("VESIN_CUDA_MAX_PAIRS_PER_POINT", "4096")
+    # monkeypatch.setenv("VESIN_CUDA_MAX_PAIRS_PER_POINT", "4096")
     compare_cpu_gpu(system, cutoff, full_list, gpu_algorithm, sorted)

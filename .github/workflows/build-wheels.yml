@@ -2,7 +2,7 @@ name: Build Python wheels
 
 on:
   push:
-    branches: [main]
+    branches: [main, release-0.5.7]
     tags: ["*"]
   pull_request:
       paths:

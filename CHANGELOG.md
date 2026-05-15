@@ -17,6 +17,16 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.7](https://github.com/Luthaf/vesin/releases/tag/v0.5.7) - 2026-05-15
+
+### Added
+
+- Added support for PyTorch v2.12 in the `vesin-torch` wheels on PyPI
+
+### Fixed
+
+- Fixed a bug in the CUDA implementation when using partial PBC (#154)
+
 ## [Version 0.5.6](https://github.com/Luthaf/vesin/releases/tag/v0.5.6) - 2026-05-05
 
 ### Added

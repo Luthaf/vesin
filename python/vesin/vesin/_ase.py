@@ -16,7 +16,6 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False, max_nbins=0
     subset of the functionality. Notably, the following is not supported:
 
     - ``self_interaction=True``
-    - :py:class:`ase.Atoms` with mixed periodic boundary conditions
     - giving ``cutoff`` as a dictionary
 
     .. note::

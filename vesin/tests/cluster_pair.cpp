@@ -2,6 +2,8 @@
 #include <cmath>
 #include <cstdio>
 #include <set>
+#include <string>
+#include <tuple>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -10,6 +12,25 @@
 using namespace Catch::Matchers;
 
 #include <vesin.h>
+
+// Catch2 (>=3) needs to stringify both sides of CHECK(x == y) for the
+// failure diff. libstdc++ 9 (the GCC 9 shipped with the ubuntu-24.04 CI
+// image) does not detect std::tuple<...> as range-printable, so Catch2's
+// default StringMaker SFINAE chain hits an enable_if<false>::type
+// instantiation error inside catch_tostring.hpp. Providing an explicit
+// StringMaker for the (i, j, sx, sy, sz) tuple short-circuits the chain.
+namespace Catch {
+template <>
+struct StringMaker<std::tuple<size_t, size_t, int32_t, int32_t, int32_t>> {
+    static std::string convert(const std::tuple<size_t, size_t, int32_t, int32_t, int32_t>& t) {
+        return "(i=" + std::to_string(std::get<0>(t))
+            + ", j=" + std::to_string(std::get<1>(t))
+            + ", sx=" + std::to_string(std::get<2>(t))
+            + ", sy=" + std::to_string(std::get<3>(t))
+            + ", sz=" + std::to_string(std::get<4>(t)) + ")";
+    }
+};
+} // namespace Catch
 
 /// Helper: build a simple cubic lattice with n^3 atoms
 static std::vector<std::array<double, 3>> cubic_lattice(int n, double spacing) {

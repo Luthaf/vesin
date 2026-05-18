@@ -59,6 +59,14 @@ struct ClusterGrid {
     std::vector<Vector> wrapped_positions;
 };
 
+/// A cluster-pair candidate retained for exact cutoff filtering.
+struct ClusterPairCandidate {
+    int32_t first_cluster;
+    int32_t second_cluster;
+    CellShift cell_shift;
+    Vector shift_cartesian;
+};
+
 /// Build a cluster grid from atom positions.
 ///
 /// Algorithm:
@@ -71,6 +79,13 @@ ClusterGrid build_cluster_grid(
     const Vector* points,
     size_t n_points,
     const BoundingBox& box,
+    double cutoff
+);
+
+/// Build cluster-pair candidates passing the bounding-box cutoff test.
+std::vector<ClusterPairCandidate> build_cluster_pair_candidates(
+    const ClusterGrid& grid,
+    const BoundingBox& cell,
     double cutoff
 );
 
@@ -124,6 +139,19 @@ void cluster_pair_neighbors(
     const BoundingBox& cell,
     VesinOptions options,
     VesinNeighborList& neighbors
+);
+
+/// Filter cached cluster-pair candidates at the exact cutoff.
+void filter_cluster_pair_candidates(
+    const Vector* points,
+    const BoundingBox& cell,
+    const ClusterGrid& grid,
+    const std::vector<ClusterPairCandidate>& candidates,
+    double cutoff,
+    VesinOptions options,
+    VesinNeighborList& raw_neighbors,
+    size_t initial_capacity,
+    size_t& output_capacity
 );
 
 } // namespace cpu

@@ -262,7 +262,246 @@ static int simd_check_distances(
     }
     return count;
 }
+
+static bool is_zero_shift(CellShift shift) {
+    return shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
+}
+
+static Vector shift_cartesian(CellShift shift, const BoundingBox& cell) {
+    if (is_zero_shift(shift)) {
+        return Vector{0.0, 0.0, 0.0};
+    }
+    return shift.cartesian(cell);
+}
 } // anonymous namespace
+
+std::vector<ClusterPairCandidate> vesin::build_cluster_pair_candidates(
+    const ClusterGrid& grid,
+    const BoundingBox& cell,
+    double cutoff
+) {
+    auto cutoff2_f = static_cast<float>(cutoff * cutoff);
+    auto distances_between_faces = cell.distances_between_faces();
+
+    auto n_search = std::array<int32_t, 3>{
+        static_cast<int32_t>(std::ceil(cutoff * grid.n_cells[0] / distances_between_faces[0])),
+        static_cast<int32_t>(std::ceil(cutoff * grid.n_cells[1] / distances_between_faces[1])),
+        static_cast<int32_t>(std::ceil(cutoff * grid.n_cells[2] / distances_between_faces[2])),
+    };
+
+    for (int d = 0; d < 3; d++) {
+        if (n_search[d] < 1) {
+            n_search[d] = 1;
+        }
+        if (grid.n_cells[d] == 1 && !cell.periodic(d)) {
+            n_search[d] = 0;
+        }
+    }
+
+    auto candidates = std::vector<ClusterPairCandidate>();
+    candidates.reserve(grid.clusters.size() * 27);
+
+    for (int32_t cz = 0; cz < grid.n_cells[2]; cz++) {
+        for (int32_t cy = 0; cy < grid.n_cells[1]; cy++) {
+            for (int32_t cx = 0; cx < grid.n_cells[0]; cx++) {
+                int32_t cell_i_linear = (grid.n_cells[0] * grid.n_cells[1] * cz) + (grid.n_cells[0] * cy) + cx;
+
+                int32_t ci_start = grid.cell_offsets[cell_i_linear];
+                int32_t ci_end = grid.cell_offsets[cell_i_linear + 1];
+
+                for (int32_t dz = -n_search[2]; dz <= n_search[2]; dz++) {
+                    for (int32_t dy = -n_search[1]; dy <= n_search[1]; dy++) {
+                        for (int32_t dx = -n_search[0]; dx <= n_search[0]; dx++) {
+                            int32_t nx = cx + dx;
+                            int32_t ny = cy + dy;
+                            int32_t nz = cz + dz;
+
+                            auto [sx, rx] = divmod(nx, grid.n_cells[0]);
+                            auto [sy, ry] = divmod(ny, grid.n_cells[1]);
+                            auto [sz, rz] = divmod(nz, grid.n_cells[2]);
+
+                            if ((sx != 0 && !cell.periodic(0)) ||
+                                (sy != 0 && !cell.periodic(1)) ||
+                                (sz != 0 && !cell.periodic(2))) {
+                                continue;
+                            }
+
+                            int32_t cell_j_linear = (grid.n_cells[0] * grid.n_cells[1] * rz) + (grid.n_cells[0] * ry) + rx;
+
+                            int32_t cj_start = grid.cell_offsets[cell_j_linear];
+                            int32_t cj_end = grid.cell_offsets[cell_j_linear + 1];
+
+                            auto cell_shift_base = CellShift{{sx, sy, sz}};
+                            auto shift_cart = shift_cartesian(cell_shift_base, cell);
+                            float shift_f[3] = {
+                                static_cast<float>(shift_cart[0]),
+                                static_cast<float>(shift_cart[1]),
+                                static_cast<float>(shift_cart[2]),
+                            };
+
+                            for (int32_t ci = ci_start; ci < ci_end; ci++) {
+                                const auto& cluster_i = grid.clusters[ci];
+                                for (int32_t cj = cj_start; cj < cj_end; cj++) {
+                                    const auto& cluster_j = grid.clusters[cj];
+
+                                    float bb_dist = bb_distance_sq_shifted(cluster_i, cluster_j, shift_f);
+                                    if (bb_dist > cutoff2_f) {
+                                        continue;
+                                    }
+
+                                    candidates.push_back(ClusterPairCandidate{
+                                        ci,
+                                        cj,
+                                        cell_shift_base,
+                                        shift_cart,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return candidates;
+}
+
+void vesin::cpu::filter_cluster_pair_candidates(
+    const Vector* points,
+    const BoundingBox& cell,
+    const ClusterGrid& grid,
+    const std::vector<ClusterPairCandidate>& candidates,
+    double cutoff,
+    VesinOptions options,
+    VesinNeighborList& raw_neighbors,
+    size_t initial_capacity,
+    size_t& output_capacity
+) {
+    auto neighbors = GrowableNeighborList{raw_neighbors, initial_capacity, options};
+    neighbors.reset();
+
+    auto current_clusters = grid.clusters;
+    for (auto& cluster : current_clusters) {
+        for (size_t d = 0; d < 3; d++) {
+            cluster.bb_lower[d] = std::numeric_limits<float>::max();
+            cluster.bb_upper[d] = std::numeric_limits<float>::lowest();
+        }
+
+        for (int32_t atom = 0; atom < cluster.n_atoms; atom++) {
+            auto atom_index = static_cast<size_t>(cluster.atom_indices[atom]);
+            auto wrap_shift = shift_cartesian(grid.atom_wrap_shifts[atom_index], cell);
+            auto wrapped = points[atom_index] - wrap_shift;
+            cluster.pos_x[atom] = wrapped[0];
+            cluster.pos_y[atom] = wrapped[1];
+            cluster.pos_z[atom] = wrapped[2];
+
+            auto x = static_cast<float>(wrapped[0]);
+            auto y = static_cast<float>(wrapped[1]);
+            auto z = static_cast<float>(wrapped[2]);
+            cluster.bb_lower[0] = std::min(cluster.bb_lower[0], x);
+            cluster.bb_lower[1] = std::min(cluster.bb_lower[1], y);
+            cluster.bb_lower[2] = std::min(cluster.bb_lower[2], z);
+            cluster.bb_upper[0] = std::max(cluster.bb_upper[0], x);
+            cluster.bb_upper[1] = std::max(cluster.bb_upper[1], y);
+            cluster.bb_upper[2] = std::max(cluster.bb_upper[2], z);
+        }
+    }
+
+    auto cutoff2 = cutoff * cutoff;
+    auto cutoff2_f = static_cast<float>(cutoff2);
+
+    alignas(64) double tmp_dist2[CLUSTER_SIZE_CPU];
+    alignas(64) double tmp_dx[CLUSTER_SIZE_CPU];
+    alignas(64) double tmp_dy[CLUSTER_SIZE_CPU];
+    alignas(64) double tmp_dz[CLUSTER_SIZE_CPU];
+    uint8_t tmp_mask[CLUSTER_SIZE_CPU];
+
+    for (const auto& candidate : candidates) {
+        const auto& cluster_i = current_clusters[candidate.first_cluster];
+        const auto& cluster_j = current_clusters[candidate.second_cluster];
+        float shift_f[3] = {
+            static_cast<float>(candidate.shift_cartesian[0]),
+            static_cast<float>(candidate.shift_cartesian[1]),
+            static_cast<float>(candidate.shift_cartesian[2]),
+        };
+
+        if (bb_distance_sq_shifted(cluster_i, cluster_j, shift_f) > cutoff2_f) {
+            continue;
+        }
+
+        for (int32_t ai = 0; ai < cluster_i.n_atoms; ai++) {
+            int32_t idx_i = cluster_i.atom_indices[ai];
+
+            simd_check_distances(
+                cluster_i.pos_x[ai],
+                cluster_i.pos_y[ai],
+                cluster_i.pos_z[ai],
+                candidate.shift_cartesian[0],
+                candidate.shift_cartesian[1],
+                candidate.shift_cartesian[2],
+                cluster_j.pos_x,
+                cluster_j.pos_y,
+                cluster_j.pos_z,
+                cutoff2,
+                tmp_dist2,
+                tmp_dx,
+                tmp_dy,
+                tmp_dz,
+                tmp_mask
+            );
+
+            for (int32_t aj = 0; aj < cluster_j.n_atoms; aj++) {
+                if (!tmp_mask[aj]) {
+                    continue;
+                }
+
+                int32_t idx_j = cluster_j.atom_indices[aj];
+                auto shift = candidate.cell_shift + grid.atom_wrap_shifts[idx_i] - grid.atom_wrap_shifts[idx_j];
+
+                if (idx_i == idx_j && is_zero_shift(shift)) {
+                    continue;
+                }
+
+                if (!options.full) {
+                    if (static_cast<size_t>(idx_i) > static_cast<size_t>(idx_j)) {
+                        continue;
+                    }
+                    if (idx_i == idx_j) {
+                        if (shift[0] + shift[1] + shift[2] < 0) {
+                            continue;
+                        }
+                        if ((shift[0] + shift[1] + shift[2] == 0) &&
+                            (shift[2] < 0 || (shift[2] == 0 && shift[1] < 0))) {
+                            continue;
+                        }
+                    }
+                }
+
+                auto index = neighbors.length();
+                neighbors.set_pair(index, static_cast<size_t>(idx_i), static_cast<size_t>(idx_j));
+
+                if (options.return_shifts) {
+                    neighbors.set_shift(index, shift);
+                }
+                if (options.return_distances) {
+                    neighbors.set_distance(index, std::sqrt(tmp_dist2[aj]));
+                }
+                if (options.return_vectors) {
+                    auto vector = Vector{tmp_dx[aj], tmp_dy[aj], tmp_dz[aj]};
+                    neighbors.set_vector(index, vector);
+                }
+                neighbors.increment_length();
+            }
+        }
+    }
+
+    if (options.sorted) {
+        neighbors.sort();
+    }
+
+    output_capacity = neighbors.capacity;
+}
 
 void vesin::cpu::cluster_pair_neighbors(
     const Vector* points,

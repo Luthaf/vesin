@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "cluster.hpp"
 #include "types.hpp"
 #include "vesin.h"
 
@@ -50,10 +51,7 @@ struct VerletState {
         const BoundingBox& box
     ) const;
 
-    /// Build the over-complete candidate list at `cutoff + skin`.
-    ///
-    /// The rebuild operation stores candidates in full `VesinNeighborList` form
-    /// and captures the state used to validate future `needs_rebuild` checks.
+    /// Build the over-complete candidate cache at `cutoff + skin`.
     void rebuild(
         const Vector* points,
         size_t n_points,
@@ -75,6 +73,9 @@ struct VerletState {
 
     /// Number of pairs currently stored in the cached candidate list.
     size_t candidate_count() const {
+        if (use_cluster_candidates) {
+            return cluster_candidates.size();
+        }
         return candidates.length;
     }
 
@@ -92,6 +93,15 @@ struct VerletState {
     /// The list is kept in normal neighbor-list representation so rebuild and
     /// recompute paths can share storage and filtering logic.
     VesinNeighborList candidates;
+    /// Cartesian shift vector for each materialized candidate pair.
+    std::vector<Vector> candidate_shift_vectors;
+
+    /// Cluster grid used by cluster-backed Verlet candidate caches.
+    ClusterGrid cluster_grid;
+    /// Over-complete cluster-pair candidates generated at `cutoff + skin`.
+    std::vector<ClusterPairCandidate> cluster_candidates;
+    /// Whether the active cache is represented by cluster-pair candidates.
+    bool use_cluster_candidates = false;
 
     /// Options used to build the current cache.
     VesinOptions options = {};

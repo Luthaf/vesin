@@ -15,6 +15,17 @@ static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, s
     return candidate_box;
 }
 
+static bool is_zero_shift(CellShift shift) {
+    return shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
+}
+
+static Vector shift_cartesian(CellShift shift, const BoundingBox& box) {
+    if (is_zero_shift(shift)) {
+        return Vector{0.0, 0.0, 0.0};
+    }
+    return shift.cartesian(box);
+}
+
 cpu::VerletState::~VerletState() {
     this->clear_candidates();
 }
@@ -25,6 +36,10 @@ void cpu::VerletState::clear_candidates() {
     }
 
     this->candidates = VesinNeighborList();
+    this->candidate_shift_vectors.clear();
+    this->cluster_grid = ClusterGrid();
+    this->cluster_candidates.clear();
+    this->use_cluster_candidates = false;
     this->has_cache = false;
     this->ref_positions.clear();
     this->n_points = 0;
@@ -105,10 +120,22 @@ void cpu::VerletState::rebuild(
     this->candidates.device = {VesinCPU, 0};
     auto candidate_box = make_box_like(box, points, n_points);
     if (build_options.algorithm == VesinAutoAlgorithm && n_points >= CLUSTER_PAIR_THRESHOLD) {
-        cpu::cluster_pair_neighbors(points, n_points, candidate_box, build_options, this->candidates);
+        this->cluster_grid = build_cluster_grid(points, n_points, candidate_box, build_options.cutoff);
+        this->cluster_candidates = build_cluster_pair_candidates(this->cluster_grid, candidate_box, build_options.cutoff);
+        this->use_cluster_candidates = true;
     } else {
         size_t candidate_capacity = 0;
         cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates, candidate_capacity);
+    }
+
+    this->candidate_shift_vectors.reserve(this->candidates.length);
+    for (size_t k = 0; k < this->candidates.length; k++) {
+        auto shift = CellShift{{
+            this->candidates.shifts[k][0],
+            this->candidates.shifts[k][1],
+            this->candidates.shifts[k][2],
+        }};
+        this->candidate_shift_vectors.push_back(shift_cartesian(shift, box));
     }
 
     this->n_points = n_points;
@@ -133,6 +160,21 @@ void cpu::VerletState::recompute(
 
     auto initial_capacity = std::max(output_capacity, neighbors.length);
 
+    if (this->use_cluster_candidates) {
+        cpu::filter_cluster_pair_candidates(
+            points,
+            box,
+            this->cluster_grid,
+            this->cluster_candidates,
+            this->options.cutoff,
+            options,
+            neighbors,
+            initial_capacity,
+            output_capacity
+        );
+        return;
+    }
+
     auto growable = cpu::GrowableNeighborList{neighbors, initial_capacity, options};
     growable.reset();
 
@@ -148,7 +190,7 @@ void cpu::VerletState::recompute(
             this->candidates.shifts[k][2],
         }};
 
-        auto vec = points[j] - points[i] + shift.cartesian(box);
+        auto vec = points[j] - points[i] + this->candidate_shift_vectors[k];
         double dist_sq = vec.dot(vec);
 
         if (dist_sq < cutoff_sq) {

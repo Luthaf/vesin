@@ -186,7 +186,8 @@ TEST_CASE("Auto Verlet cache stores cluster candidates below atom-pair count") {
     auto_state.set_options(options);
     auto_state.rebuild(points.data(), points.size(), box);
 
-    CHECK(auto_state.candidates.length == 0);
+    CHECK(auto_state.candidates.length > 0);
+    CHECK(auto_state.simd_candidate_count() == auto_state.candidates.length);
     CHECK(auto_state.candidate_count() < atom_candidate_count);
 }
 

@@ -1,12 +1,18 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
+
+#include "hwy/highway.h"
 
 #include "cluster.hpp"
 #include "cpu_cell_list.hpp"
 #include "verlet.hpp"
 
 using namespace vesin;
+
+namespace {
+namespace hn = hwy::HWY_NAMESPACE;
 
 static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, size_t n_points) {
     auto periodic = std::array<bool, 3>{box.periodic(0), box.periodic(1), box.periodic(2)};
@@ -26,6 +32,140 @@ static Vector shift_cartesian(CellShift shift, const BoundingBox& box) {
     return shift.cartesian(box);
 }
 
+static std::vector<cpu::VerletCandidateBlock> pack_simd_candidate_blocks(
+    const VesinNeighborList& candidates,
+    const std::vector<Vector>& shift_vectors,
+    size_t& candidate_length
+) {
+    auto blocks = std::vector<cpu::VerletCandidateBlock>();
+    candidate_length = candidates.length;
+    blocks.reserve((candidates.length + CLUSTER_SIZE_CPU - 1) / CLUSTER_SIZE_CPU);
+
+    auto block = cpu::VerletCandidateBlock();
+    for (size_t k = 0; k < candidates.length; k++) {
+        auto lane = block.count;
+        block.first[lane] = candidates.pairs[k][0];
+        block.second[lane] = candidates.pairs[k][1];
+        block.shifts[lane] = CellShift{{
+            candidates.shifts[k][0],
+            candidates.shifts[k][1],
+            candidates.shifts[k][2],
+        }};
+        block.shift_x[lane] = shift_vectors[k][0];
+        block.shift_y[lane] = shift_vectors[k][1];
+        block.shift_z[lane] = shift_vectors[k][2];
+        block.count += 1;
+
+        if (block.count == CLUSTER_SIZE_CPU) {
+            blocks.push_back(block);
+            block = cpu::VerletCandidateBlock();
+        }
+    }
+
+    if (block.count != 0) {
+        blocks.push_back(block);
+    }
+
+    return blocks;
+}
+
+HWY_ATTR
+static void simd_filter_deltas(
+    const double* HWY_RESTRICT dx,
+    const double* HWY_RESTRICT dy,
+    const double* HWY_RESTRICT dz,
+    double cutoff_sq,
+    double* HWY_RESTRICT dist_sq,
+    uint8_t* HWY_RESTRICT mask
+) {
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto vcut = hn::Set(d, cutoff_sq);
+
+    for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane += N) {
+        auto vdx = hn::Load(d, dx + lane);
+        auto vdy = hn::Load(d, dy + lane);
+        auto vdz = hn::Load(d, dz + lane);
+        auto vdist = hn::MulAdd(vdx, vdx, hn::MulAdd(vdy, vdy, hn::Mul(vdz, vdz)));
+        auto vmask = hn::Lt(vdist, vcut);
+
+        hn::Store(vdist, d, dist_sq + lane);
+
+        uint8_t bits_buf[8] = {};
+        hn::StoreMaskBits(d, vmask, bits_buf);
+        uint8_t bits = bits_buf[0];
+        for (size_t k = 0; k < N && (lane + k) < CLUSTER_SIZE_CPU; k++) {
+            mask[lane + k] = (bits >> k) & 1;
+        }
+    }
+}
+
+static void filter_simd_candidate_blocks(
+    const Vector* points,
+    const std::vector<cpu::VerletCandidateBlock>& blocks,
+    double cutoff_sq,
+    VesinOptions options,
+    VesinNeighborList& neighbors,
+    size_t initial_capacity,
+    size_t& output_capacity
+) {
+    auto growable = cpu::GrowableNeighborList{neighbors, initial_capacity, options};
+    growable.reset();
+
+    alignas(64) double dx[CLUSTER_SIZE_CPU];
+    alignas(64) double dy[CLUSTER_SIZE_CPU];
+    alignas(64) double dz[CLUSTER_SIZE_CPU];
+    alignas(64) double dist_sq[CLUSTER_SIZE_CPU];
+    uint8_t mask[CLUSTER_SIZE_CPU];
+
+    for (const auto& block : blocks) {
+        for (size_t lane = 0; lane < block.count; lane++) {
+            auto i = block.first[lane];
+            auto j = block.second[lane];
+            dx[lane] = points[j][0] - points[i][0] + block.shift_x[lane];
+            dy[lane] = points[j][1] - points[i][1] + block.shift_y[lane];
+            dz[lane] = points[j][2] - points[i][2] + block.shift_z[lane];
+        }
+        for (size_t lane = block.count; lane < CLUSTER_SIZE_CPU; lane++) {
+            dx[lane] = std::numeric_limits<double>::infinity();
+            dy[lane] = 0.0;
+            dz[lane] = 0.0;
+        }
+
+        simd_filter_deltas(dx, dy, dz, cutoff_sq, dist_sq, mask);
+
+        for (size_t lane = 0; lane < block.count; lane++) {
+            if (!mask[lane]) {
+                continue;
+            }
+
+            auto index = growable.length();
+            growable.set_pair(index, block.first[lane], block.second[lane]);
+
+            if (options.return_shifts) {
+                growable.set_shift(index, block.shifts[lane]);
+            }
+
+            if (options.return_distances) {
+                growable.set_distance(index, std::sqrt(dist_sq[lane]));
+            }
+
+            if (options.return_vectors) {
+                growable.set_vector(index, Vector{dx[lane], dy[lane], dz[lane]});
+            }
+
+            growable.increment_length();
+        }
+    }
+
+    if (options.sorted) {
+        growable.sort();
+    }
+
+    output_capacity = growable.capacity;
+}
+} // namespace
+
 cpu::VerletState::~VerletState() {
     this->clear_candidates();
 }
@@ -37,6 +177,8 @@ void cpu::VerletState::clear_candidates() {
 
     this->candidates = VesinNeighborList();
     this->candidate_shift_vectors.clear();
+    this->simd_candidate_blocks.clear();
+    this->simd_candidate_length = 0;
     this->cluster_grid = ClusterGrid();
     this->cluster_candidates.clear();
     this->use_cluster_candidates = false;
@@ -123,6 +265,7 @@ void cpu::VerletState::rebuild(
         this->cluster_grid = build_cluster_grid(points, n_points, candidate_box, build_options.cutoff);
         this->cluster_candidates = build_cluster_pair_candidates(this->cluster_grid, candidate_box, build_options.cutoff);
         this->use_cluster_candidates = true;
+        cpu::cluster_pair_neighbors(points, n_points, candidate_box, build_options, this->candidates);
     } else {
         size_t candidate_capacity = 0;
         cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates, candidate_capacity);
@@ -136,6 +279,14 @@ void cpu::VerletState::rebuild(
             this->candidates.shifts[k][2],
         }};
         this->candidate_shift_vectors.push_back(shift_cartesian(shift, box));
+    }
+
+    if (this->use_cluster_candidates) {
+        this->simd_candidate_blocks = pack_simd_candidate_blocks(
+            this->candidates,
+            this->candidate_shift_vectors,
+            this->simd_candidate_length
+        );
     }
 
     this->n_points = n_points;
@@ -161,12 +312,10 @@ void cpu::VerletState::recompute(
     auto initial_capacity = std::max(output_capacity, neighbors.length);
 
     if (this->use_cluster_candidates) {
-        cpu::filter_cluster_pair_candidates(
+        filter_simd_candidate_blocks(
             points,
-            box,
-            this->cluster_grid,
-            this->cluster_candidates,
-            this->options.cutoff,
+            this->simd_candidate_blocks,
+            cutoff_sq,
             options,
             neighbors,
             initial_capacity,

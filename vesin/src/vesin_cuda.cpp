@@ -48,139 +48,7 @@ static constexpr size_t DEFAULT_MAX_CELLS = 8192;
 // beneficial on larger systems where more coarse grids become too dense.
 static constexpr size_t MIN_PARTICLES_PER_CELL = 8;
 
-// Helper functions for CPU-side vector math
-static inline double cpu_dot3(const double* a, const double* b) {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-static inline double cpu_norm3(const double* v) {
-    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-}
-
-static inline void cpu_cross3(const double* a, const double* b, double* result) {
-    result[0] = a[1] * b[2] - a[2] * b[1];
-    result[1] = a[2] * b[0] - a[0] * b[2];
-    result[2] = a[0] * b[1] - a[1] * b[0];
-}
-
-static inline void cpu_invert_matrix(const double* m, double* inv) {
-    double det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
-
-    double inv_det = 1.0 / det;
-
-    inv[0] = (m[4] * m[8] - m[5] * m[7]) * inv_det;
-    inv[1] = (m[2] * m[7] - m[1] * m[8]) * inv_det;
-    inv[2] = (m[1] * m[5] - m[2] * m[4]) * inv_det;
-    inv[3] = (m[5] * m[6] - m[3] * m[8]) * inv_det;
-    inv[4] = (m[0] * m[8] - m[2] * m[6]) * inv_det;
-    inv[5] = (m[2] * m[3] - m[0] * m[5]) * inv_det;
-    inv[6] = (m[3] * m[7] - m[4] * m[6]) * inv_det;
-    inv[7] = (m[1] * m[6] - m[0] * m[7]) * inv_det;
-    inv[8] = (m[0] * m[4] - m[1] * m[3]) * inv_det;
-}
-
-/// CPU-side box check that avoids GPU kernel launch overhead
-/// Returns: {is_valid, is_orthogonal}
-/// Also fills box_diag_out[3] and inv_box_out[9] if provided
-static std::pair<bool, bool> cpu_box_check(
-    const double h_box[9],
-    const bool h_periodic[3],
-    double cutoff,
-    double* box_diag_out, // [3] output, can be nullptr
-    double* inv_box_out   // [9] output, can be nullptr
-) {
-    const double* a = &h_box[0];
-    const double* b = &h_box[3];
-    const double* c = &h_box[6];
-
-    double a_norm = cpu_norm3(a);
-    double b_norm = cpu_norm3(b);
-    double c_norm = cpu_norm3(c);
-
-    // Count periodic directions
-    size_t n_periodic = 0;
-    if (h_periodic[0]) {
-        n_periodic++;
-    }
-    if (h_periodic[1]) {
-        n_periodic++;
-    }
-    if (h_periodic[2]) {
-        n_periodic++;
-    }
-
-    double ab_dot = cpu_dot3(a, b);
-    double ac_dot = cpu_dot3(a, c);
-    double bc_dot = cpu_dot3(b, c);
-
-    double tol = 1e-6;
-    // Treat fully non-periodic systems as orthogonal
-    // Also treat systems with zero-norm vectors as orthogonal (degenerate case)
-    bool is_orthogonal = (n_periodic == 0) ||
-                         (a_norm < tol || b_norm < tol || c_norm < tol) ||
-                         ((std::fabs(ab_dot) < tol * a_norm * b_norm) &&
-                          (std::fabs(ac_dot) < tol * a_norm * c_norm) &&
-                          (std::fabs(bc_dot) < tol * b_norm * c_norm));
-
-    // Output box diagonal (lengths)
-    if (box_diag_out != nullptr) {
-        box_diag_out[0] = a_norm;
-        box_diag_out[1] = b_norm;
-        box_diag_out[2] = c_norm;
-    }
-
-    // Compute and output inverse box (needed for general PBC)
-    if ((inv_box_out != nullptr) && !is_orthogonal) {
-        cpu_invert_matrix(h_box, inv_box_out);
-    }
-
-    // Compute minimum dimension for cutoff check
-    double min_dim = 1e30;
-    if (is_orthogonal) {
-        if (h_periodic[0]) {
-            min_dim = a_norm;
-        }
-        if (h_periodic[1]) {
-            min_dim = std::fmin(min_dim, b_norm);
-        }
-        if (h_periodic[2]) {
-            min_dim = std::fmin(min_dim, c_norm);
-        }
-    } else {
-        // General case: compute perpendicular distances
-        double bc_cross[3];
-        double ac_cross[3];
-        double ab_cross[3];
-        cpu_cross3(b, c, bc_cross);
-        cpu_cross3(a, c, ac_cross);
-        cpu_cross3(a, b, ab_cross);
-
-        double bc_norm = cpu_norm3(bc_cross);
-        double ac_norm = cpu_norm3(ac_cross);
-        double ab_norm = cpu_norm3(ab_cross);
-
-        double V = std::fabs(cpu_dot3(a, bc_cross));
-
-        double d_a = V / bc_norm;
-        double d_b = V / ac_norm;
-        double d_c = V / ab_norm;
-
-        if (h_periodic[0]) {
-            min_dim = d_a;
-        }
-        if (h_periodic[1]) {
-            min_dim = std::fmin(min_dim, d_b);
-        }
-        if (h_periodic[2]) {
-            min_dim = std::fmin(min_dim, d_c);
-        }
-    }
-
-    bool is_valid = (cutoff * 2.0 <= min_dim);
-    return {is_valid, is_orthogonal};
-}
-
-static std::optional<cudaPointerAttributes> getPtrAttributes(const void* ptr) {
+static std::optional<cudaPointerAttributes> get_ptr_attributes(const void* ptr) {
     if (ptr == nullptr) {
         return std::nullopt;
     }
@@ -210,7 +78,7 @@ static int32_t get_device_id(const void* ptr) {
         return -1;
     }
 
-    auto maybe_attr = getPtrAttributes(ptr);
+    auto maybe_attr = get_ptr_attributes(ptr);
     if (maybe_attr) {
         const cudaPointerAttributes& attr = *maybe_attr;
         if (attr.type != cudaMemoryTypeDevice) {
@@ -329,16 +197,16 @@ vesin::cuda::get_cuda_extras(VesinNeighborList* neighbors) {
 static void reset(VesinNeighborList& neighbors) {
     auto* extras = vesin::cuda::get_cuda_extras(&neighbors);
 
-    if ((neighbors.pairs != nullptr) && is_device_ptr(getPtrAttributes(neighbors.pairs), "pairs")) {
+    if ((neighbors.pairs != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.pairs), "pairs")) {
         GPULITE_CUDART_CALL(cudaFree(neighbors.pairs));
     }
-    if ((neighbors.shifts != nullptr) && is_device_ptr(getPtrAttributes(neighbors.shifts), "shifts")) {
+    if ((neighbors.shifts != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.shifts), "shifts")) {
         GPULITE_CUDART_CALL(cudaFree(neighbors.shifts));
     }
-    if ((neighbors.distances != nullptr) && is_device_ptr(getPtrAttributes(neighbors.distances), "distances")) {
+    if ((neighbors.distances != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.distances), "distances")) {
         GPULITE_CUDART_CALL(cudaFree(neighbors.distances));
     }
-    if ((neighbors.vectors != nullptr) && is_device_ptr(getPtrAttributes(neighbors.vectors), "vectors")) {
+    if ((neighbors.vectors != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.vectors), "vectors")) {
         GPULITE_CUDART_CALL(cudaFree(neighbors.vectors));
     }
 
@@ -500,15 +368,15 @@ void vesin::cuda::neighbors(
     checkCuda();
 
     // check that all pointers are are device pointers
-    if (!is_device_ptr(getPtrAttributes(points), "points")) {
+    if (!is_device_ptr(get_ptr_attributes(points), "points")) {
         throw std::runtime_error("`points` pointer is not allocated on a CUDA device");
     }
 
-    if (!is_device_ptr(getPtrAttributes(box), "box")) {
+    if (!is_device_ptr(get_ptr_attributes(box), "box")) {
         throw std::runtime_error("`box` pointer is not allocated on a CUDA device");
     }
 
-    if (!is_device_ptr(getPtrAttributes(periodic), "periodic")) {
+    if (!is_device_ptr(get_ptr_attributes(periodic), "periodic")) {
         throw std::runtime_error("`periodic` pointer is not allocated on a CUDA device");
     }
 

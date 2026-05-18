@@ -124,6 +124,33 @@ public:
     // allocate more memory & update capacity
     void grow();
 
+    // Ensure `capacity >= required`, growing if needed. Lets the caller
+    // hoist the capacity check out of the hot per-pair loop so the
+    // unchecked set_* variants below are safe to use.
+    void ensure_capacity(size_t required);
+
+    // Unchecked variants of the set_* methods above: the caller must have
+    // already called ensure_capacity so that `index < capacity`. The
+    // cachegrind profile attributed 34% of total instructions to the
+    // per-pair branch + write path; hoisting the check is the win.
+    void set_pair_unchecked(size_t index, size_t first, size_t second) {
+        this->neighbors.pairs[index][0] = first;
+        this->neighbors.pairs[index][1] = second;
+    }
+    void set_shift_unchecked(size_t index, vesin::CellShift shift) {
+        this->neighbors.shifts[index][0] = shift[0];
+        this->neighbors.shifts[index][1] = shift[1];
+        this->neighbors.shifts[index][2] = shift[2];
+    }
+    void set_distance_unchecked(size_t index, double distance) {
+        this->neighbors.distances[index] = distance;
+    }
+    void set_vector_unchecked(size_t index, vesin::Vector vector) {
+        this->neighbors.vectors[index][0] = vector[0];
+        this->neighbors.vectors[index][1] = vector[1];
+        this->neighbors.vectors[index][2] = vector[2];
+    }
+
     // sort the pairs currently in the neighbor list
     void sort();
 };

@@ -1,6 +1,9 @@
 """Tests for Verlet caching via NeighborList with skin > 0."""
 
 import math
+import subprocess
+import sys
+import textwrap
 
 import numpy as np
 import pytest
@@ -220,3 +223,48 @@ def test_non_periodic():
     )
 
     assert verlet == ref
+
+
+def test_auto_verlet_many_candidate_recompute_runs_in_subprocess(tmp_path):
+    script = textwrap.dedent(
+        """
+        import numpy as np
+        from vesin import NeighborList
+
+        n_atoms = 1024
+        density = 0.05
+        box_size = (n_atoms / density) ** (1.0 / 3.0)
+        rng = np.random.default_rng(20260512 + n_atoms)
+        positions = np.ascontiguousarray(
+            rng.random((n_atoms, 3), dtype=np.float64) * box_size
+        )
+        box = np.eye(3, dtype=np.float64) * box_size
+
+        nl = NeighborList(
+            cutoff=5.0,
+            full_list=True,
+            sorted=False,
+            skin=1.0,
+            algorithm="auto",
+        )
+        first, second = nl.compute(
+            positions,
+            box,
+            periodic=True,
+            quantities="ij",
+            copy=False,
+        )
+        if len(first) == 0 or len(second) == 0:
+            raise SystemExit("expected non-empty neighbor output")
+        """
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        cwd=tmp_path,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr + completed.stdout

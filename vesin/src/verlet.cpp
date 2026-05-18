@@ -100,6 +100,90 @@ static void simd_filter_deltas(
     }
 }
 
+// Vectorized gather of pair deltas using Highway for the Verlet recompute hot path.
+// Gathers x/y/z for atom i and j using byte-offset gathers, computes (j - i) + shift
+// in SIMD registers, and stores to the dx/dy/dz temporaries for the subsequent filter.
+HWY_ATTR
+static void gather_pair_deltas(
+    const Vector* HWY_RESTRICT points,
+    const size_t* HWY_RESTRICT first,
+    const size_t* HWY_RESTRICT second,
+    const double* HWY_RESTRICT shift_x,
+    const double* HWY_RESTRICT shift_y,
+    const double* HWY_RESTRICT shift_z,
+    size_t count,
+    double* HWY_RESTRICT dx,
+    double* HWY_RESTRICT dy,
+    double* HWY_RESTRICT dz
+) {
+    const hn::ScalableTag<double> d;
+    const hn::ScalableTag<int64_t> di64;
+    const size_t N = hn::Lanes(d);
+    const double* base = reinterpret_cast<const double*>(points);
+    const auto k_three = hn::Set(di64, int64_t{3});
+    const auto k_one = hn::Set(di64, int64_t{1});
+
+    size_t lane = 0;
+    for (; lane + N <= count; lane += N) {
+        // Load atom indices as signed (safe for practical atom counts < 2^63)
+        // Note: first/second are size_t but values are non-negative.
+        alignas(64) int64_t i_idx[8] = {};
+        alignas(64) int64_t j_idx[8] = {};
+        for (size_t k = 0; k < N; k++) {
+            i_idx[k] = static_cast<int64_t>(first[lane + k]);
+            j_idx[k] = static_cast<int64_t>(second[lane + k]);
+        }
+        auto v_i = hn::Load(di64, i_idx);
+        auto v_j = hn::Load(di64, j_idx);
+
+        // Element indices for x: atom * 3
+        auto idx_i_x = hn::Mul(v_i, k_three);
+        auto idx_j_x = hn::Mul(v_j, k_three);
+
+        auto vxi = hn::GatherIndex(d, base, idx_i_x);
+        auto vxj = hn::GatherIndex(d, base, idx_j_x);
+
+        // y: +1
+        auto idx_i_y = hn::Add(idx_i_x, k_one);
+        auto idx_j_y = hn::Add(idx_j_x, k_one);
+        auto vyi = hn::GatherIndex(d, base, idx_i_y);
+        auto vyj = hn::GatherIndex(d, base, idx_j_y);
+
+        // z: +2
+        auto idx_i_z = hn::Add(idx_i_y, k_one);
+        auto idx_j_z = hn::Add(idx_j_y, k_one);
+        auto vzi = hn::GatherIndex(d, base, idx_i_z);
+        auto vzj = hn::GatherIndex(d, base, idx_j_z);
+
+        // deltas j - i
+        auto vdx = hn::Sub(vxj, vxi);
+        auto vdy = hn::Sub(vyj, vyi);
+        auto vdz = hn::Sub(vzj, vzi);
+
+        // load and add precomputed Cartesian shifts
+        auto vsx = hn::Load(d, shift_x + lane);
+        auto vsy = hn::Load(d, shift_y + lane);
+        auto vsz = hn::Load(d, shift_z + lane);
+
+        vdx = hn::Add(vdx, vsx);
+        vdy = hn::Add(vdy, vsy);
+        vdz = hn::Add(vdz, vsz);
+
+        hn::Store(vdx, d, dx + lane);
+        hn::Store(vdy, d, dy + lane);
+        hn::Store(vdz, d, dz + lane);
+    }
+
+    // Scalar tail for remainder (when count % N != 0)
+    for (; lane < count; lane++) {
+        auto i = first[lane];
+        auto j = second[lane];
+        dx[lane] = points[j][0] - points[i][0] + shift_x[lane];
+        dy[lane] = points[j][1] - points[i][1] + shift_y[lane];
+        dz[lane] = points[j][2] - points[i][2] + shift_z[lane];
+    }
+}
+
 static void filter_simd_candidate_blocks(
     const Vector* points,
     const std::vector<cpu::VerletCandidateBlock>& blocks,
@@ -116,15 +200,26 @@ static void filter_simd_candidate_blocks(
     alignas(64) double dy[CLUSTER_SIZE_CPU];
     alignas(64) double dz[CLUSTER_SIZE_CPU];
     alignas(64) double dist_sq[CLUSTER_SIZE_CPU];
+    alignas(64) double dist[CLUSTER_SIZE_CPU];
     uint8_t mask[CLUSTER_SIZE_CPU];
+    const bool need_distance = options.return_distances;
 
     for (const auto& block : blocks) {
-        for (size_t lane = 0; lane < block.count; lane++) {
-            auto i = block.first[lane];
-            auto j = block.second[lane];
-            dx[lane] = points[j][0] - points[i][0] + block.shift_x[lane];
-            dy[lane] = points[j][1] - points[i][1] + block.shift_y[lane];
-            dz[lane] = points[j][2] - points[i][2] + block.shift_z[lane];
+        // Vectorized gather + arithmetic for the valid lanes (uses Highway Gather
+        // for random-access position loads, enabling better load parallelism on AVX2/AVX-512).
+        if (block.count > 0) {
+            gather_pair_deltas(
+                points,
+                block.first,
+                block.second,
+                block.shift_x,
+                block.shift_y,
+                block.shift_z,
+                block.count,
+                dx,
+                dy,
+                dz
+            );
         }
         for (size_t lane = block.count; lane < CLUSTER_SIZE_CPU; lane++) {
             dx[lane] = std::numeric_limits<double>::infinity();
@@ -134,24 +229,45 @@ static void filter_simd_candidate_blocks(
 
         simd_filter_deltas(dx, dy, dz, cutoff_sq, dist_sq, mask);
 
+        // SIMD sqrt: precompute once for the whole block instead of one
+        // scalar std::sqrt per kept pair in the lane loop. Highway picks
+        // the widest available vector lane (AVX-512: 8 doubles, AVX2: 4).
+        // Wasted lanes for filtered-out pairs are cheap relative to the
+        // scalar loop overhead. Only run when distances are requested.
+        if (need_distance) {
+            const hn::ScalableTag<double> d;
+            const size_t N = hn::Lanes(d);
+            for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane += N) {
+                hn::Store(hn::Sqrt(hn::Load(d, dist_sq + lane)), d, dist + lane);
+            }
+        }
+
+        // Pre-grow once per block. Worst case is every lane in this block
+        // passes the filter, so reserve growable.length() + block.count up
+        // front. This hoists the per-pair capacity branch out of the hot
+        // lane loop below (cachegrind: 34% of total instructions were in
+        // the per-pair set_*'s capacity check + grow); the unchecked
+        // set_*_unchecked variants below skip it entirely.
+        growable.ensure_capacity(growable.length() + block.count);
+
         for (size_t lane = 0; lane < block.count; lane++) {
             if (!mask[lane]) {
                 continue;
             }
 
             auto index = growable.length();
-            growable.set_pair(index, block.first[lane], block.second[lane]);
+            growable.set_pair_unchecked(index, block.first[lane], block.second[lane]);
 
             if (options.return_shifts) {
-                growable.set_shift(index, block.shifts[lane]);
+                growable.set_shift_unchecked(index, block.shifts[lane]);
             }
 
-            if (options.return_distances) {
-                growable.set_distance(index, std::sqrt(dist_sq[lane]));
+            if (need_distance) {
+                growable.set_distance_unchecked(index, dist[lane]);
             }
 
             if (options.return_vectors) {
-                growable.set_vector(index, Vector{dx[lane], dy[lane], dz[lane]});
+                growable.set_vector_unchecked(index, Vector{dx[lane], dy[lane], dz[lane]});
             }
 
             growable.increment_length();
@@ -327,6 +443,11 @@ void cpu::VerletState::recompute(
     auto growable = cpu::GrowableNeighborList{neighbors, initial_capacity, options};
     growable.reset();
 
+    // Pre-grow once for the worst case (every candidate passes the filter)
+    // so the inner loop never branches on capacity. Mirror change to the
+    // SIMD-block path above.
+    growable.ensure_capacity(this->candidates.length);
+
     // The cached list is an over-complete Verlet candidate list. Each call
     // filters candidates with the exact cutoff and requested shift/vector outputs.
     for (size_t k = 0; k < this->candidates.length; k++) {
@@ -344,18 +465,18 @@ void cpu::VerletState::recompute(
 
         if (dist_sq < cutoff_sq) {
             auto idx = growable.length();
-            growable.set_pair(idx, i, j);
+            growable.set_pair_unchecked(idx, i, j);
 
             if (options.return_shifts) {
-                growable.set_shift(idx, shift);
+                growable.set_shift_unchecked(idx, shift);
             }
 
             if (options.return_distances) {
-                growable.set_distance(idx, std::sqrt(dist_sq));
+                growable.set_distance_unchecked(idx, std::sqrt(dist_sq));
             }
 
             if (options.return_vectors) {
-                growable.set_vector(idx, vec);
+                growable.set_vector_unchecked(idx, vec);
             }
 
             growable.increment_length();

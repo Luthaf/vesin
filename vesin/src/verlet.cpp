@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "cluster.hpp"
 #include "cpu_cell_list.hpp"
 #include "verlet.hpp"
 
@@ -30,7 +31,8 @@ void cpu::VerletState::clear_candidates() {
 }
 
 void cpu::VerletState::set_options(VesinOptions options) {
-    if (this->options.cutoff != options.cutoff || this->options.skin != options.skin || this->options.full != options.full) {
+    if (this->options.cutoff != options.cutoff || this->options.skin != options.skin || this->options.full != options.full ||
+        this->options.algorithm != options.algorithm) {
         this->clear_candidates();
     }
 
@@ -94,7 +96,7 @@ void cpu::VerletState::rebuild(
     build_options.cutoff = this->options.cutoff + this->options.skin;
     build_options.full = this->options.full;
     build_options.sorted = false;
-    build_options.algorithm = VesinCellList;
+    build_options.algorithm = this->options.algorithm;
     build_options.return_shifts = true;
     build_options.return_distances = false;
     build_options.return_vectors = false;
@@ -102,8 +104,12 @@ void cpu::VerletState::rebuild(
 
     this->candidates.device = {VesinCPU, 0};
     auto candidate_box = make_box_like(box, points, n_points);
-    size_t candidate_capacity = 0;
-    cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates, candidate_capacity);
+    if (build_options.algorithm == VesinAutoAlgorithm && n_points >= CLUSTER_PAIR_THRESHOLD) {
+        cpu::cluster_pair_neighbors(points, n_points, candidate_box, build_options, this->candidates);
+    } else {
+        size_t candidate_capacity = 0;
+        cpu::stateless_neighbors(points, n_points, std::move(candidate_box), build_options, this->candidates, candidate_capacity);
+    }
 
     this->n_points = n_points;
     this->ref_positions.resize(n_points * 3);

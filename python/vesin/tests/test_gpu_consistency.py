@@ -173,7 +173,7 @@ def naphthalene_cluster() -> SystemForTests:
     )
 
 
-def partial_periodic() -> SystemForTests:
+def issue_153() -> SystemForTests:
     return SystemForTests(
         name="issue_153",
         points=np.asarray([[0.0, 2.5, 0.0], [2.0, 0.0, 0.0]], dtype=np.float64),
@@ -182,12 +182,23 @@ def partial_periodic() -> SystemForTests:
     )
 
 
+def issue_157() -> SystemForTests:
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/rotated_box.xyz")
+    return SystemForTests(
+        name="rotated_box",
+        points=atoms.positions,
+        box=np.asarray(atoms.cell[:], dtype=np.float64),
+        periodic=atoms.pbc,
+    )
+
+
 SYSTEMS_FOR_TESTS = [
     naphthalene_cluster(),
     polymer_chain(),
     graphene_sheet(),
     diamond_crystal(),
-    partial_periodic(),
+    issue_153(),
+    issue_157(),
 ]
 
 CUTOFFS = [3.0, 5.0, 7.0, 10.0]

@@ -473,6 +473,38 @@ __device__ inline void apply_pbc_general(
         periodic[2] ? static_cast<int>(round(frac.z)) : 0
     );
 
+    // For non-orthogonal cells, plain component-wise rounding can miss the
+    // true minimum image. Search neighboring images around the rounded wrap.
+    double min_dist2 = 1e30;
+    int3 best_wrap = wrap;
+
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                int3 test_wrap = make_int3(
+                    (wrap.x + dx) * static_cast<int>(periodic[0]),
+                    (wrap.y + dy) * static_cast<int>(periodic[1]),
+                    (wrap.z + dz) * static_cast<int>(periodic[2])
+                );
+
+                double3 test_frac = make_double3(
+                    frac.x - test_wrap.x,
+                    frac.y - test_wrap.y,
+                    frac.z - test_wrap.z
+                );
+                double3 test_vector = frac_to_cart(test_frac, box);
+                double dist2 = dot(test_vector, test_vector);
+
+                if (dist2 < min_dist2) {
+                    min_dist2 = dist2;
+                    best_wrap = test_wrap;
+                }
+            }
+        }
+    }
+
+    wrap = best_wrap;
+
     frac.x -= wrap.x;
     frac.y -= wrap.y;
     frac.z -= wrap.z;
@@ -862,18 +894,19 @@ __global__ void mic_box_check(
             n_periodic++;
         }
 
-        double ab_dot = dot(a, b);
-        double ac_dot = dot(a, c);
-        double bc_dot = dot(b, c);
-
         double tol = 1e-6;
+        // The orthogonal brute-force kernels assume axis-aligned (diagonal)
+        // box vectors, not only pairwise orthogonality.
+        bool is_axis_aligned =
+            (fabs(box[1]) < tol) && (fabs(box[2]) < tol) &&
+            (fabs(box[3]) < tol) && (fabs(box[5]) < tol) &&
+            (fabs(box[6]) < tol) && (fabs(box[7]) < tol);
+
         // Treat fully non-periodic systems as orthogonal (no PBC needed)
         // Also treat systems with zero-norm vectors as orthogonal (degenerate case)
         bool is_orthogonal = (n_periodic == 0) ||
                              (a_norm < tol || b_norm < tol || c_norm < tol) ||
-                             ((fabs(ab_dot) < tol * a_norm * b_norm) &&
-                              (fabs(ac_dot) < tol * a_norm * c_norm) &&
-                              (fabs(bc_dot) < tol * b_norm * c_norm));
+                             is_axis_aligned;
 
         if (box_diag != nullptr) {
             box_diag[0] = a_norm;
@@ -881,7 +914,7 @@ __global__ void mic_box_check(
             box_diag[2] = c_norm;
         }
 
-        if (inv_box_out != nullptr && !is_orthogonal) {
+        if (inv_box_out != nullptr) {
             double3 inv_box[3];
             invert_matrix(shared_box, inv_box);
             inv_box_out[0] = inv_box[0].x;

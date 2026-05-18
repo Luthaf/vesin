@@ -23,11 +23,7 @@ namespace Catch {
 template <>
 struct StringMaker<std::tuple<size_t, size_t, int32_t, int32_t, int32_t>> {
     static std::string convert(const std::tuple<size_t, size_t, int32_t, int32_t, int32_t>& t) {
-        return "(i=" + std::to_string(std::get<0>(t))
-            + ", j=" + std::to_string(std::get<1>(t))
-            + ", sx=" + std::to_string(std::get<2>(t))
-            + ", sy=" + std::to_string(std::get<3>(t))
-            + ", sz=" + std::to_string(std::get<4>(t)) + ")";
+        return "(i=" + std::to_string(std::get<0>(t)) + ", j=" + std::to_string(std::get<1>(t)) + ", sx=" + std::to_string(std::get<2>(t)) + ", sy=" + std::to_string(std::get<3>(t)) + ", sz=" + std::to_string(std::get<4>(t)) + ")";
     }
 };
 } // namespace Catch

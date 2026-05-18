@@ -110,10 +110,23 @@ set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+# Force Highway to compile as a static library so libvesin.so is self-contained.
+# Without this libvesin links libhwy.so.1 dynamically, which then has to be
+# bundled by delocate/auditwheel when packaging Python wheels (it can't find
+# the library and the build fails). Restore the saved value afterwards so
+# vesin itself still honors the caller's BUILD_SHARED_LIBS choice.
+set(_VESIN_SAVED_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(highway)
+set(BUILD_SHARED_LIBS ${_VESIN_SAVED_BUILD_SHARED_LIBS} CACHE BOOL "" FORCE)
 
 target_link_libraries(vesin_objects PRIVATE gpulite hwy)
 target_link_libraries(vesin PRIVATE gpulite hwy)
+# Mark the SIMD code paths as available so the source can #ifdef around the
+# Highway-using kernels and provide scalar fallbacks for builds without it
+# (the single-file dist build does not have Highway on its include path).
+target_compile_definitions(vesin_objects PRIVATE VESIN_HAVE_HIGHWAY)
+target_compile_definitions(vesin PRIVATE VESIN_HAVE_HIGHWAY)
 
 # Create generated directory
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)

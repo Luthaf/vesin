@@ -3,7 +3,12 @@
 #include <cstring>
 #include <limits>
 
-#include "hwy/highway.h"
+#ifdef VESIN_HAVE_HIGHWAY
+#include <hwy/highway.h>
+#else
+#define HWY_ATTR
+#define HWY_RESTRICT
+#endif
 
 #include "cluster.hpp"
 #include "cpu_cell_list.hpp"
@@ -12,24 +17,15 @@
 using namespace vesin;
 
 namespace {
+#ifdef VESIN_HAVE_HIGHWAY
 namespace hn = hwy::HWY_NAMESPACE;
+#endif
 
 static BoundingBox make_box_like(const BoundingBox& box, const Vector* points, size_t n_points) {
     auto periodic = std::array<bool, 3>{box.periodic(0), box.periodic(1), box.periodic(2)};
     auto candidate_box = BoundingBox(box.matrix(), periodic.data());
     candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points);
     return candidate_box;
-}
-
-static bool is_zero_shift(CellShift shift) {
-    return shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
-}
-
-static Vector shift_cartesian(CellShift shift, const BoundingBox& box) {
-    if (is_zero_shift(shift)) {
-        return Vector{0.0, 0.0, 0.0};
-    }
-    return shift.cartesian(box);
 }
 
 static std::vector<cpu::VerletCandidateBlock> pack_simd_candidate_blocks(
@@ -78,6 +74,7 @@ static void simd_filter_deltas(
     double* HWY_RESTRICT dist_sq,
     uint8_t* HWY_RESTRICT mask
 ) {
+#ifdef VESIN_HAVE_HIGHWAY
     const hn::ScalableTag<double> d;
     const size_t N = hn::Lanes(d);
     const auto vcut = hn::Set(d, cutoff_sq);
@@ -98,6 +95,17 @@ static void simd_filter_deltas(
             mask[lane + k] = (bits >> k) & 1;
         }
     }
+#else
+    // Scalar fallback for the single-file dist build (no Highway).
+    for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane++) {
+        const double ddx = dx[lane];
+        const double ddy = dy[lane];
+        const double ddz = dz[lane];
+        const double d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+        dist_sq[lane] = d2;
+        mask[lane] = (d2 < cutoff_sq) ? 1 : 0;
+    }
+#endif
 }
 
 // Vectorized gather of pair deltas using Highway for the Verlet recompute hot path.
@@ -116,6 +124,7 @@ static void gather_pair_deltas(
     double* HWY_RESTRICT dy,
     double* HWY_RESTRICT dz
 ) {
+#ifdef VESIN_HAVE_HIGHWAY
     const hn::ScalableTag<double> d;
     const hn::ScalableTag<int64_t> di64;
     const size_t N = hn::Lanes(d);
@@ -182,6 +191,16 @@ static void gather_pair_deltas(
         dy[lane] = points[j][1] - points[i][1] + shift_y[lane];
         dz[lane] = points[j][2] - points[i][2] + shift_z[lane];
     }
+#else
+    // Scalar fallback for the single-file dist build (no Highway).
+    for (size_t lane = 0; lane < count; lane++) {
+        const auto i = first[lane];
+        const auto j = second[lane];
+        dx[lane] = points[j][0] - points[i][0] + shift_x[lane];
+        dy[lane] = points[j][1] - points[i][1] + shift_y[lane];
+        dz[lane] = points[j][2] - points[i][2] + shift_z[lane];
+    }
+#endif
 }
 
 static void filter_simd_candidate_blocks(
@@ -234,12 +253,19 @@ static void filter_simd_candidate_blocks(
         // the widest available vector lane (AVX-512: 8 doubles, AVX2: 4).
         // Wasted lanes for filtered-out pairs are cheap relative to the
         // scalar loop overhead. Only run when distances are requested.
+        // Falls back to a scalar loop for the single-file dist build.
         if (need_distance) {
+#ifdef VESIN_HAVE_HIGHWAY
             const hn::ScalableTag<double> d;
             const size_t N = hn::Lanes(d);
             for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane += N) {
                 hn::Store(hn::Sqrt(hn::Load(d, dist_sq + lane)), d, dist + lane);
             }
+#else
+            for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane++) {
+                dist[lane] = std::sqrt(dist_sq[lane]);
+            }
+#endif
         }
 
         // Pre-grow once per block. Worst case is every lane in this block

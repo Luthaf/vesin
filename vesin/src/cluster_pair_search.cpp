@@ -7,7 +7,12 @@
 #include <numeric>
 #include <vector>
 
-#include "hwy/highway.h"
+#ifdef VESIN_HAVE_HIGHWAY
+#include <hwy/highway.h>
+#else
+#define HWY_ATTR
+#define HWY_RESTRICT
+#endif
 
 #include "cluster.hpp"
 #include "cpu_cell_list.hpp"
@@ -196,11 +201,14 @@ ClusterGrid vesin::build_cluster_grid(
 }
 
 // ---------------------------------------------------------------------------
-// SIMD inner loop using Google Highway
+// SIMD inner loop using Google Highway (with scalar fallback for builds without
+// Highway on the include path, e.g. the single-file dist build).
 // ---------------------------------------------------------------------------
 
 namespace {
+#ifdef VESIN_HAVE_HIGHWAY
 namespace hn = hwy::HWY_NAMESPACE;
+#endif
 
 /// Process one atom i against all atoms in cluster j using SIMD.
 /// Returns the number of pairs found (written into the output arrays).
@@ -217,6 +225,7 @@ static int simd_check_distances(
     double* HWY_RESTRICT out_dz,
     uint8_t* HWY_RESTRICT out_mask
 ) {
+#ifdef VESIN_HAVE_HIGHWAY
     const hn::ScalableTag<double> d;
     const size_t N = hn::Lanes(d);
 
@@ -261,18 +270,31 @@ static int simd_check_distances(
         }
     }
     return count;
-}
-
-static bool is_zero_shift(CellShift shift) {
-    return shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
-}
-
-static Vector shift_cartesian(CellShift shift, const BoundingBox& cell) {
-    if (is_zero_shift(shift)) {
-        return Vector{0.0, 0.0, 0.0};
+#else
+    // Scalar fallback used by the single-file dist build (no Highway on
+    // include path). Same outputs as the Highway path; per-pair distance
+    // compute with no lane fan-out.
+    const double ix = i_x - shift_x;
+    const double iy = i_y - shift_y;
+    const double iz = i_z - shift_z;
+    int count = 0;
+    for (size_t lane = 0; lane < CLUSTER_SIZE_CPU; lane++) {
+        const double dx = j_x[lane] - ix;
+        const double dy = j_y[lane] - iy;
+        const double dz = j_z[lane] - iz;
+        const double dist2 = dx * dx + dy * dy + dz * dz;
+        out_dist2[lane] = dist2;
+        out_dx[lane] = dx;
+        out_dy[lane] = dy;
+        out_dz[lane] = dz;
+        const uint8_t hit = (dist2 < cutoff2) ? 1 : 0;
+        out_mask[lane] = hit;
+        count += hit;
     }
-    return shift.cartesian(cell);
+    return count;
+#endif
 }
+
 } // anonymous namespace
 
 std::vector<ClusterPairCandidate> vesin::build_cluster_pair_candidates(

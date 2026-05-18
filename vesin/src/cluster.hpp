@@ -155,6 +155,21 @@ void filter_cluster_pair_candidates(
 );
 
 } // namespace cpu
+
+/// True iff the cell shift is all-zero (atom in its home cell).
+inline bool is_zero_shift(CellShift shift) {
+    return shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
+}
+
+/// Convert a cell shift to a Cartesian translation vector via the bounding box.
+/// Zero-shift fast path returns the zero vector without touching the box.
+inline Vector shift_cartesian(CellShift shift, const BoundingBox& cell) {
+    if (is_zero_shift(shift)) {
+        return Vector{0.0, 0.0, 0.0};
+    }
+    return shift.cartesian(cell);
+}
+
 } // namespace vesin
 
 #endif

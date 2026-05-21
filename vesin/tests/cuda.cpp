@@ -156,6 +156,76 @@ TEST_CASE("Test CUDA") {
     }
 }
 
+// Exercise the CUDA Verlet skin cache path with a small system that
+// reliably triggers the cache filter and displacement-check kernels.
+TEST_CASE("Test CUDA Verlet skin cache") {
+    int n_devices = 0;
+    check_cuda(cudaGetDeviceCount(&n_devices));
+    REQUIRE(n_devices > 0);
+    int device_id = 0;
+    check_cuda(cudaSetDevice(device_id));
+
+    // small but sufficient system to exercise the Verlet cache kernels
+    double points[][3] = {
+        {0.0, 0.0, 0.0},
+        {1.0, 1.0, 1.0},
+        {2.0, 2.0, 2.0},
+        {4.0, 1.0, 0.0},
+    };
+    size_t n_points = 4;
+    double (*d_points)[3] = nullptr;
+    check_cuda(cudaMalloc(&d_points, sizeof(double) * n_points * 3));
+    check_cuda(cudaMemcpy(d_points, points, sizeof(double) * n_points * 3, cudaMemcpyHostToDevice));
+
+    double box[3][3] = {{10.0, 0.0, 0.0}, {0.0, 10.0, 0.0}, {0.0, 0.0, 10.0}};
+    double (*d_box)[3] = nullptr;
+    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
+    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
+
+    bool periodic[3] = {true, true, true};
+    bool* d_periodic = nullptr;
+    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
+    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+
+    VesinNeighborList neighbors = {};
+
+    auto options = VesinOptions();
+    options.cutoff = 2.5;
+    options.skin = 0.8; // enable Verlet cache path
+    options.full = true;
+    options.sorted = false;
+    options.algorithm = VesinAutoAlgorithm;
+    options.return_shifts = true;
+    options.return_distances = true;
+
+    const char* error_message = nullptr;
+    auto status = vesin_neighbors(
+        d_points, n_points, d_box, d_periodic, {VesinDeviceKind::VesinCUDA, device_id}, options, &neighbors, &error_message
+    );
+    REQUIRE(error_message == nullptr);
+    REQUIRE(status == EXIT_SUCCESS);
+
+    // second call with small displacement to hit the cache filter kernels
+    double moved_points[][3] = {
+        {0.01, 0.01, 0.01},
+        {1.02, 1.01, 0.99},
+        {2.00, 2.03, 1.98},
+        {4.01, 1.02, 0.01},
+    };
+    check_cuda(cudaMemcpy(d_points, moved_points, sizeof(double) * n_points * 3, cudaMemcpyHostToDevice));
+
+    status = vesin_neighbors(
+        d_points, n_points, d_box, d_periodic, {VesinDeviceKind::VesinCUDA, device_id}, options, &neighbors, &error_message
+    );
+    REQUIRE(error_message == nullptr);
+    REQUIRE(status == EXIT_SUCCESS);
+
+    vesin_free(&neighbors);
+    cudaFree(d_points);
+    cudaFree(d_box);
+    cudaFree(d_periodic);
+}
+
 #else
 
 TEST_CASE("CUDA tests are disabled") {}

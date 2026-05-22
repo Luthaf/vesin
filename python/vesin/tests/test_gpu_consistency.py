@@ -27,6 +27,25 @@ class SystemForTests:
     periodic: tuple[bool, bool, bool]
 
 
+ROTATION = np.array(
+    [
+        [-0.91384671, -0.08023061, 0.39805432],
+        [-0.02210092, 0.98866054, 0.14853245],
+        [-0.40545745, 0.12693853, -0.90525735],
+    ],
+    dtype=np.float64,
+)
+
+
+def rotate_system(case: SystemForTests) -> SystemForTests:
+    return SystemForTests(
+        name=f"{case.name}_rotated",
+        points=case.points @ ROTATION.T,
+        box=case.box @ ROTATION.T,
+        periodic=case.periodic,
+    )
+
+
 def sort_neighbors(i, j, S, D, d):
     ijS = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1)
     sort_indices = np.lexsort(np.flip(ijS, axis=1).T)
@@ -234,12 +253,16 @@ def gpu_algorithm_is_applicable(
 @pytest.mark.parametrize(
     "system", SYSTEMS_FOR_TESTS, ids=[case.name for case in SYSTEMS_FOR_TESTS]
 )
+@pytest.mark.parametrize("rotated", [False, True], ids=["unrotated", "rotated"])
 @pytest.mark.parametrize("cutoff", CUTOFFS)
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force"])
 @pytest.mark.parametrize("sorted", [False, True])
 def test_gpu_matches_cpu_for_fixed_systems(
-    system, cutoff, full_list, gpu_algorithm, sorted, monkeypatch
+    system, rotated, cutoff, full_list, gpu_algorithm, sorted, monkeypatch
 ):
+    if rotated:
+        system = rotate_system(system)
+
     if not gpu_algorithm_is_applicable(system, cutoff, gpu_algorithm):
         return
 

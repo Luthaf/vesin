@@ -183,7 +183,7 @@ public:
             if (!periodic_[dim]) {
                 // add a 1% margin to make sure all points are strictly inside the
                 // bounding box
-                distances_between_faces_[dim] = max_positions_[dim] * 1.01 - min_positions_[dim];
+                distances_between_faces_[dim] = (max_positions_[dim] - min_positions_[dim]) * 1.01;
             }
         }
     }

@@ -348,3 +348,41 @@ def test_gigantic_cell():
 
     (P,) = calc.compute(positions, cell, periodic=True, quantities="P")
     assert len(P) == 412
+
+
+def test_all_negative_coordinates():
+    points = cp.array(
+        [
+            [3.87166034, 1.63896135, 22.14371739],
+            [3.19075223, 1.6182371, 22.87858863],
+            [5.01141342, 1.73904134, 20.79729257],
+        ]
+    )
+    translated = points - 15.0
+    assert cp.all(translated[:, 0] < 0)
+    assert cp.all(translated[:, 1] < 0)
+
+    box = cp.zeros((3, 3), dtype=cp.float64)
+
+    expected_pairs = {
+        (0, 1),
+        (0, 2),
+        (1, 0),
+        (1, 2),
+        (2, 0),
+        (2, 1),
+    }
+
+    calculator = NeighborList(cutoff=8.0, full_list=True)
+
+    original_i, original_j = calculator.compute(points, box, False, "ij")
+    translated_i, translated_j = calculator.compute(translated, box, False, "ij")
+
+    original_i = cp.asnumpy(original_i)
+    original_j = cp.asnumpy(original_j)
+
+    translated_i = cp.asnumpy(translated_i)
+    translated_j = cp.asnumpy(translated_j)
+
+    assert set(zip(original_i, original_j, strict=True)) == (expected_pairs)
+    assert set(zip(translated_i, translated_j, strict=True)) == (expected_pairs)

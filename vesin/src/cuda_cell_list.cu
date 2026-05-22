@@ -204,19 +204,19 @@ __global__ void compute_cell_grid_params(
     if (periodic[0]) {
         distances[0] = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
     } else {
-        distances[0] = bounding_max[0] * 1.01 - bounding_min[0];
+        distances[0] = (bounding_max[0] - bounding_min[0]) * 1.01;
     }
 
     if (periodic[1]) {
         distances[1] = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
     } else {
-        distances[1] = bounding_max[1] * 1.01 - bounding_min[1];
+        distances[1] = (bounding_max[1] - bounding_min[1]) * 1.01;
     }
 
     if (periodic[2]) {
         distances[2] = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
     } else {
-        distances[2] = bounding_max[2] * 1.01 - bounding_min[2];
+        distances[2] = (bounding_max[2] - bounding_min[2]) * 1.01;
     }
 
     // Compute number of cells based on cutoff (one cell per cutoff distance)
@@ -294,7 +294,7 @@ __global__ void assign_cell_indices(
     // bounding box instead of the box matrix inverse
     for (int d = 0; d < 3; d++) {
         if (!periodic[d]) {
-            double dist = bounding_max[d] * 1.01 - bounding_min[d];
+            double dist = (bounding_max[d] - bounding_min[d]) * 1.01;
             frac[d] = (pos_arr[d] - bounding_min[d]) / dist;
         }
     }

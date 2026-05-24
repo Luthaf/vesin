@@ -296,6 +296,21 @@ def test_dtype(dtype, device):
     assert d.dtype == dtype
 
 
+@pytest.mark.parametrize("device", DEVICES)
+def test_integer_input_float_outputs(device):
+    box = torch.eye(3, dtype=torch.int64, device=device) * 10
+    points = torch.tensor([[0, 0, 0], [1, 0, 0]], dtype=torch.int64, device=device)
+
+    calculator = NeighborList(cutoff=2, full_list=True)
+    i, j, D, d = calculator.compute(points, box, False, "ijDd")
+
+    assert i.dtype == torch.uint64
+    assert j.dtype == torch.uint64
+    assert D.dtype == torch.float64
+    assert d.dtype == torch.float64
+    assert d.cpu().tolist() == pytest.approx([1.0, 1.0])
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 @pytest.mark.parametrize("device", DEVICES)
 def test_dtype_empty_neighbors(dtype, device):

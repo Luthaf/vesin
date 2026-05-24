@@ -195,12 +195,6 @@ class NeighborList:
             ptr_to_array_fn = _ptr_to_numpy
             copy_array_fn = lambda arr: arr.copy()  # noqa: E731
 
-        if box.shape != (3, 3):
-            raise ValueError("`box` must be a 3x3 matrix")
-
-        if len(points.shape) != 2 or points.shape[1] != 3:
-            raise ValueError("`points` must be a nx3 array")
-
         options = VesinOptions()
         options.cutoff = self.cutoff
         options.full = self.full_list
@@ -222,6 +216,12 @@ class NeighborList:
         periodic = as_array_fn(periodic, device_like=points)
         periodic = to_dtype_fn(periodic, bool_dtype)
 
+        if box.shape != (3, 3):
+            raise ValueError("`box` must be a 3x3 matrix")
+
+        if len(points.shape) != 2 or points.shape[1] != 3:
+            raise ValueError("`points` must be a nx3 array")
+
         if periodic.shape != (3,):
             raise ValueError(
                 "`periodic` must be a single boolean or a sequence of three "
@@ -229,6 +229,11 @@ class NeighborList:
             )
 
         initial_dtype = points.dtype
+        output_float_dtype = (
+            initial_dtype
+            if _is_floating_dtype(initial_dtype, use_torch=use_torch)
+            else float64_dtype
+        )
         if box.dtype != initial_dtype:
             raise RuntimeError(
                 "`points` and `box` must have the same dtype, "
@@ -284,8 +289,12 @@ class NeighborList:
             # the caller gets the same dtype they passed in.
             pairs = empty_array_fn((0, 2), dtype=ctypes.c_size_t, device_like=points)
             shifts = empty_array_fn((0, 3), dtype=ctypes.c_int32, device_like=points)
-            distances = empty_array_fn((0,), dtype=initial_dtype, device_like=points)
-            vectors = empty_array_fn((0, 3), dtype=initial_dtype, device_like=points)
+            distances = empty_array_fn(
+                (0,), dtype=output_float_dtype, device_like=points
+            )
+            vectors = empty_array_fn(
+                (0, 3), dtype=output_float_dtype, device_like=points
+            )
         else:
             pairs = ptr_to_array_fn(
                 self._neighbors.pairs,
@@ -310,7 +319,7 @@ class NeighborList:
                     owner=self._neighbors,
                     device=self._neighbors.device,
                 )
-                distances = to_dtype_fn(distances, initial_dtype)
+                distances = to_dtype_fn(distances, output_float_dtype)
             if "D" in quantities:
                 vectors = ptr_to_array_fn(
                     self._neighbors.vectors,
@@ -319,7 +328,7 @@ class NeighborList:
                     owner=self._neighbors,
                     device=self._neighbors.device,
                 )
-                vectors = to_dtype_fn(vectors, initial_dtype)
+                vectors = to_dtype_fn(vectors, output_float_dtype)
 
         # assemble output
 
@@ -371,6 +380,12 @@ def _numpy_asarray(array, device_like) -> np.ndarray:
     return np.asarray(array)
 
 
+def _is_floating_dtype(dtype, use_torch: bool) -> bool:
+    if use_torch:
+        return dtype.is_floating_point
+    return np.issubdtype(dtype, np.floating)
+
+
 def _numpy_to_dtype(array: np.ndarray, dtype) -> np.ndarray:
     return array.astype(dtype)
 
@@ -396,6 +411,9 @@ def _ptr_to_numpy(ptr, shape, dtype, owner, device):
 
 
 def _cupy_asarray(array, device_like) -> "cp.ndarray":
+    if device_like is not None:
+        with device_like.device:
+            return cp.asarray(array)
     return cp.asarray(array)
 
 

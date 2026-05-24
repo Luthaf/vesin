@@ -65,6 +65,35 @@ def test_pairs_output():
     assert np.all(np.vstack([i, j]).T == P)
 
 
+def test_array_like_inputs():
+    calculator = NeighborList(cutoff=1.0, full_list=True)
+
+    i, j, D, d = calculator.compute(
+        points=[[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]],
+        box=[[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]],
+        periodic=False,
+        quantities="ijDd",
+    )
+
+    assert i.tolist() == [0, 1]
+    assert j.tolist() == [1, 0]
+    assert np.allclose(d, [0.5, 0.5])
+    assert np.allclose(D, [[0.5, 0.0, 0.0], [-0.5, 0.0, 0.0]])
+
+
+def test_ase_neighbor_list_integer_cutoff():
+    atoms = ase.Atoms(
+        positions=[[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]],
+        cell=2.0 * np.eye(3),
+        pbc=False,
+    )
+
+    i, j = vesin.ase_neighbor_list("ij", atoms, cutoff=1)
+
+    assert i.tolist() == [0, 1]
+    assert j.tolist() == [1, 0]
+
+
 def test_sorting():
     atoms = ase.io.read(f"{CURRENT_DIR}/data/diamond.xyz")
 
@@ -195,6 +224,32 @@ def test_dtype_empty_neighbors(dtype):
     assert len(i) == 0
     assert D.dtype == dtype
     assert d.dtype == dtype
+
+
+def test_integer_input_float_outputs():
+    box = np.eye(3, dtype=np.int64) * 10
+    points = np.array([[0, 0, 0], [1, 0, 0]], dtype=np.int64)
+
+    calculator = NeighborList(cutoff=2, full_list=True)
+    i, j, D, d = calculator.compute(points, box, False, "ijDd")
+
+    assert i.dtype == np.uint64
+    assert j.dtype == np.uint64
+    assert D.dtype == np.float64
+    assert d.dtype == np.float64
+    assert np.allclose(d, [1.0, 1.0])
+    assert np.allclose(D, [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+
+
+def test_integer_input_empty_float_outputs():
+    box = np.eye(3, dtype=np.int64) * 10
+    points = np.array([[0, 0, 0], [5, 0, 0]], dtype=np.int64)
+
+    calculator = NeighborList(cutoff=1, full_list=True)
+    D, d = calculator.compute(points, box, False, "Dd")
+
+    assert D.dtype == np.float64
+    assert d.dtype == np.float64
 
 
 def test_gigantic_cell():

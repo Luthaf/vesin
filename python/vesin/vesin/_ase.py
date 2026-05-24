@@ -39,14 +39,14 @@ def ase_neighbor_list(quantities, a, cutoff, self_interaction=False, max_nbins=0
     if self_interaction:
         raise ValueError("self_interaction=True is not implemented")
 
-    if not isinstance(cutoff, float):
+    if not isinstance(cutoff, (float, int)):
         raise ValueError("only a single float cutoff is supported")
 
     if not isinstance(a, ase.Atoms):
         raise TypeError(f"`a` should be ase.Atoms, got {type(a)} instead")
 
     # sorted=True and full_list=True since that's what ASE does
-    calculator = NeighborList(cutoff=cutoff, full_list=True, sorted=True)
+    calculator = NeighborList(cutoff=float(cutoff), full_list=True, sorted=True)
     return calculator.compute(
         points=a.positions,
         box=a.cell[:],

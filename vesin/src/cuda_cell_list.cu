@@ -36,8 +36,8 @@ __device__ inline double3 normalize3(const double3& v) {
 __global__ void compute_bounding_box(
     const double* __restrict__ positions,
     size_t n_points,
-    double* __restrict__ bounding_min,
-    double* __restrict__ bounding_max
+    double* __restrict__ face_distances,
+    double* __restrict__ bounding_min
 ) {
     // 256 here must match the number of threads used to launch this kernel.
     __shared__ double shared_min[3][256];
@@ -84,12 +84,16 @@ __global__ void compute_bounding_box(
 
         for (int dim = 0; dim < 3; dim++) {
             bounding_min[dim] = final_min[dim];
-            bounding_max[dim] = final_max[dim];
 
-            // if all atoms have the same coordinate in this dimension, pretend
-            // that the bounding box is at least 1 unit wide
-            if (bounding_max[dim] - bounding_min[dim] < 1e-6) {
-                bounding_max[dim] = bounding_min[dim] + 1;
+            // Add 1% margin to bounding box size to ensure particles on the
+            // edge are included in cells
+            face_distances[dim] = (final_max[dim] - final_min[dim]) * 1.01;
+
+            // make sure the distance is not too small (to prevent searching too
+            // many cells down the line). This can happen if all point are in
+            // the same plane in this direction
+            if (face_distances[dim] < 1.0) {
+                face_distances[dim] = 1.0;
             }
         }
     }
@@ -105,8 +109,7 @@ __global__ void compute_cell_grid_params(
     int* __restrict__ n_cells,
     int* __restrict__ n_search,
     int* __restrict__ n_cells_total,
-    const double* __restrict__ bounding_min,
-    const double* __restrict__ bounding_max
+    double* __restrict__ face_distances
 ) {
     if (threadIdx.x != 0 || blockIdx.x != 0) {
         return;
@@ -196,33 +199,25 @@ __global__ void compute_cell_grid_params(
     double ca_norm = sqrt(ca[0] * ca[0] + ca[1] * ca[1] + ca[2] * ca[2]);
     double ab_norm = sqrt(ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]);
 
-    // Distances between opposite faces
-    // For non-periodic directions, use the bounding box extent (with 1% margin)
-    // instead of the box matrix geometry
-    double distances[3];
-
+    // Compute the distances between opposite faces
+    // For non-periodic directions, `face_distances` already contains the
+    // bounding box extent (with 1% margin) computed by `compute_bounding_box`
     if (periodic[0]) {
-        distances[0] = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
-    } else {
-        distances[0] = (bounding_max[0] - bounding_min[0]) * 1.01;
+        face_distances[0] = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
     }
 
     if (periodic[1]) {
-        distances[1] = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
-    } else {
-        distances[1] = (bounding_max[1] - bounding_min[1]) * 1.01;
+        face_distances[1] = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
     }
 
     if (periodic[2]) {
-        distances[2] = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
-    } else {
-        distances[2] = (bounding_max[2] - bounding_min[2]) * 1.01;
+        face_distances[2] = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
     }
 
     // Compute number of cells based on cutoff (one cell per cutoff distance)
-    n_cells[0] = max(1, (int)floor(distances[0] / cutoff));
-    n_cells[1] = max(1, (int)floor(distances[1] / cutoff));
-    n_cells[2] = max(1, (int)floor(distances[2] / cutoff));
+    n_cells[0] = max(1, (int)floor(face_distances[0] / cutoff));
+    n_cells[1] = max(1, (int)floor(face_distances[1] / cutoff));
+    n_cells[2] = max(1, (int)floor(face_distances[2] / cutoff));
 
     int total = n_cells[0] * n_cells[1] * n_cells[2];
 
@@ -256,7 +251,7 @@ __global__ void compute_cell_grid_params(
     // Compute search range - how many cells to search in each direction
     // When cells are larger than cutoff, we need to search more cells
     for (int dim = 0; dim < 3; dim++) {
-        double cell_size = distances[dim] / n_cells[dim];
+        double cell_size = face_distances[dim] / n_cells[dim];
         n_search[dim] = max(1, (int)ceil(cutoff / cell_size));
     }
 }
@@ -270,8 +265,8 @@ __global__ void assign_cell_indices(
     size_t n_points,
     int* __restrict__ cell_indices,
     int* __restrict__ particle_shifts,
-    const double* __restrict__ bounding_min,
-    const double* __restrict__ bounding_max
+    const double* __restrict__ face_distances,
+    const double* __restrict__ bounding_min
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
@@ -294,8 +289,7 @@ __global__ void assign_cell_indices(
     // bounding box instead of the box matrix inverse
     for (int d = 0; d < 3; d++) {
         if (!periodic[d]) {
-            double dist = (bounding_max[d] - bounding_min[d]) * 1.01;
-            frac[d] = (pos_arr[d] - bounding_min[d]) / dist;
+            frac[d] = (pos_arr[d] - bounding_min[d]) / face_distances[d];
         }
     }
 

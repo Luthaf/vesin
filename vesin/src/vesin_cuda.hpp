@@ -43,8 +43,8 @@ struct CellListBuffers {
     int32_t* n_search = nullptr;      // [3] search range in each direction
     int32_t* n_cells_total = nullptr; // [1] total number of cells
 
-    double* bounding_min = nullptr; // [3] per-dimension min for non-periodic axes
-    double* bounding_max = nullptr; // [3] per-dimension max for non-periodic axes
+    double* face_distances = nullptr; // [3] distances between faces of the box
+    double* bounding_min = nullptr;   // [3] bottom of the bounding box
 };
 
 struct CudaNeighborListExtras {

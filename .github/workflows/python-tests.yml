@@ -2,7 +2,7 @@ name: Python tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, release-0.5]
   pull_request:
     # Check all PR
 

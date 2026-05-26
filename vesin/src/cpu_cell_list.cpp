@@ -180,6 +180,31 @@ CellList::CellList(BoundingBox box, double cutoff):
         }
     }
 
+    // When there is mixed periodicity (some dimensions periodic, some not),
+    // periodic shifts can bring atoms together across multiple cells in
+    // non-periodic dimensions. Increase the search range in non-periodic
+    // dimensions to cover the full cell extent in those dimensions.
+    bool has_periodic = false;
+    bool has_non_periodic = false;
+    for (size_t d = 0; d < 3; d++) {
+        if (box_.periodic(d)) {
+            has_periodic = true;
+        } else {
+            has_non_periodic = true;
+        }
+    }
+
+    if (has_periodic && has_non_periodic) {
+        for (size_t spatial = 0; spatial < 3; spatial++) {
+            if (!box_.periodic(spatial)) {
+                n_search_[spatial] = std::max(
+                    n_search_[spatial],
+                    static_cast<int32_t>(cells_shape_[spatial]) - 1
+                );
+            }
+        }
+    }
+
     this->cells_.resize(cells_shape_[0] * cells_shape_[1] * cells_shape_[2]);
 }
 
@@ -217,15 +242,32 @@ void CellList::foreach_pair(Function callback) {
         for (int32_t delta_x=-n_search_[0]; delta_x<=n_search_[0]; delta_x++) {
         for (int32_t delta_y=-n_search_[1]; delta_y<=n_search_[1]; delta_y++) {
         for (int32_t delta_z=-n_search_[2]; delta_z<=n_search_[2]; delta_z++) {
-            auto cell_i = std::array<int32_t, 3>{
+            // shift vector from one cell to the other
+            auto cell_shift = std::array<int32_t, 3>{0, 0, 0};
+            // index of the neighboring cell
+            auto neighbor_cell_i = std::array<int32_t, 3>{
                 cell_i_x + delta_x,
                 cell_i_y + delta_y,
                 cell_i_z + delta_z,
             };
 
-            // shift vector from one cell to the other and index of
-            // the neighboring cell
-            auto [cell_shift, neighbor_cell_i] = divmod(cell_i, cells_shape_);
+            // only wrap (i.e. call divmod) cell indices in periodic dimensions,
+            // skip out-of-bounds cells in non-periodic ones
+            bool cell_is_valid = true;
+            for (int d = 0; d < 3; d++) {
+                if (box_.periodic(d)) {
+                    auto [q, r] = divmod(neighbor_cell_i[d], cells_shape_[d]);
+                    cell_shift[d] = q;
+                    neighbor_cell_i[d] = r;
+                } else if (neighbor_cell_i[d] < 0 || neighbor_cell_i[d] >= static_cast<int32_t>(cells_shape_[d])) {
+                    cell_is_valid = false;
+                    break;
+                }
+            }
+
+            if (!cell_is_valid) {
+                continue;
+            }
 
             for (const auto& atom_i: current_cell) {
                 for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {

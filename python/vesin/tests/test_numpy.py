@@ -8,54 +8,83 @@ import numpy as np
 import pytest
 
 import vesin
+from _utils import TEST_SYSTEMS
 from vesin import NeighborList
 
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
-def non_sorted_nl(quantities, atoms, cutoff):
-    calculator = NeighborList(cutoff=cutoff, full_list=True, sorted=False)
-    outputs = calculator.compute(
-        points=atoms.positions,
-        box=atoms.cell[:],
-        periodic=atoms.pbc,
-        quantities=quantities,
-        copy=False,
-    )
-    # since we have `copy=False`, also return the calculator to keep the memory alive
-    return *outputs, calculator
-
-
-@pytest.mark.parametrize(
-    "system",
-    ["water", "diamond", "naphthalene", "carbon", "slab", "Cd2I4O12", "rotated_box"],
-)
-@pytest.mark.parametrize("cutoff", [float(i) for i in range(1, 10)])
-@pytest.mark.parametrize("vesin_nl", [vesin.ase_neighbor_list, non_sorted_nl])
-def test_neighbors(system, cutoff, vesin_nl):
-    atoms = ase.io.read(f"{CURRENT_DIR}/data/{system}.xyz")
-
-    ase_i, ase_j, ase_S, ase_D = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
-    vesin_i, vesin_j, vesin_S, vesin_D, *_ = vesin_nl("ijSD", atoms, cutoff)
-
-    assert len(ase_i) == len(vesin_i)
-    assert len(ase_j) == len(vesin_j)
-    assert len(ase_S) == len(vesin_S)
-    assert len(ase_D) == len(vesin_D)
-
-    ase_ijS = np.concatenate(
-        (ase_i.reshape(-1, 1), ase_j.reshape(-1, 1), ase_S), axis=1
-    )
-    vesin_ijS = np.concatenate(
-        (vesin_i.reshape(-1, 1), vesin_j.reshape(-1, 1), vesin_S), axis=1
+def sort_neighbors(i, j, S, D, d):
+    ijS = np.concatenate((i.reshape(-1, 1), j.reshape(-1, 1), S), axis=1)
+    sort_indices = np.lexsort(np.flip(ijS, axis=1).T)
+    return (
+        i[sort_indices],
+        j[sort_indices],
+        S[sort_indices],
+        D[sort_indices],
+        d[sort_indices],
     )
 
-    ase_sort_indices = np.lexsort(ase_ijS.T)
-    vesin_sort_indices = np.lexsort(vesin_ijS.T)
 
-    assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
-    assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
+def ase_neighbors(system, cutoff):
+    atoms = ase.Atoms(
+        positions=system.points,
+        cell=system.box,
+        pbc=system.periodic,
+    )
+    return sort_neighbors(*ase.neighborlist.neighbor_list("ijSDd", atoms, cutoff))
+
+
+def vesin_neighbors(system, cutoff, sorted):
+    calculator = NeighborList(
+        cutoff=cutoff,
+        full_list=True,
+        sorted=sorted,
+        algorithm="cell_list",
+    )
+
+    neighbors = calculator.compute(
+        points=system.points,
+        box=system.box,
+        periodic=system.periodic,
+        quantities="ijSDd",
+    )
+
+    return sort_neighbors(*neighbors)
+
+
+@pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
+@pytest.mark.parametrize("cutoff", [3.0, 5.0, 7.0, 10.0])
+@pytest.mark.parametrize("sorted", [True, False])
+@pytest.mark.parametrize("transform", ["none", "rotate", "rotate_and_translate"])
+def test_against_ase(system, cutoff, sorted, transform):
+    if transform == "none":
+        pass
+    elif transform == "rotate":
+        system = system.transform(translate=False)
+    elif transform == "rotate_and_translate":
+        system = system.transform(translate=True)
+    else:
+        raise ValueError(f"Unknown transform: {transform}")
+
+    expected_i, expected_j, expected_S, expected_D, expected_d = ase_neighbors(
+        system, cutoff
+    )
+    actual_i, actual_j, actual_S, actual_D, actual_d = vesin_neighbors(
+        system, cutoff, sorted=sorted
+    )
+
+    message = (
+        f"Neighbors do not match between ASE and vesin for {system.name}, "
+        f"transformed with {system.transform_summary}."
+    )
+
+    assert np.array_equal(actual_i, expected_i), message
+    assert np.array_equal(actual_j, expected_j), message
+    assert np.array_equal(actual_S, expected_S), message
+    assert np.allclose(actual_D, expected_D), message
+    assert np.allclose(actual_d, expected_d), message
 
 
 def test_slab_slow():

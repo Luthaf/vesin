@@ -1,5 +1,6 @@
 import itertools
 import os
+import time
 
 import ase.io
 import ase.neighborlist
@@ -26,7 +27,10 @@ def non_sorted_nl(quantities, atoms, cutoff):
     return *outputs, calculator
 
 
-@pytest.mark.parametrize("system", ["water", "diamond", "naphthalene", "carbon"])
+@pytest.mark.parametrize(
+    "system",
+    ["water", "diamond", "naphthalene", "carbon", "slab", "Cd2I4O12", "rotated_box"],
+)
 @pytest.mark.parametrize("cutoff", [float(i) for i in range(1, 10)])
 @pytest.mark.parametrize("vesin_nl", [vesin.ase_neighbor_list, non_sorted_nl])
 def test_neighbors(system, cutoff, vesin_nl):
@@ -52,6 +56,20 @@ def test_neighbors(system, cutoff, vesin_nl):
 
     assert np.array_equal(ase_ijS[ase_sort_indices], vesin_ijS[vesin_sort_indices])
     assert np.allclose(ase_D[ase_sort_indices], vesin_D[vesin_sort_indices])
+
+
+def test_slab_slow():
+    # This system was taking >1s due to an issue in the number of cells searched
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/slab.xyz")
+
+    start = time.time()
+    vesin.ase_neighbor_list("ijSD", atoms, cutoff=5.0)
+    end = time.time()
+    elsapsed_time = end - start
+
+    # should be closer to 10ms in practice, but allow
+    # for some leeway for debug builds & co.
+    assert elsapsed_time < 0.01
 
 
 def test_pairs_output():

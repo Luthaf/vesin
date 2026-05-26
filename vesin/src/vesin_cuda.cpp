@@ -103,8 +103,8 @@ static void free_cell_list_buffers(CellListBuffers& cl) {
     GPULITE_CUDART_CALL(cudaFree(cl.n_cells));
     GPULITE_CUDART_CALL(cudaFree(cl.n_search));
     GPULITE_CUDART_CALL(cudaFree(cl.n_cells_total));
+    GPULITE_CUDART_CALL(cudaFree(cl.face_distances));
     GPULITE_CUDART_CALL(cudaFree(cl.bounding_min));
-    GPULITE_CUDART_CALL(cudaFree(cl.bounding_max));
 
     cl = CellListBuffers();
 }
@@ -349,8 +349,8 @@ static void realloc_buffers_if_needed(
         GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.n_cells, sizeof(int32_t) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.n_search, sizeof(int32_t) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.n_cells_total, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.face_distances, sizeof(double) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.bounding_min, sizeof(double) * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&cl.bounding_max, sizeof(double) * 3));
     }
 }
 
@@ -572,8 +572,8 @@ void vesin::cuda::neighbors(
         std::vector<void*> bounding_args = {
             static_cast<void*>(&d_positions),
             static_cast<void*>(&n_points),
+            static_cast<void*>(&cl.face_distances),
             static_cast<void*>(&cl.bounding_min),
-            static_cast<void*>(&cl.bounding_max),
         };
         // the 256 here must match the size of shared memory allocated inside the code,
         // if you update one please update the other.
@@ -596,8 +596,7 @@ void vesin::cuda::neighbors(
             static_cast<void*>(&cl.n_cells),
             static_cast<void*>(&cl.n_search),
             static_cast<void*>(&cl.n_cells_total),
-            static_cast<void*>(&cl.bounding_min),
-            static_cast<void*>(&cl.bounding_max),
+            static_cast<void*>(&cl.face_distances),
         };
         grid_kernel->launch(dim3(1), dim3(1), 0, nullptr, grid_args, false);
         NVTX_POP();
@@ -622,8 +621,8 @@ void vesin::cuda::neighbors(
             static_cast<void*>(&n_points),
             static_cast<void*>(&cl.cell_indices),
             static_cast<void*>(&cl.particle_shifts),
+            static_cast<void*>(&cl.face_distances),
             static_cast<void*>(&cl.bounding_min),
-            static_cast<void*>(&cl.bounding_max),
         };
         assign_kernel->launch(
             dim3(num_blocks_points), dim3(THREADS_PER_BLOCK), 0, nullptr, assign_args, false

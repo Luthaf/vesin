@@ -254,6 +254,17 @@ __global__ void compute_cell_grid_params(
         double cell_size = face_distances[dim] / n_cells[dim];
         n_search[dim] = max(1, (int)ceil(cutoff / cell_size));
     }
+
+    // When there is mixed periodicity, increase search in non-periodic
+    // dimensions to account for periodic shifts that can bring atoms
+    // together across the bounding box.
+    if (n_periodic > 0 && n_periodic < 3) {
+        for (int dim = 0; dim < 3; dim++) {
+            if (!periodic[dim]) {
+                n_search[dim] = max(n_search[dim], n_cells[dim] - 1);
+            }
+        }
+    }
 }
 
 // Map particles to cells via fractional coords, record periodic wrap shifts

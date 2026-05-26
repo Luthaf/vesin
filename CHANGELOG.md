@@ -17,6 +17,16 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.5.8](https://github.com/Luthaf/vesin/releases/tag/v0.5.8) - 2026-05-26
+
+### Fixed
+
+- Fixed a bug that skipped pairs when handling non-periodic dimensions with all
+  points coordinates being negative
+- Fixed a bug in CUDA when dealing with rotated orthorhombic boxes
+- Fixed missing pairs when using rotated boxes with some periodic dimensions
+  some non-periodic dimensions
+
 ## [Version 0.5.7](https://github.com/Luthaf/vesin/releases/tag/v0.5.7) - 2026-05-15
 
 ### Added

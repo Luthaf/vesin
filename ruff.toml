@@ -4,7 +4,7 @@ ignore = ["B018", "B904"]
 
 [lint.isort]
 lines-after-imports = 2
-known-first-party = ["vesin", "_utils"]
+known-first-party = ["vesin", "vesin_torch", "_utils"]
 known-third-party = ["torch"]
 
 [format]

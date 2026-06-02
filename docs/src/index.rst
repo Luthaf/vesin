@@ -463,7 +463,7 @@ Usage example
     .. tab-item:: |logo-torch| TorchScript
 
         The entry point for the TorchScript API is the
-        :py:class:`vesin.torch.NeighborList` class in Python, and the
+        :py:class:`vesin_torch.NeighborList` class in Python, and the
         corresponding :cpp:class:`vesin_torch::NeighborListHolder` class in C++;
         both modeled after vesin's Python API.
 
@@ -475,12 +475,12 @@ Usage example
         |logo-python| **Python:**
 
         For Python, the ``NeighborList`` class is available in the
-        ``vesin.torch`` module.
+        ``vesin_torch`` module.
 
         .. code-block:: Python
 
             import torch
-            from vesin.torch import NeighborList
+            from vesin_torch import NeighborList
 
             positions = torch.tensor(
                 [[0.0, 0.0, 0.0],

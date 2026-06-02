@@ -45,8 +45,7 @@ backend-path = ["build-backend"]
 zip-safe = false
 
 [tool.setuptools.packages.find]
-include = ["vesin*"]
-namespaces = true
+include = ["vesin_torch"]
 
 ### ======================================================================== ###
 

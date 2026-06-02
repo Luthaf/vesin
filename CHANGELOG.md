@@ -17,6 +17,12 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+### Changed
+
+- Importing from `vesin.torch` is deprecated, users should now import from
+  `vesin_torch` instead. The old import path will still work but will emit a
+  warning.
+
 ## [Version 0.5.8](https://github.com/Luthaf/vesin/releases/tag/v0.5.8) - 2026-05-26
 
 ### Fixed

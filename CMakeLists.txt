@@ -33,7 +33,7 @@ set(VESIN_INSTALL ${VESIN_MAIN_PROJECT} CACHE BOOL "Install Vesin's headers and 
 add_subdirectory(vesin)
 
 if (VESIN_TORCH)
-    add_subdirectory(torch)
+    add_subdirectory(vesin-torch)
 endif()
 
 if (VESIN_FORTRAN)

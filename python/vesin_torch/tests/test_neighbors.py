@@ -3,7 +3,7 @@ from typing import List
 import pytest
 import torch
 
-from vesin.torch import NeighborList
+from vesin_torch import NeighborList
 
 
 DEVICES = ["cpu"]

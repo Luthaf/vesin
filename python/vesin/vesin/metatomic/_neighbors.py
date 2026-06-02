@@ -8,7 +8,7 @@ from .. import NeighborList as NeighborListNumpy
 
 
 try:
-    from vesin.torch import NeighborList as NeighborListTorch
+    from vesin_torch import NeighborList as NeighborListTorch
 
 except ImportError:
 

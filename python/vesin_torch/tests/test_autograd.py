@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from vesin.torch import NeighborList
+from vesin_torch import NeighborList
 
 
 @pytest.mark.parametrize("full_list", [True, False])

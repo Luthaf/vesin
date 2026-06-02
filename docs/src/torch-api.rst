@@ -3,7 +3,7 @@
 TorchScript API reference
 =========================
 
-.. autoclass:: vesin.torch.NeighborList
+.. autoclass:: vesin_torch.NeighborList
     :members:
 
 

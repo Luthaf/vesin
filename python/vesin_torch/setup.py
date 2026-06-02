@@ -47,7 +47,7 @@ class cmake_ext(build_ext):
         source_dir = os.path.join(ROOT, "lib")
         if not os.path.exists(source_dir):
             # we are building from a checkout
-            source_dir = os.path.join(ROOT, "..", "..", "torch")
+            source_dir = os.path.join(ROOT, "..", "..", "vesin-torch")
 
         build_dir = os.path.join(ROOT, "build", "cmake-build")
 
@@ -57,8 +57,7 @@ class cmake_ext(build_ext):
         torch_major, torch_minor, *_ = torch.__version__.split(".")
         install_dir = os.path.join(
             os.path.realpath(self.build_lib),
-            "vesin",
-            "torch",
+            "vesin_torch",
             f"torch-{torch_major}.{torch_minor}",
         )
 
@@ -140,7 +139,9 @@ class sdist_with_lib(sdist):
 
     def run(self):
         # generate extra files
-        shutil.copytree(os.path.join(ROOT, "..", "..", "torch"), os.path.join("lib"))
+        shutil.copytree(
+            os.path.join(ROOT, "..", "..", "vesin-torch"), os.path.join("lib")
+        )
 
         # include gpulite in the sdist
         gpulite_dir = os.path.join("lib", "vesin", "external")

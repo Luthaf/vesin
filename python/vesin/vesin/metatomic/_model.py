@@ -18,6 +18,7 @@ def neighbor_lists_for_model(
     model_length_unit: Optional[str] = None,
     torchscript: bool = False,
     check_consistency: bool = False,
+    skin: float = 2.0,
 ) -> List[NeighborList]:
     """
     Get a list of calculators, corresponding to the neighbor lists requested by the
@@ -78,6 +79,7 @@ def neighbor_lists_for_model(
                 system_length_unit,
                 torchscript=torchscript,
                 check_consistency=check_consistency,
+                skin=skin,
             )
         )
     return calculators
@@ -89,6 +91,7 @@ def compute_requested_neighbors(
     model: Union[AtomisticModel, ModelInterface],
     model_length_unit: Optional[str] = None,
     check_consistency: bool = False,
+    skin: float = 2.0,
 ):
     """
     Compute all neighbors lists requested by the ``model`` through
@@ -140,7 +143,7 @@ def compute_requested_neighbors(
     )
 
     _compute_requested_neighbors_from_options_impl(
-        systems, all_options, system_length_unit, check_consistency
+        systems, all_options, system_length_unit, check_consistency, skin
     )
 
 
@@ -190,6 +193,7 @@ def compute_requested_neighbors_from_options(
     options: List[NeighborListOptions],
     system_length_unit: str,
     check_consistency: bool,
+    skin: float = 2.0,
 ) -> None:
     """
     Compute all neighbors lists requested by the ``options``, and store them inside all
@@ -219,6 +223,7 @@ def compute_requested_neighbors_from_options(
         options=options,
         system_length_unit=system_length_unit,
         check_consistency=check_consistency,
+        skin=skin,
     )
 
 
@@ -227,6 +232,7 @@ def _compute_requested_neighbors_from_options_impl(
     options: List[NeighborListOptions],
     system_length_unit: str,
     check_consistency: bool,
+    skin: float,
 ) -> None:
     if not isinstance(systems, list):
         systems = [systems]
@@ -236,6 +242,7 @@ def _compute_requested_neighbors_from_options_impl(
             option,
             system_length_unit,
             check_consistency=check_consistency,
+            skin=skin,
         )
 
         for system in systems:

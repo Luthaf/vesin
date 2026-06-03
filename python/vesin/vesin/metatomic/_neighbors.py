@@ -53,6 +53,9 @@ class NeighborList:
             or not. If ``True``, this requires installing the ``vesin-torch`` package.
         :param check_consistency: whether to run additional checks on the neighbor list
             validity
+        :param skin: the skin to use for the Verlet list in the NL calculation. This is
+            only used when ``torchscript=False``, as the ``vesin-torch`` implementation
+            does not support the Verlet list.
 
         Example
         -------

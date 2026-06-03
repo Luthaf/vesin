@@ -48,6 +48,7 @@ def neighbor_lists_for_model(
         or not. If ``True``, this requires installing the ``vesin-torch`` package.
     :param check_consistency: whether to run additional checks on the neighbor lists
         validity
+    :param skin: the skin to use for the Verlet list in the NL calculation
     """
 
     if isinstance(model, AtomisticModel):
@@ -112,6 +113,7 @@ def compute_requested_neighbors(
         required when giving a raw model instead of a :py:class:`AtomisticModel`.
     :param check_consistency: whether to run additional checks on the neighbor lists
         validity
+    :param skin: the skin to use for the Verlet list in the NL calculation
     """
 
     if isinstance(model, AtomisticModel):
@@ -210,6 +212,7 @@ def compute_requested_neighbors_from_options(
     :param system_length_unit: unit of length used by the data in ``systems``
     :param check_consistency: whether to run additional checks on the neighbor lists
         validity
+    :param skin: the skin to use for the Verlet list in the NL calculation
     """
 
     warnings.warn(

@@ -23,6 +23,7 @@ except ImportError:
             periodic: Union[bool, torch.Tensor],
             quantities: str,
             copy: bool = True,
+            skin: float = 2.0,
         ) -> List[torch.Tensor]:
             raise ValueError("torchscript=True requires `vesin-torch` as a dependency")
 
@@ -42,6 +43,7 @@ class NeighborList:
         length_unit: str,
         torchscript: bool = False,
         check_consistency: bool = False,
+        skin: float = 2.0,
     ):
         """
         :param options: :py:class:`metatomic.torch.NeighborListOptions` defining the
@@ -51,6 +53,9 @@ class NeighborList:
             or not. If ``True``, this requires installing the ``vesin-torch`` package.
         :param check_consistency: whether to run additional checks on the neighbor list
             validity
+        :param skin: the skin to use for the Verlet list in the NL calculation. This is
+            only used when ``torchscript=False``, as the ``vesin-torch`` implementation
+            does not support the Verlet list.
 
         Example
         -------
@@ -92,6 +97,7 @@ class NeighborList:
             self._nl = NeighborListNumpy(
                 cutoff=self.options.engine_cutoff(self.length_unit),
                 full_list=self.options.full_list,
+                skin=skin,
             )
 
         # cached Labels

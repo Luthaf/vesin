@@ -50,10 +50,10 @@ if (BUILD_VESIN_FOR_PYTHON)
 endif()
 
 # Generate the CUDA source files for NVRTC compilation
-file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu)
+file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/*.cu)
 foreach(cuda_source IN LISTS CUDA_SOURCES)
     get_filename_component(cuda_filename ${cuda_source} NAME)
-    set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/${cuda_filename}.inc")
+    set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/cuda/${cuda_filename}.inc")
     add_custom_command(
         OUTPUT ${output_file}
         COMMAND ${CMAKE_COMMAND}
@@ -90,7 +90,7 @@ else()
     FetchContent_Declare(
         gpulite
         GIT_REPOSITORY https://github.com/metatensor/gpu-lite.git
-        GIT_TAG 7e8e9e929b254c3faefc556fb348068027e73319 # v1.1.1
+        GIT_TAG ceb0934e2294b680ebce37242b2e4f26921152e6 # tag 'mts-v1.2.0'
         EXCLUDE_FROM_ALL
     )
 endif()

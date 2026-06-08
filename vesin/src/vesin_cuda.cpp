@@ -29,20 +29,24 @@ using namespace vesin::cuda;
     } while (0)
 #endif
 
+#include "cuda/bruteforce.cuh"
 const unsigned char CUDA_BRUTEFORCE_CODE[] = {
-#include "generated/cuda_bruteforce.cu.inc"
+#include "generated/cuda/bruteforce.cu.inc"
 };
 
+#include "cuda/cell_list.cuh"
 const unsigned char CUDA_CELL_LIST_CODE[] = {
-#include "generated/cuda_cell_list.cu.inc"
+#include "generated/cuda/cell_list.cu.inc"
 };
 
+#include "cuda/sort_pairs.cuh"
 const unsigned char CUDA_SORT_PAIRS_CODE[] = {
-#include "generated/cuda_sort_pairs.cu.inc"
+#include "generated/cuda/sort_pairs.cu.inc"
 };
 
+#include "cuda/verlet.cuh"
 const unsigned char CUDA_VERLET_CODE[] = {
-#include "generated/cuda_verlet.cu.inc"
+#include "generated/cuda/verlet.cu.inc"
 };
 
 // Maximum number of cells (limited by single-block prefix sum)
@@ -414,21 +418,21 @@ static void sort_pairs(
         options.return_vectors
     );
 
-    auto* fill_kernel = factory.create(
+    auto* fill_kernel = factory.create<decltype(sort_pairs_fill_buffers)>(
         "sort_pairs_fill_buffers",
         cuda_sort_pairs_code,
         "cuda_sort_pairs.cu",
         {"-std=c++17", "-default-device"}
     );
 
-    auto* bitonic_kernel = factory.create(
+    auto* bitonic_kernel = factory.create<decltype(sort_pairs_bitonic_step)>(
         "sort_pairs_bitonic_step",
         cuda_sort_pairs_code,
         "cuda_sort_pairs.cu",
         {"-std=c++17", "-default-device"}
     );
 
-    auto* copy_back_kernel = factory.create(
+    auto* copy_back_kernel = factory.create<decltype(sort_pairs_copy_back)>(
         "sort_pairs_copy_back",
         cuda_sort_pairs_code,
         "cuda_sort_pairs.cu",
@@ -443,77 +447,60 @@ static void sort_pairs(
     const size_t sort_threads = 256;
     const size_t sort_fill_blocks = (sort_capacity + sort_threads - 1) / sort_threads;
 
-    std::vector<void*> fill_args = {
-        static_cast<void*>(&d_pair_indices),
-        static_cast<void*>(&d_shifts),
-        static_cast<void*>(&d_distances),
-        static_cast<void*>(&d_vectors),
-        static_cast<void*>(&d_pairs_tmp),
-        static_cast<void*>(&d_shifts_tmp),
-        static_cast<void*>(&d_distances_tmp),
-        static_cast<void*>(&d_vectors_tmp),
-        static_cast<void*>(&neighbors.length),
-        static_cast<void*>(&sort_capacity),
-        static_cast<void*>(&options.return_shifts),
-        static_cast<void*>(&options.return_distances),
-        static_cast<void*>(&options.return_vectors),
-    };
+    auto config = gpulite::LaunchConfig();
+    config.gridDim = dim3(std::max(sort_fill_blocks, static_cast<size_t>(1)));
+    config.blockDim = dim3(sort_threads);
+
     fill_kernel->launch(
-        dim3(std::max(sort_fill_blocks, static_cast<size_t>(1))),
-        dim3(sort_threads),
-        0,
-        nullptr,
-        fill_args,
-        false
+        config,
+        d_pair_indices,
+        d_shifts,
+        d_distances,
+        d_vectors,
+        d_pairs_tmp,
+        d_shifts_tmp,
+        d_distances_tmp,
+        d_vectors_tmp,
+        neighbors.length,
+        sort_capacity,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors
     );
 
     for (size_t k = 2; k <= sort_capacity; k <<= 1) {
         for (size_t j = k >> 1; j > 0; j >>= 1) {
-            std::vector<void*> bitonic_args = {
-                static_cast<void*>(&d_pairs_tmp),
-                static_cast<void*>(&d_shifts_tmp),
-                static_cast<void*>(&d_distances_tmp),
-                static_cast<void*>(&d_vectors_tmp),
-                static_cast<void*>(&sort_capacity),
-                static_cast<void*>(&j),
-                static_cast<void*>(&k),
-                static_cast<void*>(&options.return_shifts),
-                static_cast<void*>(&options.return_distances),
-                static_cast<void*>(&options.return_vectors),
-            };
             bitonic_kernel->launch(
-                dim3(std::max(sort_fill_blocks, static_cast<size_t>(1))),
-                dim3(sort_threads),
-                0,
-                nullptr,
-                bitonic_args,
-                false
+                config,
+                d_pairs_tmp,
+                d_shifts_tmp,
+                d_distances_tmp,
+                d_vectors_tmp,
+                sort_capacity,
+                j,
+                k,
+                options.return_shifts,
+                options.return_distances,
+                options.return_vectors
             );
         }
     }
 
-    const size_t copy_blocks = (neighbors.length + sort_threads - 1) / sort_threads;
-    std::vector<void*> copy_back_args = {
-        static_cast<void*>(&d_pair_indices),
-        static_cast<void*>(&d_shifts),
-        static_cast<void*>(&d_distances),
-        static_cast<void*>(&d_vectors),
-        static_cast<void*>(&d_pairs_tmp),
-        static_cast<void*>(&d_shifts_tmp),
-        static_cast<void*>(&d_distances_tmp),
-        static_cast<void*>(&d_vectors_tmp),
-        static_cast<void*>(&neighbors.length),
-        static_cast<void*>(&options.return_shifts),
-        static_cast<void*>(&options.return_distances),
-        static_cast<void*>(&options.return_vectors),
-    };
+    size_t copy_blocks = (neighbors.length + sort_threads - 1) / sort_threads;
     copy_back_kernel->launch(
-        dim3(std::max(copy_blocks, static_cast<size_t>(1))),
-        dim3(sort_threads),
-        0,
-        nullptr,
-        copy_back_args,
-        false
+        config,
+        d_pair_indices,
+        d_shifts,
+        d_distances,
+        d_vectors,
+        d_pairs_tmp,
+        d_shifts_tmp,
+        d_distances_tmp,
+        d_vectors_tmp,
+        neighbors.length,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors
     );
 
     GPULITE_CUDART_CALL(cudaDeviceSynchronize());
@@ -582,7 +569,7 @@ static bool verlet_needs_rebuild(
 
     GPULITE_CUDART_CALL(cudaMemset(extras.verlet_rebuild_flag, 0, sizeof(int32_t)));
 
-    auto* kernel = factory.create(
+    auto* kernel = factory.create<decltype(check_verlet_displacements)>(
         "check_verlet_displacements",
         cuda_verlet_code,
         "cuda_verlet.cu",
@@ -595,26 +582,25 @@ static bool verlet_needs_rebuild(
     // exercise it, so a finer per-device tuning would not pay back.
     size_t threads = 256;
     size_t blocks = (n_points + threads - 1) / threads;
-    auto* d_ref_positions = extras.verlet_ref_positions;
-    auto* d_rebuild_flag = extras.verlet_rebuild_flag;
-    std::vector<void*> args = {
-        static_cast<void*>(&d_positions),
-        static_cast<void*>(&d_ref_positions),
-        static_cast<void*>(&n_points),
-        static_cast<void*>(&extras.verlet_half_skin_sq),
-        static_cast<void*>(&d_rebuild_flag),
-    };
+
+    auto config = gpulite::LaunchConfig();
+    config.gridDim = dim3(std::max(blocks, static_cast<size_t>(1)));
+    config.blockDim = dim3(threads);
+
     kernel->launch(
-        dim3(std::max(blocks, static_cast<size_t>(1))),
-        dim3(threads),
-        0,
-        nullptr,
-        args,
-        false
+        config,
+        d_positions,
+        extras.verlet_ref_positions,
+        n_points,
+        extras.verlet_half_skin_sq,
+        extras.verlet_rebuild_flag
     );
 
     int32_t h_rebuild = 0;
-    GPULITE_CUDART_CALL(cudaMemcpy(&h_rebuild, d_rebuild_flag, sizeof(int32_t), cudaMemcpyDeviceToHost));
+    GPULITE_CUDART_CALL(cudaMemcpy(
+        &h_rebuild, extras.verlet_rebuild_flag, sizeof(int32_t), cudaMemcpyDeviceToHost
+    ));
+
     return h_rebuild != 0;
 }
 
@@ -742,37 +728,33 @@ static void recompute_verlet_neighbors(
 
     size_t threads = 256;
     size_t blocks = (candidate_length + threads - 1) / threads;
-    auto* kernel = factory.create(
+    auto* kernel = factory.create<decltype(filter_verlet_candidates)>(
         "filter_verlet_candidates",
         cuda_verlet_code,
         "cuda_verlet.cu",
         {"-std=c++17", "-default-device"}
     );
 
-    std::vector<void*> args = {
-        static_cast<void*>(&d_positions),
-        static_cast<void*>(&d_box),
-        static_cast<void*>(&d_candidate_pairs),
-        static_cast<void*>(&d_candidate_shifts),
-        static_cast<void*>(&candidate_length),
-        static_cast<void*>(&options.cutoff),
-        static_cast<void*>(&d_pair_counter),
-        static_cast<void*>(&d_pair_indices),
-        static_cast<void*>(&d_shifts),
-        static_cast<void*>(&d_distances),
-        static_cast<void*>(&d_vectors),
-        static_cast<void*>(&options.return_shifts),
-        static_cast<void*>(&options.return_distances),
-        static_cast<void*>(&options.return_vectors),
-    };
+    auto config = gpulite::LaunchConfig();
+    config.gridDim = dim3(std::max(blocks, static_cast<size_t>(1)));
+    config.blockDim = dim3(threads);
 
     kernel->launch(
-        dim3(std::max(blocks, static_cast<size_t>(1))),
-        dim3(threads),
-        0,
-        nullptr,
-        args,
-        false
+        config,
+        d_positions,
+        d_box,
+        d_candidate_pairs,
+        d_candidate_shifts,
+        candidate_length,
+        options.cutoff,
+        d_pair_counter,
+        d_pair_indices,
+        d_shifts,
+        d_distances,
+        d_vectors,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors
     );
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
@@ -996,7 +978,7 @@ void vesin::cuda::neighbors(
         GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->inv_box_brute, sizeof(double) * 9));
     }
 
-    auto* box_check_kernel = factory.create(
+    auto* box_check_kernel = factory.create<decltype(mic_box_check)>(
         "mic_box_check",
         cuda_bruteforce_code,
         "cuda_bruteforce.cu",
@@ -1005,16 +987,20 @@ void vesin::cuda::neighbors(
 
     double* d_box_diag = extras->box_diag;
     double* d_inv_box_brute = extras->inv_box_brute;
-    std::vector<void*> box_check_args = {
-        static_cast<void*>(&d_box),
-        static_cast<void*>(&d_periodic),
-        static_cast<void*>(&options.cutoff),
-        static_cast<void*>(&d_cell_check),
-        static_cast<void*>(&d_box_diag),
-        static_cast<void*>(&d_inv_box_brute),
-    };
 
-    box_check_kernel->launch(dim3(1), dim3(32), 0, nullptr, box_check_args, false);
+    auto config = gpulite::LaunchConfig();
+    config.gridDim = dim3(1);
+    config.blockDim = dim3(32);
+
+    box_check_kernel->launch(
+        config,
+        d_box,
+        d_periodic,
+        options.cutoff,
+        d_cell_check,
+        d_box_diag,
+        d_inv_box_brute
+    );
 
     int32_t h_cell_check = 1;
     GPULITE_CUDART_CALL(cudaMemcpy(&h_cell_check, d_cell_check, sizeof(int32_t), cudaMemcpyDeviceToHost));
@@ -1059,110 +1045,113 @@ void vesin::cuda::neighbors(
         NVTX_POP();
         auto& cl = extras->cell_list;
 
+        // the 256 here must match the size of shared memory allocated inside the code,
+        // if you update one please update the other.
         size_t THREADS_PER_BLOCK = 256;
         size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
         NVTX_PUSH("kernel0_bounding_box");
-        auto* bounding_kernel = factory.create(
+        auto* bounding_kernel = factory.create<decltype(compute_bounding_box)>(
             "compute_bounding_box",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> bounding_args = {
-            static_cast<void*>(&d_positions),
-            static_cast<void*>(&n_points),
-            static_cast<void*>(&cl.face_distances),
-            static_cast<void*>(&cl.bounding_min),
-        };
-        // the 256 here must match the size of shared memory allocated inside the code,
-        // if you update one please update the other.
-        bounding_kernel->launch(dim3(1), dim3(256), 0, nullptr, bounding_args, false);
+
+        config.gridDim = dim3(1);
+        config.blockDim = dim3(THREADS_PER_BLOCK);
+        bounding_kernel->launch(
+            config,
+            d_positions,
+            n_points,
+            cl.face_distances,
+            cl.bounding_min
+        );
         NVTX_POP();
 
         NVTX_PUSH("kernel1_grid_params");
-        auto* grid_kernel = factory.create(
+        auto* grid_kernel = factory.create<decltype(compute_cell_grid_params)>(
             "compute_cell_grid_params",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> grid_args = {
-            static_cast<void*>(&d_box),
-            static_cast<void*>(&d_periodic),
-            static_cast<void*>(&options.cutoff),
-            static_cast<void*>(&max_cells),
-            static_cast<void*>(&cl.inv_box),
-            static_cast<void*>(&cl.n_cells),
-            static_cast<void*>(&cl.n_search),
-            static_cast<void*>(&cl.n_cells_total),
-            static_cast<void*>(&cl.face_distances),
-        };
-        grid_kernel->launch(dim3(1), dim3(1), 0, nullptr, grid_args, false);
+
+        config.gridDim = dim3(1);
+        config.blockDim = dim3(1);
+        grid_kernel->launch(
+            config,
+            d_box,
+            d_periodic,
+            options.cutoff,
+            max_cells,
+            cl.inv_box,
+            cl.n_cells,
+            cl.n_search,
+            cl.n_cells_total,
+            cl.face_distances
+        );
         NVTX_POP();
 
-        NVTX_PUSH("memset_cell_counts_starts");
         GPULITE_CUDART_CALL(cudaMemset(cl.cell_counts, 0, sizeof(int32_t) * max_cells));
         GPULITE_CUDART_CALL(cudaMemset(cl.cell_starts, 0, sizeof(int32_t) * max_cells));
-        NVTX_POP();
 
         NVTX_PUSH("kernel1_assign_cells");
-        auto* assign_kernel = factory.create(
+        auto* assign_kernel = factory.create<decltype(assign_cell_indices)>(
             "assign_cell_indices",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> assign_args = {
-            static_cast<void*>(&d_positions),
-            static_cast<void*>(&cl.inv_box),
-            static_cast<void*>(&d_periodic),
-            static_cast<void*>(&cl.n_cells),
-            static_cast<void*>(&n_points),
-            static_cast<void*>(&cl.cell_indices),
-            static_cast<void*>(&cl.particle_shifts),
-            static_cast<void*>(&cl.face_distances),
-            static_cast<void*>(&cl.bounding_min),
-        };
+
+        config.gridDim = dim3(num_blocks_points);
+        config.blockDim = dim3(THREADS_PER_BLOCK);
         assign_kernel->launch(
-            dim3(num_blocks_points), dim3(THREADS_PER_BLOCK), 0, nullptr, assign_args, false
+            config,
+            d_positions,
+            cl.inv_box,
+            d_periodic,
+            cl.n_cells,
+            n_points,
+            cl.cell_indices,
+            cl.particle_shifts,
+            cl.face_distances,
+            cl.bounding_min
         );
         NVTX_POP();
 
         NVTX_PUSH("kernel2_count_particles");
-        auto* count_kernel = factory.create(
+        auto* count_kernel = factory.create<decltype(count_particles_per_cell)>(
             "count_particles_per_cell",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> count_args = {
-            static_cast<void*>(&cl.cell_indices),
-            static_cast<void*>(&n_points),
-            static_cast<void*>(&cl.cell_counts),
-        };
+
         count_kernel->launch(
-            dim3(num_blocks_points), dim3(THREADS_PER_BLOCK), 0, nullptr, count_args, false
+            config,
+            cl.cell_indices,
+            n_points,
+            cl.cell_counts
         );
         NVTX_POP();
 
         NVTX_PUSH("kernel3_prefix_sum");
-        auto* prefix_kernel = factory.create(
+        auto* prefix_kernel = factory.create<decltype(prefix_sum_cells)>(
             "prefix_sum_cells",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> prefix_args = {
-            static_cast<void*>(&cl.cell_counts),
-            static_cast<void*>(&cl.cell_starts),
-            static_cast<void*>(&cl.n_cells_total),
-        };
+
         size_t prefix_threads = 256;
-        size_t shared_mem = sizeof(int32_t) * prefix_threads;
-        prefix_kernel->launch(
-            dim3(1), dim3(prefix_threads), shared_mem, nullptr, prefix_args, false
-        );
+        config.gridDim = dim3(1);
+        config.blockDim = dim3(prefix_threads);
+
+        config.dynamicSmemBytes = sizeof(int32_t) * prefix_threads;
+        prefix_kernel->launch(config, cl.cell_counts, cl.cell_starts, cl.n_cells_total);
+        config.dynamicSmemBytes = 0;
+
         NVTX_POP();
 
         NVTX_PUSH("memcpy_cell_offsets");
@@ -1172,65 +1161,69 @@ void vesin::cuda::neighbors(
         NVTX_POP();
 
         NVTX_PUSH("kernel4_scatter");
-        auto* scatter_kernel = factory.create(
+        auto* scatter_kernel = factory.create<decltype(scatter_particles)>(
             "scatter_particles",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> scatter_args = {
-            static_cast<void*>(&d_positions),
-            static_cast<void*>(&cl.cell_indices),
-            static_cast<void*>(&cl.particle_shifts),
-            static_cast<void*>(&cl.cell_offsets),
-            static_cast<void*>(&n_points),
-            static_cast<void*>(&cl.sorted_positions),
-            static_cast<void*>(&cl.sorted_indices),
-            static_cast<void*>(&cl.sorted_shifts),
-            static_cast<void*>(&cl.sorted_cell_indices),
-        };
+
+        config.gridDim = dim3(num_blocks_points);
+        config.blockDim = dim3(THREADS_PER_BLOCK);
         scatter_kernel->launch(
-            dim3(num_blocks_points), dim3(THREADS_PER_BLOCK), 0, nullptr, scatter_args, false
+            config,
+            d_positions,
+            cl.cell_indices,
+            cl.particle_shifts,
+            cl.cell_offsets,
+            n_points,
+            cl.sorted_positions,
+            cl.sorted_indices,
+            cl.sorted_shifts,
+            cl.sorted_cell_indices
         );
         NVTX_POP();
 
-        NVTX_PUSH("kernel5_find_neighbors");
-        auto* find_kernel = factory.create(
-            "find_neighbors_optimized",
+        NVTX_PUSH("kernel5_find_neighbors_cell_list");
+        auto* find_kernel = factory.create<decltype(find_neighbors_cell_list)>(
+            "find_neighbors_cell_list",
             cuda_cell_list_code,
             "cuda_cell_list.cu",
             {"-std=c++17", "-default-device"}
         );
-        std::vector<void*> find_args = {
-            static_cast<void*>(&cl.sorted_positions),
-            static_cast<void*>(&cl.sorted_indices),
-            static_cast<void*>(&cl.sorted_shifts),
-            static_cast<void*>(&cl.sorted_cell_indices),
-            static_cast<void*>(&cl.cell_starts),
-            static_cast<void*>(&cl.cell_counts),
-            static_cast<void*>(&d_box),
-            static_cast<void*>(&d_periodic),
-            static_cast<void*>(&cl.n_cells),
-            static_cast<void*>(&cl.n_search),
-            static_cast<void*>(&n_points),
-            static_cast<void*>(&options.cutoff),
-            static_cast<void*>(&options.full),
-            static_cast<void*>(&d_pair_counter),
-            static_cast<void*>(&d_pair_indices),
-            static_cast<void*>(&d_shifts),
-            static_cast<void*>(&d_distances),
-            static_cast<void*>(&d_vectors),
-            static_cast<void*>(&options.return_shifts),
-            static_cast<void*>(&options.return_distances),
-            static_cast<void*>(&options.return_vectors),
-            static_cast<void*>(&max_pairs),
-            static_cast<void*>(&d_overflow_flag)
-        };
+
         size_t THREADS_PER_PARTICLE = 8;
         size_t particles_per_block = THREADS_PER_BLOCK / THREADS_PER_PARTICLE;
         size_t num_blocks_find = (n_points + particles_per_block - 1) / particles_per_block;
+
+        config.gridDim = dim3(num_blocks_find);
+        config.blockDim = dim3(THREADS_PER_BLOCK);
+
         find_kernel->launch(
-            dim3(num_blocks_find), dim3(THREADS_PER_BLOCK), 0, nullptr, find_args, false
+            config,
+            cl.sorted_positions,
+            cl.sorted_indices,
+            cl.sorted_shifts,
+            cl.sorted_cell_indices,
+            cl.cell_starts,
+            cl.cell_counts,
+            d_box,
+            d_periodic,
+            cl.n_cells,
+            cl.n_search,
+            n_points,
+            options.cutoff,
+            options.full,
+            d_pair_counter,
+            d_pair_indices,
+            d_shifts,
+            d_distances,
+            d_vectors,
+            options.return_shifts,
+            options.return_distances,
+            options.return_vectors,
+            max_pairs,
+            d_overflow_flag
         );
         NVTX_POP();
 
@@ -1248,154 +1241,134 @@ void vesin::cuda::neighbors(
         if (is_orthogonal) {
             if (options.full) {
                 NVTX_PUSH("brute_force_full_orthogonal");
-                auto* kernel = factory.create(
+                auto* kernel = factory.create<decltype(brute_force_full_orthogonal)>(
                     "brute_force_full_orthogonal",
                     cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
                     {"-std=c++17", "-default-device"}
                 );
 
-                std::vector<void*> args = {
-                    static_cast<void*>(&d_positions),
-                    static_cast<void*>(&d_box_diag),
-                    static_cast<void*>(&d_periodic),
-                    static_cast<void*>(&n_points),
-                    static_cast<void*>(&cutoff2),
-                    static_cast<void*>(&d_pair_counter),
-                    static_cast<void*>(&d_pair_indices),
-                    static_cast<void*>(&d_shifts),
-                    static_cast<void*>(&d_distances),
-                    static_cast<void*>(&d_vectors),
-                    static_cast<void*>(&options.return_shifts),
-                    static_cast<void*>(&options.return_distances),
-                    static_cast<void*>(&options.return_vectors),
-                    static_cast<void*>(&max_pairs),
-                    static_cast<void*>(&d_overflow_flag)
-                };
-
                 size_t num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                config.gridDim = dim3(std::max(num_blocks, static_cast<size_t>(1)));
+                config.blockDim = dim3(THREADS_PER_BLOCK);
+
                 kernel->launch(
-                    /*grid=*/dim3(std::max(num_blocks, static_cast<size_t>(1))),
-                    /*block=*/dim3(THREADS_PER_BLOCK),
-                    /*shared_mem_size=*/0,
-                    /*cuda_stream=*/nullptr,
-                    /*args=*/args,
-                    /*synchronize=*/false
+                    config,
+                    d_positions,
+                    d_box_diag,
+                    d_periodic,
+                    n_points,
+                    cutoff2,
+                    d_pair_counter,
+                    d_pair_indices,
+                    d_shifts,
+                    d_distances,
+                    d_vectors,
+                    options.return_shifts,
+                    options.return_distances,
+                    options.return_vectors,
+                    max_pairs,
+                    d_overflow_flag
                 );
                 NVTX_POP();
             } else {
                 NVTX_PUSH("brute_force_half_orthogonal");
-                auto* kernel = factory.create(
+                auto* kernel = factory.create<decltype(brute_force_half_orthogonal)>(
                     "brute_force_half_orthogonal",
                     cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
                     {"-std=c++17", "-default-device"}
                 );
 
-                std::vector<void*> args = {
-                    static_cast<void*>(&d_positions),
-                    static_cast<void*>(&d_box_diag),
-                    static_cast<void*>(&d_periodic),
-                    static_cast<void*>(&n_points),
-                    static_cast<void*>(&cutoff2),
-                    static_cast<void*>(&d_pair_counter),
-                    static_cast<void*>(&d_pair_indices),
-                    static_cast<void*>(&d_shifts),
-                    static_cast<void*>(&d_distances),
-                    static_cast<void*>(&d_vectors),
-                    static_cast<void*>(&options.return_shifts),
-                    static_cast<void*>(&options.return_distances),
-                    static_cast<void*>(&options.return_vectors),
-                    static_cast<void*>(&max_pairs),
-                    static_cast<void*>(&d_overflow_flag)
-                };
-
                 size_t num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                config.gridDim = dim3(std::max(num_blocks, static_cast<size_t>(1)));
+                config.blockDim = dim3(THREADS_PER_BLOCK);
+
                 kernel->launch(
-                    /*grid=*/dim3(std::max(num_blocks, static_cast<size_t>(1))),
-                    /*block=*/dim3(THREADS_PER_BLOCK),
-                    /*shared_mem_size=*/0,
-                    /*cuda_stream=*/nullptr,
-                    /*args=*/args,
-                    /*synchronize=*/false
+                    config,
+                    d_positions,
+                    d_box_diag,
+                    d_periodic,
+                    n_points,
+                    cutoff2,
+                    d_pair_counter,
+                    d_pair_indices,
+                    d_shifts,
+                    d_distances,
+                    d_vectors,
+                    options.return_shifts,
+                    options.return_distances,
+                    options.return_vectors,
+                    max_pairs,
+                    d_overflow_flag
                 );
                 NVTX_POP();
             }
         } else {
             if (options.full) {
                 NVTX_PUSH("brute_force_full_general");
-                auto* kernel = factory.create(
+                auto* kernel = factory.create<decltype(brute_force_full_general)>(
                     "brute_force_full_general",
                     cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
                     {"-std=c++17", "-default-device"}
                 );
 
-                std::vector<void*> args = {
-                    static_cast<void*>(&d_positions),
-                    static_cast<void*>(&d_box),
-                    static_cast<void*>(&d_inv_box_brute),
-                    static_cast<void*>(&d_periodic),
-                    static_cast<void*>(&n_points),
-                    static_cast<void*>(&cutoff2),
-                    static_cast<void*>(&d_pair_counter),
-                    static_cast<void*>(&d_pair_indices),
-                    static_cast<void*>(&d_shifts),
-                    static_cast<void*>(&d_distances),
-                    static_cast<void*>(&d_vectors),
-                    static_cast<void*>(&options.return_shifts),
-                    static_cast<void*>(&options.return_distances),
-                    static_cast<void*>(&options.return_vectors),
-                    static_cast<void*>(&max_pairs),
-                    static_cast<void*>(&d_overflow_flag)
-                };
-
                 size_t num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                config.gridDim = dim3(std::max(num_blocks, static_cast<size_t>(1)));
+                config.blockDim = dim3(THREADS_PER_BLOCK);
+
                 kernel->launch(
-                    /*grid=*/dim3(std::max(num_blocks, static_cast<size_t>(1))),
-                    /*block=*/dim3(THREADS_PER_BLOCK),
-                    /*shared_mem_size=*/0,
-                    /*cuda_stream=*/nullptr,
-                    /*args=*/args,
-                    /*synchronize=*/false
+                    config,
+                    d_positions,
+                    d_box,
+                    d_inv_box_brute,
+                    d_periodic,
+                    n_points,
+                    cutoff2,
+                    d_pair_counter,
+                    d_pair_indices,
+                    d_shifts,
+                    d_distances,
+                    d_vectors,
+                    options.return_shifts,
+                    options.return_distances,
+                    options.return_vectors,
+                    max_pairs,
+                    d_overflow_flag
                 );
                 NVTX_POP();
             } else {
                 NVTX_PUSH("brute_force_half_general");
-                auto* kernel = factory.create(
+                auto* kernel = factory.create<decltype(brute_force_half_general)>(
                     "brute_force_half_general",
                     cuda_bruteforce_code,
                     "cuda_bruteforce.cu",
                     {"-std=c++17", "-default-device"}
                 );
 
-                std::vector<void*> args = {
-                    static_cast<void*>(&d_positions),
-                    static_cast<void*>(&d_box),
-                    static_cast<void*>(&d_inv_box_brute),
-                    static_cast<void*>(&d_periodic),
-                    static_cast<void*>(&n_points),
-                    static_cast<void*>(&cutoff2),
-                    static_cast<void*>(&d_pair_counter),
-                    static_cast<void*>(&d_pair_indices),
-                    static_cast<void*>(&d_shifts),
-                    static_cast<void*>(&d_distances),
-                    static_cast<void*>(&d_vectors),
-                    static_cast<void*>(&options.return_shifts),
-                    static_cast<void*>(&options.return_distances),
-                    static_cast<void*>(&options.return_vectors),
-                    static_cast<void*>(&max_pairs),
-                    static_cast<void*>(&d_overflow_flag)
-                };
-
                 size_t num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+                config.gridDim = dim3(std::max(num_blocks, static_cast<size_t>(1)));
+                config.blockDim = dim3(THREADS_PER_BLOCK);
+
                 kernel->launch(
-                    /*grid=*/dim3(std::max(num_blocks, static_cast<size_t>(1))),
-                    /*block=*/dim3(THREADS_PER_BLOCK),
-                    /*shared_mem_size=*/0,
-                    /*cuda_stream=*/nullptr,
-                    /*args=*/args,
-                    /*synchronize=*/false
+                    config,
+                    d_positions,
+                    d_box,
+                    d_inv_box_brute,
+                    d_periodic,
+                    n_points,
+                    cutoff2,
+                    d_pair_counter,
+                    d_pair_indices,
+                    d_shifts,
+                    d_distances,
+                    d_vectors,
+                    options.return_shifts,
+                    options.return_distances,
+                    options.return_vectors,
+                    max_pairs,
+                    d_overflow_flag
                 );
                 NVTX_POP();
             }

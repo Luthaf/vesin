@@ -1,8 +1,7 @@
-// CUDA Verlet cache support uses the existing cell-list builder to create
-// candidate pairs at cutoff + skin. These kernels validate the cached
-// reference positions and filter those cached candidates at the exact cutoff.
+#include "verlet.cuh"
+
 __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
-    unsigned long long* address_as_ull = reinterpret_cast<unsigned long long*>(address);
+    auto* address_as_ull = reinterpret_cast<unsigned long long*>(address);
     return static_cast<size_t>(atomicAdd(address_as_ull, static_cast<unsigned long long>(val)));
 }
 

@@ -1,3 +1,5 @@
+#include "sort_pairs.cuh"
+
 __device__ inline bool pair_less(
     const size_t* pairs,
     size_t a,

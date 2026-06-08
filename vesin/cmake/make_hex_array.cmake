@@ -1,5 +1,7 @@
 # make_includeable.cmake
 # Converts a source file into a C byte array for embedding in C++ source.
+# Local includes (#include "...") are inlined, looking for files in the
+# same directory as the input file and in vesin/include/.
 
 if (NOT CMAKE_SCRIPT_MODE_FILE OR CMAKE_SCRIPT_MODE_DIRECTORY)
     message(FATAL_ERROR "This script is intended to be used with 'cmake -P' and should not be included in a CMakeLists.txt")
@@ -9,26 +11,47 @@ if(NOT EXISTS "${INPUT_FILE}")
     message(FATAL_ERROR "Input file '${INPUT_FILE}' does not exist")
 endif()
 
-# Read file as text so we can optionally expand supported includes
+# Determine include search paths from the script's own location
+get_filename_component(script_dir "${CMAKE_SCRIPT_MODE_FILE}" DIRECTORY)
+get_filename_component(project_root "${script_dir}" DIRECTORY)
+set(vesin_include_dir "${project_root}/include")
+
+get_filename_component(input_dir "${INPUT_FILE}" DIRECTORY)
+
+# Read file as text so we can expand included files
 file(READ "${INPUT_FILE}" content)
 
-# Expand a local include of "vesin.h" by inlining the project's include/vesin.h
-# This allows CUDA sources to use #include "vesin.h" and share definitions
-# with the C++ code. We only support that single include per instructions.
-string(FIND "${content}" "#include \"vesin.h\"" include_pos)
-if(NOT include_pos EQUAL -1)
-    # Compute project root: parent directory of the INPUT_FILE's directory
-    get_filename_component(input_dir "${INPUT_FILE}" DIRECTORY)
-    get_filename_component(project_root "${input_dir}" DIRECTORY)
-    set(vesin_header_path "${project_root}/include/vesin.h")
+# Expand local includes (#include "...") iteratively, supporting
+# transitive includes up to a reasonable depth. Look for included
+# files first next to the input file, then in <project>/include/.
+set(max_depth 10)
+foreach(depth RANGE 1 ${max_depth})
+    string(REGEX MATCH "#include \"([^\"]+)\"" matched_include "${content}")
+    if(NOT matched_include)
+        break()
+    endif()
 
-    file(READ "${vesin_header_path}" vesin_header_content)
-    string(REPLACE "#include <stddef.h>" "" vesin_header_content "${vesin_header_content}")
-    string(REPLACE "#include <stdint.h>" "" vesin_header_content "${vesin_header_content}")
+    set(include_file "${CMAKE_MATCH_1}")
 
-    # Replace all occurrences of the include directive with the header content
-    string(REPLACE "#include \"vesin.h\"" "${vesin_header_content}" content "${content}")
-endif()
+    # Locate the included file
+    set(found_path "")
+    if(EXISTS "${input_dir}/${include_file}")
+        set(found_path "${input_dir}/${include_file}")
+    elseif(EXISTS "${vesin_include_dir}/${include_file}")
+        set(found_path "${vesin_include_dir}/${include_file}")
+    endif()
+
+    if(NOT found_path)
+        message(FATAL_ERROR "Cannot find included file '${include_file}' "
+            "(looked in '${input_dir}' and '${vesin_include_dir}')"
+        )
+    endif()
+
+    # Read included content, strip angle-bracket includes, then inline it
+    file(READ "${found_path}" include_content)
+    string(REGEX REPLACE "#include <[^>]+>\n?" "" include_content "${include_content}")
+    string(REPLACE "#include \"${include_file}\"" "${include_content}" content "${content}")
+endforeach()
 
 # Write the (possibly preprocessed) content to a temporary file and read as hex
 file(WRITE "${OUTPUT_FILE}.tmp" "${content}")

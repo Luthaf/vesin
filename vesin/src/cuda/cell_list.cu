@@ -1,9 +1,11 @@
+#include "cell_list.cuh"
+
 // Cell list neighbor finding: bin particles into cells, then search neighboring cells.
 // Particles are sorted by cell for memory coalescing. Multiple threads per particle
 // cooperate on neighbor search. Output buffering reduces atomic contention.
 
 __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
-    unsigned long long* address_as_ull = reinterpret_cast<unsigned long long*>(address);
+    auto* address_as_ull = reinterpret_cast<unsigned long long*>(address);
     return static_cast<size_t>(atomicAdd(address_as_ull, static_cast<unsigned long long>(val)));
 }
 
@@ -50,15 +52,15 @@ __global__ void compute_bounding_box(
     double local_min[3] = {MAX_DOUBLE, MAX_DOUBLE, MAX_DOUBLE};
     double local_max[3] = {MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE};
 
-    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(positions);
     for (size_t idx = tid; idx < n_points; idx += blockDim.x) {
         double3 point = pos3[idx];
-        local_min[0] = fmin(local_min[0], point.x);
-        local_min[1] = fmin(local_min[1], point.y);
-        local_min[2] = fmin(local_min[2], point.z);
-        local_max[0] = fmax(local_max[0], point.x);
-        local_max[1] = fmax(local_max[1], point.y);
-        local_max[2] = fmax(local_max[2], point.z);
+        local_min[0] = min(local_min[0], point.x);
+        local_min[1] = min(local_min[1], point.y);
+        local_min[2] = min(local_min[2], point.z);
+        local_max[0] = max(local_max[0], point.x);
+        local_max[1] = max(local_max[1], point.y);
+        local_max[2] = max(local_max[2], point.z);
     }
 
     shared_min[0][tid] = local_min[0];
@@ -74,12 +76,12 @@ __global__ void compute_bounding_box(
         double final_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
 
         for (int i = 1; i < blockDim.x; i++) {
-            final_min[0] = fmin(final_min[0], shared_min[0][i]);
-            final_min[1] = fmin(final_min[1], shared_min[1][i]);
-            final_min[2] = fmin(final_min[2], shared_min[2][i]);
-            final_max[0] = fmax(final_max[0], shared_max[0][i]);
-            final_max[1] = fmax(final_max[1], shared_max[1][i]);
-            final_max[2] = fmax(final_max[2], shared_max[2][i]);
+            final_min[0] = min(final_min[0], shared_min[0][i]);
+            final_min[1] = min(final_min[1], shared_min[1][i]);
+            final_min[2] = min(final_min[2], shared_min[2][i]);
+            final_max[0] = max(final_max[0], shared_max[0][i]);
+            final_max[1] = max(final_max[1], shared_max[1][i]);
+            final_max[2] = max(final_max[2], shared_max[2][i]);
         }
 
         for (int dim = 0; dim < 3; dim++) {
@@ -99,7 +101,6 @@ __global__ void compute_bounding_box(
     }
 }
 
-// Compute inv_box, n_cells, n_search from box matrix and cutoff (single thread)
 __global__ void compute_cell_grid_params(
     const double* __restrict__ box,
     const bool* __restrict__ periodic,
@@ -144,7 +145,7 @@ __global__ void compute_cell_grid_params(
     } else if (n_periodic == 1) {
         double3 a = rows[periodic_idx_1];
         double3 b = make_double3(0.0, 1.0, 0.0);
-        if (fabs(dot3(normalize3(a), b)) > 0.9) {
+        if (abs(dot3(normalize3(a), b)) > 0.9) {
             b = make_double3(0.0, 0.0, 1.0);
         }
         double3 c = normalize3(cross3(a, b));
@@ -203,15 +204,15 @@ __global__ void compute_cell_grid_params(
     // For non-periodic directions, `face_distances` already contains the
     // bounding box extent (with 1% margin) computed by `compute_bounding_box`
     if (periodic[0]) {
-        face_distances[0] = fabs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
+        face_distances[0] = abs(va[0] * bc[0] + va[1] * bc[1] + va[2] * bc[2]) / bc_norm;
     }
 
     if (periodic[1]) {
-        face_distances[1] = fabs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
+        face_distances[1] = abs(vb[0] * ca[0] + vb[1] * ca[1] + vb[2] * ca[2]) / ca_norm;
     }
 
     if (periodic[2]) {
-        face_distances[2] = fabs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
+        face_distances[2] = abs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
     }
 
     // Compute number of cells based on cutoff (one cell per cutoff distance)
@@ -267,7 +268,6 @@ __global__ void compute_cell_grid_params(
     }
 }
 
-// Map particles to cells via fractional coords, record periodic wrap shifts
 __global__ void assign_cell_indices(
     const double* __restrict__ positions,
     const double* __restrict__ inv_box,
@@ -285,7 +285,7 @@ __global__ void assign_cell_indices(
     }
 
     // Vectorized position load
-    const double3* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(positions);
     double3 pos = pos3[i];
 
     // frac = pos @ inv_box (inv_box stored row-major: rows are inv_box[0..2], inv_box[3..5], inv_box[6..8])
@@ -324,7 +324,6 @@ __global__ void assign_cell_indices(
     particle_shifts[i * 3 + 2] = shift[2];
 }
 
-// Count particles per cell (histogram)
 __global__ void count_particles_per_cell(
     const int* __restrict__ cell_indices,
     size_t n_points,
@@ -337,7 +336,6 @@ __global__ void count_particles_per_cell(
     atomicAdd(&cell_counts[cell_indices[i]], 1);
 }
 
-// Exclusive prefix sum of cell counts -> cell_starts (single block, uses shared mem)
 __global__ void prefix_sum_cells(
     const int* __restrict__ cell_counts,
     int* __restrict__ cell_starts,
@@ -383,7 +381,6 @@ __global__ void prefix_sum_cells(
     }
 }
 
-// Reorder particles by cell for coalesced access in neighbor search
 __global__ void scatter_particles(
     const double* __restrict__ positions,
     const int* __restrict__ cell_indices,
@@ -404,8 +401,8 @@ __global__ void scatter_particles(
     int slot = atomicAdd(&cell_offsets[cell], 1);
 
     // Vectorized position copy
-    const double3* pos_in = reinterpret_cast<const double3*>(positions);
-    double3* pos_out = reinterpret_cast<double3*>(sorted_positions);
+    const auto* pos_in = reinterpret_cast<const double3*>(positions);
+    auto* pos_out = reinterpret_cast<double3*>(sorted_positions);
     pos_out[slot] = pos_in[i];
 
     sorted_indices[slot] = static_cast<int>(i);
@@ -420,10 +417,7 @@ __global__ void scatter_particles(
 // Buffer this many pairs before writing to global memory (reduces atomics)
 #define MAX_BUFFERED_PAIRS 8
 
-// Main neighbor search kernel: each particle searches neighboring cells,
-// threads within a group split the work across neighbor cells.
-// Uses output buffering to batch writes and reduce atomic contention.
-__global__ void find_neighbors_optimized(
+__global__ void find_neighbors_cell_list(
     const double* __restrict__ sorted_positions,
     const int* __restrict__ sorted_indices,
     const int* __restrict__ sorted_shifts,
@@ -478,13 +472,13 @@ __global__ void find_neighbors_optimized(
     const bool pbc_z = periodic[2];
 
     // Load box matrix rows as double3
-    const double3* box3 = reinterpret_cast<const double3*>(box);
+    const auto* box3 = reinterpret_cast<const double3*>(box);
     const double3 box_row0 = box3[0]; // box[0], box[1], box[2]
     const double3 box_row1 = box3[1]; // box[3], box[4], box[5]
     const double3 box_row2 = box3[2]; // box[6], box[7], box[8]
 
     // Vectorized position load
-    const double3* pos3 = reinterpret_cast<const double3*>(sorted_positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(sorted_positions);
     const double3 ri = pos3[i];
     int orig_i = __ldg(&sorted_indices[i]);
     int shift_i_x = __ldg(&sorted_shifts[i * 3 + 0]);

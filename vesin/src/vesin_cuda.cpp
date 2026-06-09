@@ -393,10 +393,10 @@ static void realloc_buffers_if_needed(
     }
 }
 
-// Reorder the output pair list (and any optional aligned outputs) so
-// that pairs come out sorted by the first particle index. Both the
-// stateless cell-list path and the Verlet recompute path call this so
-// `options.sorted` has the same public contract on each path.
+// Reorder the output pair list (and any optional aligned outputs) so that pairs
+// come out sorted by the first particle index. Both the stateless cell-list
+// path and the Verlet recompute path call this so `options.sorted` has the same
+// public contract on each path.
 static void sort_pairs(
     CudaNeighborListExtras& extras,
     gpulite::KernelFactory& factory,
@@ -550,7 +550,7 @@ static bool verlet_needs_rebuild(
     CudaNeighborListExtras& extras,
     gpulite::KernelFactory& factory,
     const std::string& cuda_verlet_code,
-    const double* d_positions,
+    const double (*d_positions)[3],
     size_t n_points,
     const double h_box[9],
     const bool h_periodic[3]
@@ -589,7 +589,7 @@ static bool verlet_needs_rebuild(
 
     kernel->launch(
         config,
-        d_positions,
+        reinterpret_cast<const double*>(d_positions),
         extras.verlet_ref_positions,
         n_points,
         extras.verlet_half_skin_sq,
@@ -710,8 +710,8 @@ static void recompute_verlet_neighbors(
     gpulite::KernelFactory& factory,
     const std::string& cuda_verlet_code,
     const std::string& cuda_sort_pairs_code,
-    const double* d_positions,
-    const double* d_box,
+    const double (*d_positions)[3],
+    const double d_box[3][3],
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
@@ -741,8 +741,8 @@ static void recompute_verlet_neighbors(
 
     kernel->launch(
         config,
-        d_positions,
-        d_box,
+        reinterpret_cast<const double*>(d_positions),
+        reinterpret_cast<const double*>(d_box),
         d_candidate_pairs,
         d_candidate_shifts,
         candidate_length,
@@ -856,37 +856,18 @@ void vesin::cuda::neighbors(
             free_verlet_buffers(*extras);
         }
 
-        if (verlet_needs_rebuild(
-                *extras,
-                factory,
-                cuda_verlet_code,
-                reinterpret_cast<const double*>(points),
-                n_points,
-                h_box,
-                h_periodic
-            )) {
+        auto needs_rebuild = verlet_needs_rebuild(
+            *extras, factory, cuda_verlet_code, points, n_points, h_box, h_periodic
+        );
+
+        if (needs_rebuild) {
             rebuild_verlet_cache(
-                *extras,
-                points,
-                n_points,
-                box,
-                periodic,
-                device_id,
-                options,
-                h_box,
-                h_periodic
+                *extras, points, n_points, box, periodic, device_id, options, h_box, h_periodic
             );
         }
 
         recompute_verlet_neighbors(
-            *extras,
-            factory,
-            cuda_verlet_code,
-            cuda_sort_pairs_code,
-            reinterpret_cast<const double*>(points),
-            reinterpret_cast<const double*>(box),
-            options,
-            neighbors
+            *extras, factory, cuda_verlet_code, cuda_sort_pairs_code, points, box, options, neighbors
         );
         return;
     }

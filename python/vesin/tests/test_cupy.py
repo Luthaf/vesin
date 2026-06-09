@@ -386,3 +386,131 @@ def test_all_negative_coordinates():
 
     assert set(zip(original_i, original_j, strict=True)) == (expected_pairs)
     assert set(zip(translated_i, translated_j, strict=True)) == (expected_pairs)
+
+
+def compare_nl_results(expected, actual):
+    i, j, S = expected
+    i = cp.asnumpy(i)
+    j = cp.asnumpy(j)
+    S = cp.asnumpy(S)
+    expected = set(
+        zip(
+            i.tolist(),
+            j.tolist(),
+            *[S[:, k].tolist() for k in range(3)],
+            strict=True,
+        )
+    )
+
+    i, j, S = actual
+    i = cp.asnumpy(i)
+    j = cp.asnumpy(j)
+    S = cp.asnumpy(S)
+    actual = set(
+        zip(
+            i.tolist(),
+            j.tolist(),
+            *[S[:, k].tolist() for k in range(3)],
+            strict=True,
+        )
+    )
+
+    if expected != actual:
+        missing = expected - actual
+        extra = actual - expected
+        raise AssertionError(
+            f"Neighbor list mismatch: {len(missing)} missing pairs, "
+            f"{len(extra)} extra pairs.\n"
+            f"Missing pairs: {missing}\n"
+            f"Extra pairs: {extra}"
+        )
+
+
+@pytest.mark.parametrize("cutoff,full_list", [(3.0, True), (3.0, False), (1.5, True)])
+def test_verlet_matches_direct(cutoff, full_list):
+    points = cp.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    box = 10 * cp.eye(3)
+
+    nl_direct = NeighborList(cutoff=cutoff, full_list=full_list)
+    direct = nl_direct.compute(points=points, box=box, periodic=True, quantities="ijS")
+
+    nl = NeighborList(cutoff=cutoff, full_list=full_list, skin=1.5)
+    verlet = nl.compute(points=points, box=box, periodic=True, quantities="ijS")
+
+    compare_nl_results(direct, verlet)
+
+
+def test_verlet_pair_gets_inside_cutoff():
+    """
+    Checking that a pair outside of the cutoff but inside the skin is included on the
+    second call (first call builds the list, second should just filter it).
+    """
+    nl = NeighborList(cutoff=1.0, full_list=False, skin=0.5)
+    box = 10.0 * cp.eye(3)
+
+    points = cp.array([[0.0, 0.0, 0.0], [1.10, 0.0, 0.0]], dtype=cp.float64)
+    i, j = nl.compute(points, box, periodic=False, quantities="ij")
+    assert len(i) == 0
+    assert len(j) == 0
+
+    points = cp.array([[0.0, 0.0, 0.0], [0.95, 0.0, 0.0]], dtype=cp.float64)
+    i, j, d = nl.compute(points, box, periodic=False, quantities="ijd")
+
+    assert i == [0]
+    assert j == [1]
+    assert d == [0.95]
+
+
+def test_verlet_non_periodic():
+    points = cp.array(
+        [
+            [0.134, 1.282, 1.701],
+            [-0.273, 1.026, -1.471],
+            [1.922, -0.124, 1.900],
+            [1.400, -0.464, 0.480],
+            [0.149, 1.865, 0.635],
+        ]
+    )
+    box = cp.zeros((3, 3))
+
+    nl_direct = NeighborList(cutoff=3.42, full_list=False)
+    direct = nl_direct.compute(points=points, box=box, periodic=False, quantities="ijS")
+
+    nl = NeighborList(cutoff=3.42, full_list=False, skin=0.5)
+    verlet = nl.compute(points=points, box=box, periodic=False, quantities="ijS")
+
+    compare_nl_results(direct, verlet)
+
+
+def test_verlet_trajectory():
+    """Over a pseudo-trajectory, Verlet output must match the direct calculation"""
+    points = cp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.5, 0.0, 0.0],
+            [0.0, 1.5, 0.0],
+            [0.0, 0.0, 1.5],
+        ]
+    )
+    box = 5.0 * cp.eye(3)
+
+    nl_direct = NeighborList(cutoff=3.0, full_list=False)
+    skin = 0.5
+    nl = NeighborList(cutoff=3.0, full_list=False, skin=skin)
+
+    initial = points.copy()
+
+    for _ in range(100):
+        points += 0.1 * cp.asarray(np.random.normal(size=points.shape))
+
+        direct = nl_direct.compute(
+            points=points, box=box, periodic=True, quantities="ijS"
+        )
+        verlet = nl.compute(points, box, periodic=True, quantities="ijS")
+
+        compare_nl_results(direct, verlet)
+
+    # Some points should have moved more than the skin distance over the trajectory
+    points = cp.asnumpy(points)
+    initial = cp.asnumpy(initial)
+    assert np.any(np.linalg.norm(points - initial, axis=1) > skin)

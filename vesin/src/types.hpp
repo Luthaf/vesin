@@ -41,11 +41,11 @@ public:
         // adjust the box matrix to have a simple orthogonal dimension along
         // non-periodic directions
         if (n_periodic == 0) {
-            matrix_ = Matrix{
-                std::array<double, 3>{1, 0, 0},
-                std::array<double, 3>{0, 1, 0},
-                std::array<double, 3>{0, 0, 1},
-            };
+            matrix_ = Matrix({{
+                {1, 0, 0},
+                {0, 1, 0},
+                {0, 0, 1},
+            }});
         } else if (n_periodic == 1) {
             assert(periodic_idx_1 != -1);
             // Make the two non-periodic directions orthogonal to the periodic one
@@ -153,6 +153,10 @@ public:
     }
 
     void make_bounding_for(const double (*points)[3], size_t n_points) {
+        make_bounding_for(reinterpret_cast<const Vector*>(points), n_points);
+    }
+
+    void make_bounding_for(const Vector* points, size_t n_points) {
         // find the min and max coordinates along each axis
         for (size_t i = 0; i < n_points; i++) {
             for (size_t spatial = 0; spatial < 3; spatial++) {
@@ -211,6 +215,18 @@ private:
 /// The cell shift can be used to reconstruct the vector between two points,
 /// wrapped inside the unit cell.
 struct CellShift: public std::array<int32_t, 3> {
+    CellShift(int32_t a, int32_t b, int32_t c):
+        std::array<int32_t, 3>({a, b, c}) {}
+
+    CellShift(std::array<int32_t, 3> shifts):
+        std::array<int32_t, 3>(shifts) {}
+
+    CellShift(int32_t shifts[3]):
+        std::array<int32_t, 3>({shifts[0], shifts[1], shifts[2]}) {}
+
+    CellShift():
+        std::array<int32_t, 3>({0, 0, 0}) {}
+
     /// Compute the shift vector in cartesian coordinates, using the given cell
     /// matrix (stored in row major order).
     Vector cartesian(const BoundingBox& box) const {

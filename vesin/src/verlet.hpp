@@ -11,26 +11,20 @@
 namespace vesin {
 namespace cpu {
 
-/// State for a cached, on-CPU Verlet neighbor list.
+/// On-CPU Verlet neighbor list.
 ///
-/// The state stores:
-/// - a candidate neighbor list generated at `cutoff + skin`
-/// - the reference coordinates and box state used to build that cache
-/// - configuration parameters that invalidate the cache when changed
-struct VerletState {
-    /// Initialize an empty cache state.
-    VerletState() = default;
-    /// Release any GPU/CPU resources owned by the cached candidate list.
-    ~VerletState();
+/// This class manages an over-complete candidate neighbor list, computed for
+/// `cutoff + skin`, and the associated reference state for validating
+/// neighbor-list reuse.
+struct VerletList {
+    /// Initialize an empty Verlet list with no cached candidates.
+    VerletList() = default;
+    ~VerletList();
 
-    /// Disallow copy construction; neighbor cache state is process-local.
-    VerletState(const VerletState&) = delete;
-    /// Disallow copy assignment; neighbor cache state is process-local.
-    VerletState& operator=(const VerletState&) = delete;
-    /// Disallow move construction; candidate storage is handled by explicit resets.
-    VerletState(VerletState&&) = delete;
-    /// Disallow move assignment; candidate storage is handled by explicit resets.
-    VerletState& operator=(VerletState&&) = delete;
+    VerletList(const VerletList&) = delete;
+    VerletList& operator=(const VerletList&) = delete;
+    VerletList(VerletList&&) = delete;
+    VerletList& operator=(VerletList&&) = delete;
 
     /// Copy options relevant to cache reuse from the user options.
     ///
@@ -38,11 +32,11 @@ struct VerletState {
     /// clear existing cached candidates.
     void set_options(VesinOptions options);
 
-    /// Return `true` if the cache should be rebuilt for the current frame.
+    /// Return `true` if the cache should be rebuilt for the current `points`.
     ///
-    /// The caller passes the current positions and simulation box; a rebuild is
-    /// required after any structural change that could invalidate cached
-    /// candidates (box topology/periodicity changes, atom count changes, or large
+    /// The caller passes the current points and box; a rebuild is required
+    /// after any structural change that could invalidate cached candidates (box
+    /// topology/periodicity changes, points count changes, or large
     /// displacement from the reference positions).
     bool needs_rebuild(
         const Vector* points,
@@ -60,54 +54,45 @@ struct VerletState {
         const BoundingBox& box
     );
 
-    /// Filter cached candidates at the exact user cutoff for the current frame.
-    ///
-    /// This performs the displacement-based neighbor-list reuse work:
-    /// candidate list generation is amortized, while output arrays are filtered by
-    /// `cutoff`, and requested quantities (`S`, `d`, `D`) are emitted.
-    void recompute(
+    /// Filter cached candidates at the exact user cutoff for the current
+    /// `points`.
+    void filter(
         const Vector* points,
         const BoundingBox& box,
         VesinOptions options,
         VesinNeighborList& neighbors,
         size_t& output_capacity
-    );
+    ) const;
 
     /// Number of pairs currently stored in the cached candidate list.
     size_t candidate_count() const {
-        return candidates.length;
+        return candidates_.length;
     }
 
+private:
+    /// Release candidate buffers and reset cache metadata.
+    void clear_candidates();
+
     /// Reference positions at the time the candidates were built.
-    std::vector<double> ref_positions;
+    std::vector<Vector> ref_points_;
     /// Box matrix used for candidate generation and displacement validation.
-    Matrix ref_matrix = {};
+    Matrix ref_matrix_;
     /// Periodicity flags for the cached box.
-    std::array<bool, 3> ref_periodic = {false, false, false};
-    /// Number of points that were used to build the cached candidate list.
-    size_t n_points = 0;
+    std::array<bool, 3> ref_periodic_ = {false, false, false};
 
     /// Over-complete candidate list generated at `cutoff + skin`.
     ///
     /// The list is kept in normal neighbor-list representation so rebuild and
     /// recompute paths can share storage and filtering logic.
-    VesinNeighborList candidates;
+    VesinNeighborList candidates_;
 
     /// Options used to build the current cache.
-    VesinOptions options = {};
+    VesinOptions options_ = {};
     /// Rebuild threshold used to invalidate a cache (`(skin/2)^2`).
-    double half_skin_sq = 0.0;
+    double half_skin_sq_ = 0.0;
 
     /// Whether a usable cache is currently available.
-    bool has_cache = false;
-
-private:
-    /// Release candidate buffers and reset cache metadata.
-    ///
-    /// This is called when a rebuild becomes invalid or when the state is
-    /// destroyed. It clears all retained storage so stale entries are never
-    /// reused after neighbor-list invalidation.
-    void clear_candidates();
+    bool has_cache_ = false;
 };
 
 } // namespace cpu

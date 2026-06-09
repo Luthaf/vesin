@@ -11,7 +11,7 @@
 namespace vesin {
 namespace cpu {
 
-struct VerletState;
+struct VerletList;
 
 /// Extra CPU allocation metadata stored in `VesinNeighborList::opaque`.
 struct ExtraDataCpu {
@@ -32,12 +32,12 @@ struct ExtraDataCpu {
     /// Persisted GrowableNeighborList output capacity.
     size_t capacity = 0;
     /// Optional cached Verlet state for `skin > 0` calculations.
-    VerletState* verlet_state = nullptr;
+    VerletList* verlet_state = nullptr;
 };
 
 void free_neighbors(VesinNeighborList& neighbors);
 
-void stateless_neighbors(
+void cell_list_neighbors(
     const Vector* points,
     size_t n_points,
     BoundingBox box,

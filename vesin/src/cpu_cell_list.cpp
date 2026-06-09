@@ -34,7 +34,7 @@ ExtraDataCpu::~ExtraDataCpu() {
     delete this->verlet_state;
 }
 
-void vesin::cpu::stateless_neighbors(
+void vesin::cpu::cell_list_neighbors(
     const Vector* points,
     size_t n_points,
     BoundingBox box,
@@ -133,10 +133,9 @@ void vesin::cpu::neighbors(
     validate_algorithm(options);
 
     auto& extra = extra_data(raw_neighbors);
-
     if (options.skin > 0.0) {
         if (extra.verlet_state == nullptr) {
-            extra.verlet_state = new VerletState();
+            extra.verlet_state = new VerletList();
         }
 
         auto& state = *extra.verlet_state;
@@ -146,14 +145,14 @@ void vesin::cpu::neighbors(
             state.rebuild(points, n_points, box);
         }
 
-        state.recompute(points, box, options, raw_neighbors, extra.capacity);
-        return;
+        state.filter(points, box, options, raw_neighbors, extra.capacity);
+    } else {
+        // Remove verlet state if it exists from a previous call
+        delete extra.verlet_state;
+        extra.verlet_state = nullptr;
+
+        cell_list_neighbors(points, n_points, std::move(box), options, raw_neighbors, extra.capacity);
     }
-
-    delete extra.verlet_state;
-    extra.verlet_state = nullptr;
-
-    stateless_neighbors(points, n_points, std::move(box), options, raw_neighbors, extra.capacity);
 }
 
 /* ========================================================================== */
@@ -328,7 +327,7 @@ void CellList::foreach_pair(Function callback) {
 
             for (const auto& atom_i: current_cell) {
                 for (const auto& atom_j: this->get_cell(neighbor_cell_i)) {
-                    auto shift = CellShift{cell_shift} + atom_i.shift - atom_j.shift;
+                    auto shift = CellShift(cell_shift) + atom_i.shift - atom_j.shift;
                     auto shift_is_zero = shift[0] == 0 && shift[1] == 0 && shift[2] == 0;
 
                     if ((shift[0] != 0 && !box_.periodic(0)) ||

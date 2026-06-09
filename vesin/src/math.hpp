@@ -65,6 +65,12 @@ inline Vector operator*(Vector vector, double scalar) {
 }
 
 struct Matrix: public std::array<std::array<double, 3>, 3> {
+    Matrix():
+        std::array<std::array<double, 3>, 3>{{{0.0}}} {}
+
+    Matrix(std::array<std::array<double, 3>, 3> values):
+        std::array<std::array<double, 3>, 3>(values) {}
+
     double determinant() const {
         // clang-format off
         return (*this)[0][0] * ((*this)[1][1] * (*this)[2][2] - (*this)[2][1] * (*this)[1][2])

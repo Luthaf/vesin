@@ -435,6 +435,58 @@ static scalar_t* alloc(scalar_t* ptr, size_t size, size_t new_size) {
     return new_ptr;
 }
 
+void GrowableNeighborList::ensure_capacity(size_t required) {
+    if (required <= this->capacity) {
+        return;
+    }
+    // Same exponential doubling policy as grow(), but seeded to the caller's
+    // target so we cover it in a single allocation rather than several
+    // grow() calls. The previous code grew on every set_* call past
+    // capacity which made the per-pair branch + realloc the dominant CPU
+    // cost (cachegrind: 34% of total instructions).
+    size_t new_size = std::max<size_t>(this->capacity * 2, 1);
+    while (new_size < required) {
+        new_size *= 2;
+    }
+
+    auto* new_pairs = alloc<size_t, 2>(neighbors.pairs, neighbors.length, new_size);
+
+    int32_t (*new_shifts)[3] = nullptr;
+    if (options.return_shifts) {
+        new_shifts = alloc<int32_t, 3>(neighbors.shifts, neighbors.length, new_size);
+    }
+
+    double* new_distances = nullptr;
+    if (options.return_distances) {
+        new_distances = alloc<double>(neighbors.distances, neighbors.length, new_size);
+    }
+
+    double (*new_vectors)[3] = nullptr;
+    if (options.return_vectors) {
+        new_vectors = alloc<double, 3>(neighbors.vectors, neighbors.length, new_size);
+    }
+
+    if (
+        (new_pairs == nullptr) ||
+        (options.return_shifts && new_shifts == nullptr) ||
+        (options.return_distances && new_distances == nullptr) ||
+        (options.return_vectors && new_vectors == nullptr)
+    ) {
+        std::free(new_pairs);
+        std::free(new_shifts);
+        std::free(new_distances);
+        std::free(new_vectors);
+        throw std::runtime_error("could not allocate memory for growing neighbor list");
+    }
+
+    this->neighbors.pairs = new_pairs;
+    this->neighbors.shifts = new_shifts;
+    this->neighbors.distances = new_distances;
+    this->neighbors.vectors = new_vectors;
+
+    this->capacity = new_size;
+}
+
 void GrowableNeighborList::grow() {
     auto new_size = neighbors.length * 2;
     if (new_size == 0) {
@@ -541,20 +593,39 @@ void GrowableNeighborList::sort() {
     std::iota(std::begin(indices), std::end(indices), 0);
 
     struct compare_pairs {
-        compare_pairs(size_t (*pairs_)[2]):
-            pairs(pairs_) {}
+        compare_pairs(size_t (*pairs_)[2], int32_t (*shifts_)[3]):
+            pairs(pairs_),
+            shifts(shifts_) {}
 
         bool operator()(int64_t a, int64_t b) const {
-            return pairs[a][0] < pairs[b][0];
+            auto ia = static_cast<size_t>(a);
+            auto ib = static_cast<size_t>(b);
+
+            if (pairs[ia][0] != pairs[ib][0]) {
+                return pairs[ia][0] < pairs[ib][0];
+            }
+            if (pairs[ia][1] != pairs[ib][1]) {
+                return pairs[ia][1] < pairs[ib][1];
+            }
+            if (shifts != nullptr) {
+                for (size_t dim = 0; dim < 3; dim++) {
+                    if (shifts[ia][dim] != shifts[ib][dim]) {
+                        return shifts[ia][dim] < shifts[ib][dim];
+                    }
+                }
+            }
+
+            return false;
         }
 
         size_t (*pairs)[2];
+        int32_t (*shifts)[3];
     };
 
     std::sort(
         std::begin(indices),
         std::end(indices),
-        compare_pairs(this->neighbors.pairs)
+        compare_pairs(this->neighbors.pairs, this->neighbors.shifts)
     );
 
     // step 2: move all data according to the sorted indices.

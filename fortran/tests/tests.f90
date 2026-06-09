@@ -50,32 +50,37 @@ program vesin_test
 
     if (neighbor_list%length /= 10) call print_and_exit("wrong number of pairs")
 
-    expected_pairs = reshape([0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1], [2, 10])
+    ! Output is now sorted deterministically by (pair[0], pair[1], shift_x,
+    ! shift_y, shift_z) in GrowableNeighborList::sort. Before that fix only
+    ! pair[0] was used as the sort key, so the order within a fixed pair[0]
+    ! (e.g. all (0,0) self-loops with different shifts) was
+    ! implementation-defined; this test now records the stable order.
+    expected_pairs = reshape([0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1], [2, 10])
     expected_distances = [&
-        2.6870059, 2.3021729, 2.3021729, 1.8384775, 3.2000000, &
-        3.2000000, 3.2000000, 3.2000000, 3.2000000, 3.2000000  &
+        3.2000000, 3.2000000, 3.2000000, 2.6870059, 2.3021729, &
+        2.3021729, 1.8384775, 3.2000000, 3.2000000, 3.2000000  &
     ]
     expected_shifts = reshape([ &
+        0,  0,  1, &
+        0,  1,  0, &
+        1,  0,  0, &
         0, -1, -1, &
         0, -1,  0, &
         0,  0, -1, &
         0,  0,  0, &
         0,  0,  1, &
         0,  1,  0, &
-        1,  0,  0, &
-        0,  0,  1, &
-        0,  1,  0, &
         1,  0,  0  &
     ], [3, 10])
 
     expected_vectors = reshape([ &
+        0.0000000,  0.0000000,  3.2000000, &
+        0.0000000,  3.2000000,  0.0000000, &
+        3.2000000,  0.0000000,  0.0000000, &
         0.0000000, -1.9000000, -1.9000000, &
         0.0000000, -1.9000000,  1.2999999, &
         0.0000000,  1.2999999, -1.9000000, &
         0.0000000,  1.2999999,  1.2999999, &
-        0.0000000,  0.0000000,  3.2000000, &
-        0.0000000,  3.2000000,  0.0000000, &
-        3.2000000,  0.0000000,  0.0000000, &
         0.0000000,  0.0000000,  3.2000000, &
         0.0000000,  3.2000000,  0.0000000, &
         3.2000000,  0.0000000,  0.0000000  &

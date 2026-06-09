@@ -5,11 +5,31 @@
 #include <cstddef>
 #include <vector>
 
+#include "cluster.hpp"
 #include "types.hpp"
 #include "vesin.h"
 
 namespace vesin {
 namespace cpu {
+
+/// Fixed-width candidate block for SIMD filtering of cached Verlet pairs.
+struct alignas(64) VerletCandidateBlock {
+    size_t count = 0;
+    alignas(64) size_t first[CLUSTER_SIZE_CPU] = {};
+    alignas(64) size_t second[CLUSTER_SIZE_CPU] = {};
+    alignas(64) CellShift shifts[CLUSTER_SIZE_CPU] = {};
+    alignas(64) double shift_x[CLUSTER_SIZE_CPU] = {};
+    alignas(64) double shift_y[CLUSTER_SIZE_CPU] = {};
+    alignas(64) double shift_z[CLUSTER_SIZE_CPU] = {};
+};
+
+static_assert(alignof(VerletCandidateBlock) >= 64);
+static_assert(offsetof(VerletCandidateBlock, first) % 64 == 0);
+static_assert(offsetof(VerletCandidateBlock, second) % 64 == 0);
+static_assert(offsetof(VerletCandidateBlock, shifts) % 64 == 0);
+static_assert(offsetof(VerletCandidateBlock, shift_x) % 64 == 0);
+static_assert(offsetof(VerletCandidateBlock, shift_y) % 64 == 0);
+static_assert(offsetof(VerletCandidateBlock, shift_z) % 64 == 0);
 
 /// State for a cached, on-CPU Verlet neighbor list.
 ///
@@ -50,10 +70,7 @@ struct VerletState {
         const BoundingBox& box
     ) const;
 
-    /// Build the over-complete candidate list at `cutoff + skin`.
-    ///
-    /// The rebuild operation stores candidates in full `VesinNeighborList` form
-    /// and captures the state used to validate future `needs_rebuild` checks.
+    /// Build the over-complete candidate cache at `cutoff + skin`.
     void rebuild(
         const Vector* points,
         size_t n_points,
@@ -75,7 +92,15 @@ struct VerletState {
 
     /// Number of pairs currently stored in the cached candidate list.
     size_t candidate_count() const {
+        if (use_cluster_candidates) {
+            return cluster_candidates.size();
+        }
         return candidates.length;
+    }
+
+    /// Number of atom-pair candidates packed into SIMD recompute blocks.
+    size_t simd_candidate_count() const {
+        return simd_candidate_length;
     }
 
     /// Reference positions at the time the candidates were built.
@@ -92,6 +117,19 @@ struct VerletState {
     /// The list is kept in normal neighbor-list representation so rebuild and
     /// recompute paths can share storage and filtering logic.
     VesinNeighborList candidates;
+    /// Cartesian shift vector for each materialized candidate pair.
+    std::vector<Vector> candidate_shift_vectors;
+    /// Fixed-width blocks used by the SIMD cached-candidate recompute path.
+    std::vector<VerletCandidateBlock> simd_candidate_blocks;
+    /// Number of atom-pair lanes stored in `simd_candidate_blocks`.
+    size_t simd_candidate_length = 0;
+
+    /// Cluster grid used by cluster-backed Verlet candidate caches.
+    ClusterGrid cluster_grid;
+    /// Over-complete cluster-pair candidates generated at `cutoff + skin`.
+    std::vector<ClusterPairCandidate> cluster_candidates;
+    /// Whether the active cache is represented by cluster-pair candidates.
+    bool use_cluster_candidates = false;
 
     /// Options used to build the current cache.
     VesinOptions options = {};

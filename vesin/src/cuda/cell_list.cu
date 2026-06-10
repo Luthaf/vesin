@@ -35,8 +35,39 @@ __device__ inline double3 normalize3(const double3& v) {
     return make_double3(v.x / n, v.y / n, v.z / n);
 }
 
+__device__ void invert_matrix(const double3 box[3], double3 inverse[3]) {
+    double a = box[0].x;
+    double b = box[0].y;
+    double c = box[0].z;
+    double d = box[1].x;
+    double e = box[1].y;
+    double f = box[1].z;
+    double g = box[2].x;
+    double h = box[2].y;
+    double i = box[2].z;
+
+    double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    double invdet = 1.0 / det;
+
+    inverse[0] = make_double3(
+        (e * i - f * h) * invdet,
+        (c * h - b * i) * invdet,
+        (b * f - c * e) * invdet
+    );
+    inverse[1] = make_double3(
+        (f * g - d * i) * invdet,
+        (a * i - c * g) * invdet,
+        (c * d - a * f) * invdet
+    );
+    inverse[2] = make_double3(
+        (d * h - e * g) * invdet,
+        (b * g - a * h) * invdet,
+        (a * e - b * d) * invdet
+    );
+}
+
 __global__ void compute_bounding_box(
-    const double* __restrict__ points,
+    const double (*__restrict__ points)[3],
     size_t n_points,
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
@@ -102,11 +133,11 @@ __global__ void compute_bounding_box(
 }
 
 __global__ void compute_cell_grid_params(
-    const double* __restrict__ box,
-    const bool* __restrict__ periodic,
+    const double box[3][3],
+    const bool periodic[3],
     double cutoff,
     size_t max_cells,
-    double* __restrict__ inv_box,
+    double inv_box[3][3],
     int* __restrict__ n_cells,
     int* __restrict__ n_search,
     int* __restrict__ n_cells_total,
@@ -119,9 +150,9 @@ __global__ void compute_cell_grid_params(
     // Normalize non-periodic box directions like the CPU BoundingBox logic,
     // then use the normalized matrix for inverse and distance calculations.
     double3 rows[3] = {
-        make_double3(box[0], box[1], box[2]),
-        make_double3(box[3], box[4], box[5]),
-        make_double3(box[6], box[7], box[8]),
+        make_double3(box[0][0], box[0][1], box[0][2]),
+        make_double3(box[1][0], box[1][1], box[1][2]),
+        make_double3(box[2][0], box[2][1], box[2][2]),
     };
 
     int n_periodic = 0;
@@ -160,31 +191,8 @@ __global__ void compute_cell_grid_params(
         rows[3 - periodic_idx_1 - periodic_idx_2] = c;
     }
 
-    // Box matrix elements (possibly normalized)
-    double a = rows[0].x;
-    double b = rows[0].y;
-    double c = rows[0].z;
-    double d = rows[1].x;
-    double e = rows[1].y;
-    double f = rows[1].z;
-    double g = rows[2].x;
-    double h = rows[2].y;
-    double i = rows[2].z;
-
-    // Determinant
-    double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-    double invdet = 1.0 / det;
-
     // Inverse box matrix
-    inv_box[0] = (e * i - f * h) * invdet;
-    inv_box[1] = (c * h - b * i) * invdet;
-    inv_box[2] = (b * f - c * e) * invdet;
-    inv_box[3] = (f * g - d * i) * invdet;
-    inv_box[4] = (a * i - c * g) * invdet;
-    inv_box[5] = (c * d - a * f) * invdet;
-    inv_box[6] = (d * h - e * g) * invdet;
-    inv_box[7] = (b * g - a * h) * invdet;
-    inv_box[8] = (a * e - b * d) * invdet;
+    invert_matrix(rows, reinterpret_cast<double3(*)>(inv_box));
 
     // Box vectors
     double va[3] = {rows[0].x, rows[0].y, rows[0].z};
@@ -269,15 +277,15 @@ __global__ void compute_cell_grid_params(
 }
 
 __global__ void assign_cell_indices(
-    const double* __restrict__ points,
-    const double* __restrict__ inv_box,
-    const bool* __restrict__ periodic,
-    const int* __restrict__ n_cells,
+    const double (*__restrict__ points)[3],
     size_t n_points,
-    int* __restrict__ cell_indices,
-    int* __restrict__ particle_shifts,
+    const double inv_box[3][3],
+    const bool periodic[3],
+    const int* __restrict__ n_cells,
     const double* __restrict__ face_distances,
-    const double* __restrict__ bounding_min
+    const double* __restrict__ bounding_min,
+    int* __restrict__ cell_indices,
+    int* __restrict__ particle_shifts
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
@@ -288,11 +296,11 @@ __global__ void assign_cell_indices(
     const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pos = pos3[i];
 
-    // frac = pos @ inv_box (inv_box stored row-major: rows are inv_box[0..2], inv_box[3..5], inv_box[6..8])
+    // frac = pos @ inv_box (inv_box stored row-major)
     double frac[3];
-    frac[0] = pos.x * inv_box[0] + pos.y * inv_box[3] + pos.z * inv_box[6];
-    frac[1] = pos.x * inv_box[1] + pos.y * inv_box[4] + pos.z * inv_box[7];
-    frac[2] = pos.x * inv_box[2] + pos.y * inv_box[5] + pos.z * inv_box[8];
+    frac[0] = pos.x * inv_box[0][0] + pos.y * inv_box[1][0] + pos.z * inv_box[2][0];
+    frac[1] = pos.x * inv_box[0][1] + pos.y * inv_box[1][1] + pos.z * inv_box[2][1];
+    frac[2] = pos.x * inv_box[0][2] + pos.y * inv_box[1][2] + pos.z * inv_box[2][2];
 
     double pos_arr[3] = {pos.x, pos.y, pos.z};
 
@@ -382,11 +390,11 @@ __global__ void prefix_sum_cells(
 }
 
 __global__ void scatter_particles(
-    const double* __restrict__ points,
+    const double (*__restrict__ points)[3],
+    size_t n_points,
     const int* __restrict__ cell_indices,
     const int* __restrict__ particle_shifts,
     int* __restrict__ cell_offsets,
-    size_t n_points,
     double* __restrict__ sorted_points,
     int* __restrict__ sorted_indices,
     int* __restrict__ sorted_shifts,
@@ -419,26 +427,26 @@ __global__ void scatter_particles(
 
 __global__ void find_neighbors_cell_list(
     const double* __restrict__ sorted_points,
+    size_t n_points,
+    const double box[3][3],
+    const bool periodic[3],
+    const int* __restrict__ n_cells,
+    const int* __restrict__ n_search,
     const int* __restrict__ sorted_indices,
     const int* __restrict__ sorted_shifts,
     const int* __restrict__ sorted_cell_indices,
     const int* __restrict__ cell_starts,
     const int* __restrict__ cell_counts,
-    const double* __restrict__ box,
-    const bool* __restrict__ periodic,
-    const int* __restrict__ n_cells,
-    const int* __restrict__ n_search,
-    size_t n_points,
     double cutoff,
     bool full_list,
-    size_t* length,
-    size_t* pair_indices,
-    int* shifts_out,
-    double* distances,
-    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    size_t* length,
+    size_t (*pair_indices)[2],
+    int (*shifts_out)[3],
+    double* distances,
+    double (*vectors)[3],
     size_t max_pairs,
     int* overflow_flag
 ) {
@@ -467,15 +475,15 @@ __global__ void find_neighbors_cell_list(
     int ns_x = __ldg(&n_search[0]);
     int ns_y = __ldg(&n_search[1]);
     int ns_z = __ldg(&n_search[2]);
-    const bool pbc_x = periodic[0];
-    const bool pbc_y = periodic[1];
-    const bool pbc_z = periodic[2];
+    bool pbc_x = periodic[0];
+    bool pbc_y = periodic[1];
+    bool pbc_z = periodic[2];
 
     // Load box matrix rows as double3
     const auto* box3 = reinterpret_cast<const double3*>(box);
-    const double3 box_row0 = box3[0]; // box[0], box[1], box[2]
-    const double3 box_row1 = box3[1]; // box[3], box[4], box[5]
-    const double3 box_row2 = box3[2]; // box[6], box[7], box[8]
+    const double3 box_row0 = box3[0];
+    const double3 box_row1 = box3[1];
+    const double3 box_row2 = box3[2];
 
     // Vectorized position load
     const auto* pos3 = reinterpret_cast<const double3*>(sorted_points);
@@ -576,7 +584,7 @@ __global__ void find_neighbors_cell_list(
             int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
             int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
 
-            const bool shift_is_zero = (total_shift_x == 0 && total_shift_y == 0 && total_shift_z == 0);
+            bool shift_is_zero = (total_shift_x == 0 && total_shift_y == 0 && total_shift_z == 0);
 
             if (orig_i == orig_j && shift_is_zero) {
                 continue;
@@ -642,20 +650,20 @@ __global__ void find_neighbors_cell_list(
                     }
 
                     for (int b = 0; b < buffered_count; b++) {
-                        pair_indices[(base_idx + b) * 2] = orig_i;
-                        pair_indices[(base_idx + b) * 2 + 1] = buffered_j[b];
+                        pair_indices[base_idx + b][0] = orig_i;
+                        pair_indices[base_idx + b][1] = buffered_j[b];
                         if (return_shifts) {
-                            shifts_out[(base_idx + b) * 3 + 0] = buffered_shift[b * 3 + 0];
-                            shifts_out[(base_idx + b) * 3 + 1] = buffered_shift[b * 3 + 1];
-                            shifts_out[(base_idx + b) * 3 + 2] = buffered_shift[b * 3 + 2];
+                            shifts_out[base_idx + b][0] = buffered_shift[b * 3 + 0];
+                            shifts_out[base_idx + b][1] = buffered_shift[b * 3 + 1];
+                            shifts_out[base_idx + b][2] = buffered_shift[b * 3 + 2];
                         }
                         if (return_distances) {
                             distances[base_idx + b] = buffered_dist[b];
                         }
                         if (return_vectors) {
-                            vectors[(base_idx + b) * 3 + 0] = buffered_vec[b * 3 + 0];
-                            vectors[(base_idx + b) * 3 + 1] = buffered_vec[b * 3 + 1];
-                            vectors[(base_idx + b) * 3 + 2] = buffered_vec[b * 3 + 2];
+                            vectors[base_idx + b][0] = buffered_vec[b * 3 + 0];
+                            vectors[base_idx + b][1] = buffered_vec[b * 3 + 1];
+                            vectors[base_idx + b][2] = buffered_vec[b * 3 + 2];
                         }
                     }
                     buffered_count = 0;
@@ -675,12 +683,12 @@ __global__ void find_neighbors_cell_list(
         }
 
         for (int b = 0; b < buffered_count; b++) {
-            pair_indices[(base_idx + b) * 2] = orig_i;
-            pair_indices[(base_idx + b) * 2 + 1] = buffered_j[b];
+            pair_indices[base_idx + b][0] = orig_i;
+            pair_indices[base_idx + b][1] = buffered_j[b];
             if (return_shifts) {
-                shifts_out[(base_idx + b) * 3 + 0] = buffered_shift[b * 3 + 0];
-                shifts_out[(base_idx + b) * 3 + 1] = buffered_shift[b * 3 + 1];
-                shifts_out[(base_idx + b) * 3 + 2] = buffered_shift[b * 3 + 2];
+                shifts_out[base_idx + b][0] = buffered_shift[b * 3 + 0];
+                shifts_out[base_idx + b][1] = buffered_shift[b * 3 + 1];
+                shifts_out[base_idx + b][2] = buffered_shift[b * 3 + 2];
             }
 
             if (return_distances) {
@@ -688,9 +696,9 @@ __global__ void find_neighbors_cell_list(
             }
 
             if (return_vectors) {
-                vectors[(base_idx + b) * 3 + 0] = buffered_vec[b * 3 + 0];
-                vectors[(base_idx + b) * 3 + 1] = buffered_vec[b * 3 + 1];
-                vectors[(base_idx + b) * 3 + 2] = buffered_vec[b * 3 + 2];
+                vectors[base_idx + b][0] = buffered_vec[b * 3 + 0];
+                vectors[base_idx + b][1] = buffered_vec[b * 3 + 1];
+                vectors[base_idx + b][2] = buffered_vec[b * 3 + 2];
             }
         }
     }

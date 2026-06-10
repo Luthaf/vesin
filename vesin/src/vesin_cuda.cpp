@@ -137,7 +137,7 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
     neighbors.opaque = nullptr;
 }
 
-void checkCuda() {
+void check_cuda_is_available() {
     std::string cuda_libname;
     std::string cudart_libname;
     std::string nvrtc_libname;
@@ -188,10 +188,10 @@ void checkCuda() {
 static void sort_pairs(
     VesinOptions options,
     VesinNeighborList& neighbors,
-    size_t* d_pair_indices,
-    int32_t* d_shifts,
-    double* d_distances,
-    double* d_vectors
+    size_t (*pairs)[2],
+    int32_t (*shifts)[3],
+    double* distances,
+    double (*vectors)[3]
 ) {
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
 
@@ -235,10 +235,10 @@ static void sort_pairs(
 
     fill_kernel->launch(
         config,
-        d_pair_indices,
-        d_shifts,
-        d_distances,
-        d_vectors,
+        pairs,
+        shifts,
+        distances,
+        vectors,
         extras->sort_buffers.d_pairs_tmp,
         extras->sort_buffers.d_shifts_tmp,
         extras->sort_buffers.d_distances_tmp,
@@ -271,10 +271,10 @@ static void sort_pairs(
     size_t copy_blocks = (neighbors.length + sort_threads - 1) / sort_threads;
     copy_back_kernel->launch(
         config,
-        d_pair_indices,
-        d_shifts,
-        d_distances,
-        d_vectors,
+        pairs,
+        shifts,
+        distances,
+        vectors,
         extras->sort_buffers.d_pairs_tmp,
         extras->sort_buffers.d_shifts_tmp,
         extras->sort_buffers.d_distances_tmp,
@@ -351,8 +351,8 @@ struct BoxChecks {
 
 static BoxChecks check_box(
     VesinNeighborList& neighbors,
-    const double box[3][3],
-    const bool periodic[3],
+    const double d_box[3][3],
+    const bool d_periodic[3],
     size_t n_points,
     VesinOptions options
 ) {
@@ -363,8 +363,10 @@ static BoxChecks check_box(
     if (extras->d_box_diag == nullptr) {
         GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_box_diag, sizeof(double) * 3));
     }
-    if (extras->d_inv_box_brute == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_inv_box_brute, sizeof(double) * 9));
+    if (extras->d_inv_box == nullptr) {
+        double (*ptr)[3] = nullptr;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&ptr, sizeof(double[3][3])));
+        extras->d_inv_box = ptr;
     }
 
     auto* box_check_kernel = factory.create<decltype(mic_box_check)>(
@@ -380,12 +382,12 @@ static BoxChecks check_box(
 
     box_check_kernel->launch(
         config,
-        reinterpret_cast<const double*>(box),
-        periodic,
+        d_box,
+        d_periodic,
         options.cutoff,
         extras->d_cell_check_ptr,
         extras->d_box_diag,
-        extras->d_inv_box_brute
+        extras->d_inv_box
     );
 
     int32_t h_cell_check = 1;
@@ -459,7 +461,7 @@ static void run_cell_list(
     config.blockDim = dim3(THREADS_PER_BLOCK);
     bounding_kernel->launch(
         config,
-        reinterpret_cast<const double*>(d_points),
+        d_points,
         n_points,
         cl.d_face_distances,
         cl.d_bounding_min
@@ -478,11 +480,11 @@ static void run_cell_list(
     config.blockDim = dim3(1);
     grid_kernel->launch(
         config,
-        reinterpret_cast<const double*>(d_box),
+        d_box,
         d_periodic,
         options.cutoff,
         max_cells,
-        cl.d_inv_box,
+        extras->d_inv_box,
         cl.d_n_cells,
         cl.d_n_search,
         cl.d_n_cells_total,
@@ -505,15 +507,15 @@ static void run_cell_list(
     config.blockDim = dim3(THREADS_PER_BLOCK);
     assign_kernel->launch(
         config,
-        reinterpret_cast<const double*>(d_points),
-        cl.d_inv_box,
+        d_points,
+        n_points,
+        extras->d_inv_box,
         d_periodic,
         cl.d_n_cells,
-        n_points,
-        cl.d_cell_indices,
-        cl.d_particle_shifts,
         cl.d_face_distances,
-        cl.d_bounding_min
+        cl.d_bounding_min,
+        cl.d_cell_indices,
+        cl.d_particle_shifts
     );
     NVTX_POP();
 
@@ -569,11 +571,11 @@ static void run_cell_list(
     config.blockDim = dim3(THREADS_PER_BLOCK);
     scatter_kernel->launch(
         config,
-        reinterpret_cast<const double*>(d_points),
+        d_points,
+        n_points,
         cl.d_cell_indices,
         cl.d_particle_shifts,
         cl.d_cell_offsets,
-        n_points,
         cl.d_sorted_points,
         cl.d_sorted_indices,
         cl.d_sorted_shifts,
@@ -601,26 +603,26 @@ static void run_cell_list(
     find_kernel->launch(
         config,
         cl.d_sorted_points,
+        n_points,
+        d_box,
+        d_periodic,
+        cl.d_n_cells,
+        cl.d_n_search,
         cl.d_sorted_indices,
         cl.d_sorted_shifts,
         cl.d_sorted_cell_indices,
         cl.d_cell_starts,
         cl.d_cell_counts,
-        reinterpret_cast<const double*>(d_box),
-        d_periodic,
-        cl.d_n_cells,
-        cl.d_n_search,
-        n_points,
         options.cutoff,
         options.full,
-        extras->d_length_ptr,
-        reinterpret_cast<size_t*>(neighbors.pairs),
-        reinterpret_cast<int32_t*>(neighbors.shifts),
-        neighbors.distances,
-        reinterpret_cast<double*>(neighbors.vectors),
         options.return_shifts,
         options.return_distances,
         options.return_vectors,
+        extras->d_length_ptr,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors,
         max_pairs,
         extras->d_overflow_flag
     );
@@ -667,19 +669,19 @@ static void run_brute_force(
 
             kernel->launch(
                 config,
-                reinterpret_cast<const double*>(d_points),
+                d_points,
+                n_points,
                 extras->d_box_diag,
                 d_periodic,
-                n_points,
                 cutoff2,
-                extras->d_length_ptr,
-                reinterpret_cast<size_t*>(neighbors.pairs),
-                reinterpret_cast<int32_t*>(neighbors.shifts),
-                neighbors.distances,
-                reinterpret_cast<double*>(neighbors.vectors),
                 options.return_shifts,
                 options.return_distances,
                 options.return_vectors,
+                extras->d_length_ptr,
+                neighbors.pairs,
+                neighbors.shifts,
+                neighbors.distances,
+                neighbors.vectors,
                 max_pairs,
                 extras->d_overflow_flag
             );
@@ -695,19 +697,19 @@ static void run_brute_force(
 
             kernel->launch(
                 config,
-                reinterpret_cast<const double*>(d_points),
+                d_points,
+                n_points,
                 extras->d_box_diag,
                 d_periodic,
-                n_points,
                 cutoff2,
-                extras->d_length_ptr,
-                reinterpret_cast<size_t*>(neighbors.pairs),
-                reinterpret_cast<int32_t*>(neighbors.shifts),
-                neighbors.distances,
-                reinterpret_cast<double*>(neighbors.vectors),
                 options.return_shifts,
                 options.return_distances,
                 options.return_vectors,
+                extras->d_length_ptr,
+                neighbors.pairs,
+                neighbors.shifts,
+                neighbors.distances,
+                neighbors.vectors,
                 max_pairs,
                 extras->d_overflow_flag
             );
@@ -725,20 +727,20 @@ static void run_brute_force(
 
             kernel->launch(
                 config,
-                reinterpret_cast<const double*>(d_points),
-                reinterpret_cast<const double*>(d_box),
-                extras->d_inv_box_brute,
-                d_periodic,
+                d_points,
                 n_points,
+                d_box,
+                extras->d_inv_box,
+                d_periodic,
                 cutoff2,
-                extras->d_length_ptr,
-                reinterpret_cast<size_t*>(neighbors.pairs),
-                reinterpret_cast<int32_t*>(neighbors.shifts),
-                neighbors.distances,
-                reinterpret_cast<double*>(neighbors.vectors),
                 options.return_shifts,
                 options.return_distances,
                 options.return_vectors,
+                extras->d_length_ptr,
+                neighbors.pairs,
+                neighbors.shifts,
+                neighbors.distances,
+                neighbors.vectors,
                 max_pairs,
                 extras->d_overflow_flag
             );
@@ -754,20 +756,20 @@ static void run_brute_force(
 
             kernel->launch(
                 config,
-                reinterpret_cast<const double*>(d_points),
-                reinterpret_cast<const double*>(d_box),
-                extras->d_inv_box_brute,
-                d_periodic,
+                d_points,
                 n_points,
+                d_box,
+                extras->d_inv_box,
+                d_periodic,
                 cutoff2,
-                extras->d_length_ptr,
-                reinterpret_cast<size_t*>(neighbors.pairs),
-                reinterpret_cast<int32_t*>(neighbors.shifts),
-                neighbors.distances,
-                reinterpret_cast<double*>(neighbors.vectors),
                 options.return_shifts,
                 options.return_distances,
                 options.return_vectors,
+                extras->d_length_ptr,
+                neighbors.pairs,
+                neighbors.shifts,
+                neighbors.distances,
+                neighbors.vectors,
                 max_pairs,
                 extras->d_overflow_flag
             );
@@ -806,10 +808,10 @@ static void finalize_output(
         sort_pairs(
             options,
             neighbors,
-            reinterpret_cast<size_t*>(neighbors.pairs),
-            reinterpret_cast<int32_t*>(neighbors.shifts),
+            neighbors.pairs,
+            neighbors.shifts,
             neighbors.distances,
-            reinterpret_cast<double*>(neighbors.vectors)
+            neighbors.vectors
         );
     }
 }
@@ -823,9 +825,7 @@ void vesin::cuda::neighbors(
     VesinNeighborList& neighbors
 ) {
     assert(neighbors.device.type == VesinCUDA);
-
-    // Check if CUDA is available
-    checkCuda();
+    check_cuda_is_available();
 
     // check that all pointers are are device pointers
     if (!is_device_ptr(get_ptr_attributes(d_points), "points")) {

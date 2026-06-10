@@ -41,7 +41,6 @@ struct CellListBuffers {
     int32_t* d_sorted_cell_indices = nullptr; // [points_capacity] cell indices in sorted order
 
     // Cell grid parameters (device, computed on device)
-    double* d_inv_box = nullptr;        // [9] inverse box matrix
     int32_t* d_n_cells = nullptr;       // [3] number of cells in each direction
     int32_t* d_n_search = nullptr;      // [3] search range in each direction
     int32_t* d_n_cells_total = nullptr; // [1] total number of cells
@@ -62,11 +61,11 @@ struct CellListBuffers {
 };
 
 struct SortBuffers {
-    size_t capacity = 0;               // Capacity for the buffers below (number of pairs)
-    size_t* d_pairs_tmp = nullptr;     // [capacity] temporary pair indices for sorting
-    int32_t* d_shifts_tmp = nullptr;   // [capacity * 3] temporary shifts for sorting
-    double* d_distances_tmp = nullptr; // [capacity] temporary distances for sorting
-    double* d_vectors_tmp = nullptr;   // [capacity * 3] temporary vectors for sorting
+    size_t capacity = 0;                  // Capacity for the buffers below (number of pairs)
+    size_t (*d_pairs_tmp)[2] = nullptr;   // [capacity] temporary pair indices for sorting
+    int32_t (*d_shifts_tmp)[3] = nullptr; // [capacity] temporary shifts for sorting
+    double* d_distances_tmp = nullptr;    // [capacity] temporary distances for sorting
+    double (*d_vectors_tmp)[3] = nullptr; // [capacity * 3] temporary vectors for sorting
 
     void allocate(size_t n, bool return_shifts, bool return_distances, bool return_vectors);
 
@@ -93,8 +92,8 @@ struct CudaNeighborListExtras {
     CellListBuffers cell_list;
 
     // Buffers for optimized brute force kernels
-    double* d_box_diag = nullptr;      // [3] diagonal elements for orthogonal boxes
-    double* d_inv_box_brute = nullptr; // [9] inverse box matrix for general boxes
+    double* d_box_diag = nullptr;     // [3] diagonal elements for orthogonal boxes
+    double (*d_inv_box)[3] = nullptr; // [3][3] inverse box matrix for general boxes
 
     // Temporary buffers for on-device sorting
     SortBuffers sort_buffers;

@@ -98,6 +98,7 @@ if __name__ == "__main__":
             merge_files("cpu_cell_list.cpp", output)
             merge_files("verlet.cpp", output)
             merge_files("vesin_cuda.cpp", output)
+            merge_files("verlet_cuda.cpp", output)
             merge_files("vesin.cpp", output)
 
         ALREADY_SEEN.clear()

@@ -456,9 +456,9 @@ def test_verlet_pair_gets_inside_cutoff():
     points = cp.array([[0.0, 0.0, 0.0], [0.95, 0.0, 0.0]], dtype=cp.float64)
     i, j, d = nl.compute(points, box, periodic=False, quantities="ijd")
 
-    assert i == [0]
-    assert j == [1]
-    assert d == [0.95]
+    assert cp.asnumpy(i).tolist() == [0]
+    assert cp.asnumpy(j).tolist() == [1]
+    assert cp.asnumpy(d).tolist() == [0.95]
 
 
 def test_verlet_non_periodic():

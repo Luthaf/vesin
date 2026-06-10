@@ -6,8 +6,8 @@ __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
 }
 
 __global__ void check_verlet_displacements(
-    const double* __restrict__ positions,
-    const double* __restrict__ ref_positions,
+    const double* __restrict__ points,
+    const double* __restrict__ ref_points,
     size_t n_points,
     double half_skin_sq,
     int* rebuild_flag
@@ -17,9 +17,9 @@ __global__ void check_verlet_displacements(
         return;
     }
 
-    double dx = positions[i * 3 + 0] - ref_positions[i * 3 + 0];
-    double dy = positions[i * 3 + 1] - ref_positions[i * 3 + 1];
-    double dz = positions[i * 3 + 2] - ref_positions[i * 3 + 2];
+    double dx = points[i * 3 + 0] - ref_points[i * 3 + 0];
+    double dy = points[i * 3 + 1] - ref_points[i * 3 + 1];
+    double dz = points[i * 3 + 2] - ref_points[i * 3 + 2];
     double disp_sq = dx * dx + dy * dy + dz * dz;
 
     if (disp_sq > half_skin_sq) {
@@ -28,7 +28,7 @@ __global__ void check_verlet_displacements(
 }
 
 __global__ void filter_verlet_candidates(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const double* __restrict__ box,
     const size_t* __restrict__ candidate_pairs,
     const int* __restrict__ candidate_shifts,
@@ -55,8 +55,8 @@ __global__ void filter_verlet_candidates(
     const int sy = candidate_shifts[idx * 3 + 1];
     const int sz = candidate_shifts[idx * 3 + 2];
 
-    const double* ri = &positions[i * 3];
-    const double* rj = &positions[j * 3];
+    const double* ri = &points[i * 3];
+    const double* rj = &points[j * 3];
 
     double shift_x = sx * box[0] + sy * box[3] + sz * box[6];
     double shift_y = sx * box[1] + sy * box[4] + sz * box[7];

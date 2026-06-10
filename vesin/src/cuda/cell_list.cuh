@@ -4,7 +4,7 @@
 #include <cstddef>
 
 __global__ void compute_bounding_box(
-    const double* positions,
+    const double* points,
     size_t n_points,
     double* face_distances,
     double* bounding_min
@@ -25,7 +25,7 @@ __global__ void compute_cell_grid_params(
 
 // Map particles to cells via fractional coords, record periodic wrap shifts
 __global__ void assign_cell_indices(
-    const double* positions,
+    const double* points,
     const double* inv_box,
     const bool* periodic,
     const int* n_cells,
@@ -52,12 +52,12 @@ __global__ void prefix_sum_cells(
 
 // Reorder particles by cell for coalesced access in neighbor search
 __global__ void scatter_particles(
-    const double* positions,
+    const double* points,
     const int* cell_indices,
     const int* particle_shifts,
     int* cell_offsets,
     size_t n_points,
-    double* sorted_positions,
+    double* sorted_points,
     int* sorted_indices,
     int* sorted_shifts,
     int* sorted_cell_indices
@@ -67,7 +67,7 @@ __global__ void scatter_particles(
 // threads within a group split the work across neighbor cells.
 // Uses output buffering to batch writes and reduce atomic contention.
 __global__ void find_neighbors_cell_list(
-    const double* sorted_positions,
+    const double* sorted_points,
     const int* sorted_indices,
     const int* sorted_shifts,
     const int* sorted_cell_indices,

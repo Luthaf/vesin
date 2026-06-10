@@ -37,7 +37,7 @@ struct VerletList {
     /// The caller passes the current points and box; a rebuild is required
     /// after any structural change that could invalidate cached candidates (box
     /// topology/periodicity changes, points count changes, or large
-    /// displacement from the reference positions).
+    /// displacement from the reference points).
     bool needs_rebuild(
         const Vector* points,
         size_t n_points,
@@ -73,7 +73,7 @@ private:
     /// Release candidate buffers and reset cache metadata.
     void clear_candidates();
 
-    /// Reference positions at the time the candidates were built.
+    /// Reference points at the time the candidates were built.
     std::vector<Vector> ref_points_;
     /// Box matrix used for candidate generation and displacement validation.
     Matrix ref_matrix_;

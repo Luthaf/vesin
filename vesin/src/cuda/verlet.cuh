@@ -8,7 +8,7 @@
 // reference points and filter those cached candidates at the exact cutoff.
 
 __global__ void check_verlet_displacements(
-    const double* points,
+    const double (*points)[3],
     const double* ref_points,
     size_t n_points,
     double half_skin_sq,
@@ -16,20 +16,20 @@ __global__ void check_verlet_displacements(
 );
 
 __global__ void filter_verlet_candidates(
-    const double* points,
-    const double* box,
-    const size_t* candidate_pairs,
-    const int* candidate_shifts,
-    size_t candidate_length,
+    const double (*points)[3],
+    const double box[3][3],
     double cutoff,
-    size_t* length,
-    size_t* pair_indices,
-    int* shifts_out,
-    double* distances,
-    double* vectors,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    const size_t (*candidate_pairs)[2],
+    const int (*candidate_shifts)[3],
+    size_t candidate_length,
+    size_t* length,
+    size_t (*pair_indices)[2],
+    int (*shifts_out)[3],
+    double* distances,
+    double (*vectors)[3]
 );
 
 #endif // VESIN_CUDA_VERLET_CUH

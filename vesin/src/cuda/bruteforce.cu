@@ -239,24 +239,24 @@ __device__ inline void apply_pbc_general(
 }
 
 __global__ void brute_force_half_orthogonal(
-    const double* __restrict__ points,
-    const double* __restrict__ box_diag,
-    const bool* __restrict__ periodic,
+    const double (*__restrict__ points)[3],
     size_t n_points,
+    const double box_diag[3],
+    const bool periodic[3],
     double cutoff2,
-    size_t* length,
-    size_t* pair_indices,
-    int* shifts,
-    double* distances,
-    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    size_t* length,
+    size_t (*pair_indices)[2],
+    int (*shifts)[3],
+    double* distances,
+    double (*vectors)[3],
     size_t max_pairs,
     int* overflow_flag
 ) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t num_all_pairs = n_points * (n_points - 1) / 2;
 
     if (index >= num_all_pairs) {
         return;
@@ -266,7 +266,7 @@ __global__ void brute_force_half_orthogonal(
     if (j * (j - 1) > 2 * index) {
         j--;
     }
-    const size_t i = index - j * (j - 1) / 2;
+    size_t i = index - j * (j - 1) / 2;
 
     const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pi = pos3[i];
@@ -287,17 +287,17 @@ __global__ void brute_force_half_orthogonal(
             atomicExch(overflow_flag, 1);
             return;
         }
-        pair_indices[idx * 2] = i;
-        pair_indices[idx * 2 + 1] = j;
+        pair_indices[idx][0] = i;
+        pair_indices[idx][1] = j;
         if (return_shifts) {
-            shifts[idx * 3] = s.x;
-            shifts[idx * 3 + 1] = s.y;
-            shifts[idx * 3 + 2] = s.z;
+            shifts[idx][0] = s.x;
+            shifts[idx][1] = s.y;
+            shifts[idx][2] = s.z;
         }
         if (return_vectors) {
-            vectors[idx * 3] = d.x;
-            vectors[idx * 3 + 1] = d.y;
-            vectors[idx * 3 + 2] = d.z;
+            vectors[idx][0] = d.x;
+            vectors[idx][1] = d.y;
+            vectors[idx][2] = d.z;
         }
         if (return_distances) {
             distances[idx] = sqrt(dist2);
@@ -306,25 +306,25 @@ __global__ void brute_force_half_orthogonal(
 }
 
 __global__ void brute_force_full_orthogonal(
-    const double* __restrict__ points,
-    const double* __restrict__ box_diag,
-    const bool* __restrict__ periodic,
+    const double (*__restrict__ points)[3],
     size_t n_points,
+    const double box_diag[3],
+    const bool periodic[3],
     double cutoff2,
-    size_t* length,
-    size_t* pair_indices,
-    int* shifts,
-    double* distances,
-    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    size_t* length,
+    size_t (*pair_indices)[2],
+    int (*shifts)[3],
+    double* distances,
+    double (*vectors)[3],
     size_t max_pairs,
     int* overflow_flag
 ) {
     // Triangular indexing: one thread per unordered pair, outputs both (i,j) and (j,i)
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t num_half_pairs = n_points * (n_points - 1) / 2;
+    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t num_half_pairs = n_points * (n_points - 1) / 2;
 
     if (index >= num_half_pairs) {
         return;
@@ -334,7 +334,7 @@ __global__ void brute_force_full_orthogonal(
     if (j * (j - 1) > 2 * index) {
         j--;
     }
-    const size_t i = index - j * (j - 1) / 2;
+    size_t i = index - j * (j - 1) / 2;
 
     const auto* pos3 = reinterpret_cast<const double3*>(points);
 
@@ -357,26 +357,26 @@ __global__ void brute_force_full_orthogonal(
             return;
         }
 
-        pair_indices[idx * 2] = i;
-        pair_indices[idx * 2 + 1] = j;
-        pair_indices[(idx + 1) * 2] = j;
-        pair_indices[(idx + 1) * 2 + 1] = i;
+        pair_indices[idx][0] = i;
+        pair_indices[idx][1] = j;
+        pair_indices[idx + 1][0] = j;
+        pair_indices[idx + 1][1] = i;
 
         if (return_shifts) {
-            shifts[idx * 3] = s.x;
-            shifts[idx * 3 + 1] = s.y;
-            shifts[idx * 3 + 2] = s.z;
-            shifts[(idx + 1) * 3] = -s.x;
-            shifts[(idx + 1) * 3 + 1] = -s.y;
-            shifts[(idx + 1) * 3 + 2] = -s.z;
+            shifts[idx][0] = s.x;
+            shifts[idx][1] = s.y;
+            shifts[idx][2] = s.z;
+            shifts[idx + 1][0] = -s.x;
+            shifts[idx + 1][1] = -s.y;
+            shifts[idx + 1][2] = -s.z;
         }
         if (return_vectors) {
-            vectors[idx * 3] = d.x;
-            vectors[idx * 3 + 1] = d.y;
-            vectors[idx * 3 + 2] = d.z;
-            vectors[(idx + 1) * 3] = -d.x;
-            vectors[(idx + 1) * 3 + 1] = -d.y;
-            vectors[(idx + 1) * 3 + 2] = -d.z;
+            vectors[idx][0] = d.x;
+            vectors[idx][1] = d.y;
+            vectors[idx][2] = d.z;
+            vectors[idx + 1][0] = -d.x;
+            vectors[idx + 1][1] = -d.y;
+            vectors[idx + 1][2] = -d.z;
         }
         if (return_distances) {
             double dist = sqrt(dist2);
@@ -387,25 +387,25 @@ __global__ void brute_force_full_orthogonal(
 }
 
 __global__ void brute_force_half_general(
-    const double* __restrict__ points,
-    const double* __restrict__ box,
-    const double* __restrict__ inv_box,
-    const bool* __restrict__ periodic,
+    const double (*__restrict__ points)[3],
     size_t n_points,
+    const double box[3][3],
+    const double inv_box[3][3],
+    const bool periodic[3],
     double cutoff2,
-    size_t* length,
-    size_t* pair_indices,
-    int* shifts,
-    double* distances,
-    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    size_t* length,
+    size_t (*pair_indices)[2],
+    int (*shifts)[3],
+    double* distances,
+    double (*vectors)[3],
     size_t max_pairs,
     int* overflow_flag
 ) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t num_all_pairs = n_points * (n_points - 1) / 2;
+    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t num_all_pairs = n_points * (n_points - 1) / 2;
 
     // Load box into double3 arrays
     __shared__ double3 shared_box[3];
@@ -413,14 +413,14 @@ __global__ void brute_force_half_general(
 
     if (threadIdx.x < 3) {
         shared_box[threadIdx.x] = make_double3(
-            box[threadIdx.x * 3],
-            box[threadIdx.x * 3 + 1],
-            box[threadIdx.x * 3 + 2]
+            box[threadIdx.x][0],
+            box[threadIdx.x][1],
+            box[threadIdx.x][2]
         );
         shared_inv_box[threadIdx.x] = make_double3(
-            inv_box[threadIdx.x * 3],
-            inv_box[threadIdx.x * 3 + 1],
-            inv_box[threadIdx.x * 3 + 2]
+            inv_box[threadIdx.x][0],
+            inv_box[threadIdx.x][1],
+            inv_box[threadIdx.x][2]
         );
     }
     __syncthreads();
@@ -433,7 +433,7 @@ __global__ void brute_force_half_general(
     if (j * (j - 1) > 2 * index) {
         j--;
     }
-    const size_t i = index - j * (j - 1) / 2;
+    size_t i = index - j * (j - 1) / 2;
 
     const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pi = pos3[i];
@@ -453,17 +453,17 @@ __global__ void brute_force_half_general(
             atomicExch(overflow_flag, 1);
             return;
         }
-        pair_indices[idx * 2] = i;
-        pair_indices[idx * 2 + 1] = j;
+        pair_indices[idx][0] = i;
+        pair_indices[idx][1] = j;
         if (return_shifts) {
-            shifts[idx * 3] = shift.x;
-            shifts[idx * 3 + 1] = shift.y;
-            shifts[idx * 3 + 2] = shift.z;
+            shifts[idx][0] = shift.x;
+            shifts[idx][1] = shift.y;
+            shifts[idx][2] = shift.z;
         }
         if (return_vectors) {
-            vectors[idx * 3] = vector.x;
-            vectors[idx * 3 + 1] = vector.y;
-            vectors[idx * 3 + 2] = vector.z;
+            vectors[idx][0] = vector.x;
+            vectors[idx][1] = vector.y;
+            vectors[idx][2] = vector.z;
         }
         if (return_distances) {
             distances[idx] = sqrt(dist2);
@@ -475,25 +475,25 @@ __global__ void brute_force_half_general(
 // NNPOps-style triangular indexing: one thread per unordered pair, outputs both (i,j) and (j,i)
 // Uses double3 for vectorized position loads
 __global__ void brute_force_full_general(
-    const double* __restrict__ points,
-    const double* __restrict__ box,
-    const double* __restrict__ inv_box,
-    const bool* __restrict__ periodic,
+    const double (*__restrict__ points)[3],
     size_t n_points,
+    const double box[3][3],
+    const double inv_box[3][3],
+    const bool periodic[3],
     double cutoff2,
-    size_t* length,
-    size_t* pair_indices,
-    int* shifts,
-    double* distances,
-    double* vectors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    size_t* length,
+    size_t (*pair_indices)[2],
+    int (*shifts)[3],
+    double* distances,
+    double (*vectors)[3],
     size_t max_pairs,
     int* overflow_flag
 ) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t num_half_pairs = n_points * (n_points - 1) / 2;
+    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t num_half_pairs = n_points * (n_points - 1) / 2;
 
     // Load box into double3 arrays
     __shared__ double3 shared_box[3];
@@ -501,14 +501,14 @@ __global__ void brute_force_full_general(
 
     if (threadIdx.x < 3) {
         shared_box[threadIdx.x] = make_double3(
-            box[threadIdx.x * 3],
-            box[threadIdx.x * 3 + 1],
-            box[threadIdx.x * 3 + 2]
+            box[threadIdx.x][0],
+            box[threadIdx.x][1],
+            box[threadIdx.x][2]
         );
         shared_inv_box[threadIdx.x] = make_double3(
-            inv_box[threadIdx.x * 3],
-            inv_box[threadIdx.x * 3 + 1],
-            inv_box[threadIdx.x * 3 + 2]
+            inv_box[threadIdx.x][0],
+            inv_box[threadIdx.x][1],
+            inv_box[threadIdx.x][2]
         );
     }
     __syncthreads();
@@ -522,7 +522,7 @@ __global__ void brute_force_full_general(
     if (j * (j - 1) > 2 * index) {
         j--;
     }
-    const size_t i = index - j * (j - 1) / 2;
+    size_t i = index - j * (j - 1) / 2;
 
     const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pi = pos3[i];
@@ -543,26 +543,26 @@ __global__ void brute_force_full_general(
             return;
         }
 
-        pair_indices[idx * 2] = i;
-        pair_indices[idx * 2 + 1] = j;
-        pair_indices[(idx + 1) * 2] = j;
-        pair_indices[(idx + 1) * 2 + 1] = i;
+        pair_indices[idx][0] = i;
+        pair_indices[idx][1] = j;
+        pair_indices[idx + 1][0] = j;
+        pair_indices[idx + 1][1] = i;
 
         if (return_shifts) {
-            shifts[idx * 3] = shift.x;
-            shifts[idx * 3 + 1] = shift.y;
-            shifts[idx * 3 + 2] = shift.z;
-            shifts[(idx + 1) * 3] = -shift.x;
-            shifts[(idx + 1) * 3 + 1] = -shift.y;
-            shifts[(idx + 1) * 3 + 2] = -shift.z;
+            shifts[idx][0] = shift.x;
+            shifts[idx][1] = shift.y;
+            shifts[idx][2] = shift.z;
+            shifts[idx + 1][0] = -shift.x;
+            shifts[idx + 1][1] = -shift.y;
+            shifts[idx + 1][2] = -shift.z;
         }
         if (return_vectors) {
-            vectors[idx * 3] = vector.x;
-            vectors[idx * 3 + 1] = vector.y;
-            vectors[idx * 3 + 2] = vector.z;
-            vectors[(idx + 1) * 3] = -vector.x;
-            vectors[(idx + 1) * 3 + 1] = -vector.y;
-            vectors[(idx + 1) * 3 + 2] = -vector.z;
+            vectors[idx][0] = vector.x;
+            vectors[idx][1] = vector.y;
+            vectors[idx][2] = vector.z;
+            vectors[idx + 1][0] = -vector.x;
+            vectors[idx + 1][1] = -vector.y;
+            vectors[idx + 1][2] = -vector.z;
         }
         if (return_distances) {
             double dist = sqrt(dist2);
@@ -573,20 +573,20 @@ __global__ void brute_force_full_general(
 }
 
 __global__ void mic_box_check(
-    const double* box,
-    const bool* periodic,
+    const double box[3][3],
+    const bool periodic[3],
     double cutoff,
     int* status,
-    double* box_diag,   // Output: [Lx, Ly, Lz] for orthogonal boxes (can be nullptr)
-    double* inv_box_out // Output: 9-element inverse box matrix (can be nullptr)
+    double box_diag[3],
+    double inv_box_out[3][3]
 ) {
     __shared__ double3 shared_box[3];
 
     if (threadIdx.x < 3) {
         shared_box[threadIdx.x] = make_double3(
-            box[threadIdx.x * 3],
-            box[threadIdx.x * 3 + 1],
-            box[threadIdx.x * 3 + 2]
+            box[threadIdx.x][0],
+            box[threadIdx.x][1],
+            box[threadIdx.x][2]
         );
     }
 
@@ -617,9 +617,9 @@ __global__ void mic_box_check(
         // The orthogonal brute-force kernels assume axis-aligned (diagonal)
         // box vectors, not only pairwise orthogonality.
         bool is_axis_aligned =
-            (abs(box[1]) < tol) && (abs(box[2]) < tol) &&
-            (abs(box[3]) < tol) && (abs(box[5]) < tol) &&
-            (abs(box[6]) < tol) && (abs(box[7]) < tol);
+            (abs(box[0][1]) < tol) && (abs(box[0][2]) < tol) &&
+            (abs(box[1][0]) < tol) && (abs(box[1][2]) < tol) &&
+            (abs(box[2][0]) < tol) && (abs(box[2][1]) < tol);
 
         // Treat fully non-periodic systems as orthogonal (no PBC needed)
         // Also treat systems with zero-norm vectors as orthogonal (degenerate case)
@@ -627,25 +627,10 @@ __global__ void mic_box_check(
                              (a_norm < tol || b_norm < tol || c_norm < tol) ||
                              is_axis_aligned;
 
-        if (box_diag != nullptr) {
-            box_diag[0] = a_norm;
-            box_diag[1] = b_norm;
-            box_diag[2] = c_norm;
-        }
-
-        if (inv_box_out != nullptr) {
-            double3 inv_box[3];
-            invert_matrix(shared_box, inv_box);
-            inv_box_out[0] = inv_box[0].x;
-            inv_box_out[1] = inv_box[0].y;
-            inv_box_out[2] = inv_box[0].z;
-            inv_box_out[3] = inv_box[1].x;
-            inv_box_out[4] = inv_box[1].y;
-            inv_box_out[5] = inv_box[1].z;
-            inv_box_out[6] = inv_box[2].x;
-            inv_box_out[7] = inv_box[2].y;
-            inv_box_out[8] = inv_box[2].z;
-        }
+        box_diag[0] = a_norm;
+        box_diag[1] = b_norm;
+        box_diag[2] = c_norm;
+        invert_matrix(shared_box, reinterpret_cast<double3*>(inv_box_out));
 
         double min_dim = 1e30;
         if (is_orthogonal) {

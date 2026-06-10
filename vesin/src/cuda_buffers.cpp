@@ -22,7 +22,6 @@ CellListBuffers::~CellListBuffers() {
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_indices));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_shifts));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_cell_indices));
-        GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_cells));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_cells_total));
@@ -74,9 +73,6 @@ CellListBuffers& CellListBuffers::operator=(CellListBuffers&& other) noexcept {
 
         this->d_sorted_cell_indices = other.d_sorted_cell_indices;
         other.d_sorted_cell_indices = nullptr;
-
-        this->d_inv_box = other.d_inv_box;
-        other.d_inv_box = nullptr;
 
         this->d_n_cells = other.d_n_cells;
         other.d_n_cells = nullptr;
@@ -130,8 +126,7 @@ void CellListBuffers::allocate(size_t n_points, size_t n_cells) {
     }
 
     // Allocate cell grid parameter buffers (fixed size, only once)
-    if (this->d_inv_box == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_inv_box, sizeof(double) * 9));
+    if (this->d_n_cells == nullptr) {
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_cells, sizeof(int32_t) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_search, sizeof(int32_t) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_cells_total, sizeof(int32_t)));
@@ -206,7 +201,7 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
         }
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_check_ptr));
         GPULITE_CUDART_CALL(cudaFree(this->d_box_diag));
-        GPULITE_CUDART_CALL(cudaFree(this->d_inv_box_brute));
+        GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
         GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
@@ -227,7 +222,7 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
             }
             GPULITE_CUDART_CALL(cudaFree(this->d_cell_check_ptr));
             GPULITE_CUDART_CALL(cudaFree(this->d_box_diag));
-            GPULITE_CUDART_CALL(cudaFree(this->d_inv_box_brute));
+            GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
             GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
         } catch (const std::runtime_error& e) {
             std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
@@ -249,8 +244,8 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
         this->d_box_diag = other.d_box_diag;
         other.d_box_diag = nullptr;
 
-        this->d_inv_box_brute = other.d_inv_box_brute;
-        other.d_inv_box_brute = nullptr;
+        this->d_inv_box = other.d_inv_box;
+        other.d_inv_box = nullptr;
 
         this->d_overflow_flag = other.d_overflow_flag;
         other.d_overflow_flag = nullptr;

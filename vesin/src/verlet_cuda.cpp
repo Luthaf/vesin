@@ -152,7 +152,7 @@ void VerletCache::rebuild_cache(
         auto half_skin_sq = (options.skin / 2.0) * (options.skin / 2.0);
         kernel->launch(
             config,
-            reinterpret_cast<const double*>(d_points),
+            d_points,
             this->d_ref_points_,
             n_points,
             half_skin_sq,
@@ -238,20 +238,20 @@ void VerletCache::filter_neighbors(
 
     kernel->launch(
         config,
-        reinterpret_cast<const double*>(d_points),
-        reinterpret_cast<const double*>(d_box),
-        reinterpret_cast<size_t*>(this->candidates_.pairs),
-        reinterpret_cast<int32_t*>(this->candidates_.shifts),
-        this->candidates_.length,
+        d_points,
+        d_box,
         options.cutoff,
-        extras->d_length_ptr,
-        reinterpret_cast<size_t*>(neighbors.pairs),
-        reinterpret_cast<int32_t*>(neighbors.shifts),
-        neighbors.distances,
-        reinterpret_cast<double*>(neighbors.vectors),
         options.return_shifts,
         options.return_distances,
-        options.return_vectors
+        options.return_vectors,
+        this->candidates_.pairs,
+        this->candidates_.shifts,
+        this->candidates_.length,
+        extras->d_length_ptr,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors
     );
 }
 

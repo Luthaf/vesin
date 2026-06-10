@@ -3,10 +3,13 @@
 
 #include <cstdint>
 
+#include "verlet_cuda.hpp"
 #include "vesin.h"
 
 namespace vesin {
 namespace cuda {
+
+struct CudaNeighborListExtras;
 
 #ifndef VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT
 /// Default value for the number of pairs per points in the CUDA implementation.
@@ -19,74 +22,94 @@ namespace cuda {
 
 /// @brief Buffers for cell list-based neighbor search
 struct CellListBuffers {
-    size_t max_points = 0; // Capacity for point-related arrays
-    size_t max_cells = 0;  // Capacity for cell-related arrays
+    size_t points_capacity = 0; // Capacity for point-related arrays
+    size_t cells_capacity = 0;  // Capacity for cell-related arrays
 
-    // Per-particle arrays
-    int32_t* cell_indices = nullptr;    // [max_points] linear cell index per particle
-    int32_t* particle_shifts = nullptr; // [max_points * 3] shift applied to wrap into cell
+    // Per-particle arrays (device)
+    int32_t* d_cell_indices = nullptr;    // [points_capacity] linear cell index per particle
+    int32_t* d_particle_shifts = nullptr; // [points_capacity * 3] shift applied to wrap into cell
 
-    // Per-cell arrays
-    int32_t* cell_counts = nullptr;  // [max_cells] number of particles in each cell
-    int32_t* cell_starts = nullptr;  // [max_cells] starting index in sorted arrays
-    int32_t* cell_offsets = nullptr; // [max_cells] working copy for scatter
+    // Per-cell arrays (device)
+    int32_t* d_cell_counts = nullptr;  // [cells_capacity] number of particles in each cell
+    int32_t* d_cell_starts = nullptr;  // [cells_capacity] starting index in sorted arrays
+    int32_t* d_cell_offsets = nullptr; // [cells_capacity] working copy for scatter
 
-    // Sorted particle data (for coalesced memory access)
-    double* sorted_positions = nullptr;     // [max_points * 3]
-    int32_t* sorted_indices = nullptr;      // [max_points] original particle indices
-    int32_t* sorted_shifts = nullptr;       // [max_points * 3] shifts for sorted particles
-    int32_t* sorted_cell_indices = nullptr; // [max_points] cell indices in sorted order
+    // Sorted particle data (device, for coalesced memory access)
+    double* d_sorted_points = nullptr;        // [points_capacity * 3]
+    int32_t* d_sorted_indices = nullptr;      // [points_capacity] original particle indices
+    int32_t* d_sorted_shifts = nullptr;       // [points_capacity * 3] shifts for sorted particles
+    int32_t* d_sorted_cell_indices = nullptr; // [points_capacity] cell indices in sorted order
 
-    // Cell grid parameters (computed on device)
-    double* inv_box = nullptr;        // [9] inverse box matrix
-    int32_t* n_cells = nullptr;       // [3] number of cells in each direction
-    int32_t* n_search = nullptr;      // [3] search range in each direction
-    int32_t* n_cells_total = nullptr; // [1] total number of cells
+    // Cell grid parameters (device, computed on device)
+    double* d_inv_box = nullptr;        // [9] inverse box matrix
+    int32_t* d_n_cells = nullptr;       // [3] number of cells in each direction
+    int32_t* d_n_search = nullptr;      // [3] search range in each direction
+    int32_t* d_n_cells_total = nullptr; // [1] total number of cells
 
-    double* face_distances = nullptr; // [3] distances between faces of the box
-    double* bounding_min = nullptr;   // [3] bottom of the bounding box
+    double* d_face_distances = nullptr; // [3] distances between faces of the box
+    double* d_bounding_min = nullptr;   // [3] bottom of the bounding box
+
+    void allocate(size_t n_points, size_t n_cells);
+
+    CellListBuffers() = default;
+    ~CellListBuffers();
+
+    CellListBuffers(CellListBuffers&& other) noexcept;
+    CellListBuffers& operator=(CellListBuffers&& other) noexcept;
+
+    CellListBuffers(const CellListBuffers&) = delete;
+    CellListBuffers& operator=(const CellListBuffers&) = delete;
+};
+
+struct SortBuffers {
+    size_t capacity = 0;               // Capacity for the buffers below (number of pairs)
+    size_t* d_pairs_tmp = nullptr;     // [capacity] temporary pair indices for sorting
+    int32_t* d_shifts_tmp = nullptr;   // [capacity * 3] temporary shifts for sorting
+    double* d_distances_tmp = nullptr; // [capacity] temporary distances for sorting
+    double* d_vectors_tmp = nullptr;   // [capacity * 3] temporary vectors for sorting
+
+    void allocate(size_t n, bool return_shifts, bool return_distances, bool return_vectors);
+
+    SortBuffers() = default;
+    ~SortBuffers();
+
+    SortBuffers(SortBuffers&& other) noexcept;
+    SortBuffers& operator=(SortBuffers&& other) noexcept;
+
+    SortBuffers(const SortBuffers&) = delete;
+    SortBuffers& operator=(const SortBuffers&) = delete;
 };
 
 struct CudaNeighborListExtras {
-    size_t* length_ptr = nullptr;      // GPU-side counter
-    size_t capacity = 0;               // Current capacity per device
-    size_t max_pairs = 0;              // Maximum number of pairs that can be stored; depends on VESIN_CUDA_MAX_PAIRS_PER_POINT
-    int32_t* cell_check_ptr = nullptr; // GPU-side status code for checking cell
-    int32_t* overflow_flag = nullptr;  // GPU-side flag to detect overflow of pair buffers
-    int32_t allocated_device_id = -1;  // which device are we currently allocated on
+    size_t pairs_capacity = 0;           // Capacity for the pair buffers in the VesinNeighborList
+    size_t* d_length_ptr = nullptr;      // GPU-side counter
+    int32_t* d_cell_check_ptr = nullptr; // GPU-side status code for checking cell
+    int32_t* d_overflow_flag = nullptr;  // GPU-side flag to detect overflow of pair buffers
 
-    // Pinned host memory for async D2H copy (Approach 2)
+    // Pinned host memory for async D2H copy
     size_t* pinned_length_ptr = nullptr;
 
     // Cell list buffers (allocated on demand for large systems)
     CellListBuffers cell_list;
 
     // Buffers for optimized brute force kernels
-    double* box_diag = nullptr;      // [3] diagonal elements for orthogonal boxes
-    double* inv_box_brute = nullptr; // [9] inverse box matrix for general boxes
+    double* d_box_diag = nullptr;      // [3] diagonal elements for orthogonal boxes
+    double* d_inv_box_brute = nullptr; // [9] inverse box matrix for general boxes
 
     // Temporary buffers for on-device sorting
-    size_t* sort_pairs_tmp = nullptr;     // [sort_capacity * 2]
-    int32_t* sort_shifts_tmp = nullptr;   // [sort_capacity * 3]
-    double* sort_distances_tmp = nullptr; // [sort_capacity]
-    double* sort_vectors_tmp = nullptr;   // [sort_capacity * 3]
-    size_t sort_capacity = 0;
+    SortBuffers sort_buffers;
 
-    // Verlet cache state. Candidates are generated at cutoff + skin and
-    // filtered at the exact cutoff while the reference positions remain valid.
-    VesinNeighborList verlet_candidates;
-    size_t verlet_candidate_length = 0;
-    double* verlet_ref_positions = nullptr; // [max_points * 3]
-    int32_t* verlet_rebuild_flag = nullptr; // [1]
-    size_t verlet_ref_capacity = 0;
-    size_t verlet_n_points = 0;
-    double verlet_ref_box[9] = {0.0};
-    bool verlet_ref_periodic[3] = {false, false, false};
-    VesinOptions verlet_options = {};
-    double verlet_half_skin_sq = 0.0;
-    bool verlet_has_cache = false;
+    // Verlet cache state
+    VerletCache verlet_cache;
 
+    CudaNeighborListExtras() = default;
     ~CudaNeighborListExtras();
+
+    CudaNeighborListExtras(CudaNeighborListExtras&& other) noexcept;
+    CudaNeighborListExtras& operator=(CudaNeighborListExtras&& other) noexcept;
+
+    CudaNeighborListExtras(const CudaNeighborListExtras&) = delete;
+    CudaNeighborListExtras& operator=(const CudaNeighborListExtras&) = delete;
 };
 
 /// @brief Frees GPU memory associated with a VesinNeighborList.
@@ -123,7 +146,18 @@ void neighbors(
 );
 
 /// Get the `CudaNeighborListExtras` stored inside `VesinNeighborList`'s opaque pointer
-CudaNeighborListExtras* get_cuda_extras(VesinNeighborList* neighbors);
+inline CudaNeighborListExtras* get_cuda_extras(VesinNeighborList& neighbors) {
+    if (neighbors.opaque == nullptr) {
+        neighbors.opaque = new vesin::cuda::CudaNeighborListExtras();
+    }
+    return static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
+}
+
+/// Allocate output buffers in the `VesinNeighborList` according to the options
+/// and the given number of pairs. If the current capacity is sufficient, this
+/// is a no-op. Otherwise, existing buffers are freed and new ones are allocated
+/// with the requested capacity.
+void allocate_output_buffers(VesinNeighborList& neighbors, size_t n_pairs, VesinOptions options);
 
 } // namespace cuda
 } // namespace vesin

@@ -239,7 +239,7 @@ __device__ inline void apply_pbc_general(
 }
 
 __global__ void brute_force_half_orthogonal(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const double* __restrict__ box_diag,
     const bool* __restrict__ periodic,
     size_t n_points,
@@ -268,7 +268,7 @@ __global__ void brute_force_half_orthogonal(
     }
     const size_t i = index - j * (j - 1) / 2;
 
-    const auto* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pi = pos3[i];
     double3 pj = pos3[j];
     double3 d = pj - pi;
@@ -306,7 +306,7 @@ __global__ void brute_force_half_orthogonal(
 }
 
 __global__ void brute_force_full_orthogonal(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const double* __restrict__ box_diag,
     const bool* __restrict__ periodic,
     size_t n_points,
@@ -336,7 +336,8 @@ __global__ void brute_force_full_orthogonal(
     }
     const size_t i = index - j * (j - 1) / 2;
 
-    const auto* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
+
     double3 pi = pos3[i];
     double3 pj = pos3[j];
     double3 d = pj - pi;
@@ -386,7 +387,7 @@ __global__ void brute_force_full_orthogonal(
 }
 
 __global__ void brute_force_half_general(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const double* __restrict__ box,
     const double* __restrict__ inv_box,
     const bool* __restrict__ periodic,
@@ -434,7 +435,7 @@ __global__ void brute_force_half_general(
     }
     const size_t i = index - j * (j - 1) / 2;
 
-    const auto* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pi = pos3[i];
     double3 pj = pos3[j];
     double3 vector = pj - pi;
@@ -474,7 +475,7 @@ __global__ void brute_force_half_general(
 // NNPOps-style triangular indexing: one thread per unordered pair, outputs both (i,j) and (j,i)
 // Uses double3 for vectorized position loads
 __global__ void brute_force_full_general(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const double* __restrict__ box,
     const double* __restrict__ inv_box,
     const bool* __restrict__ periodic,
@@ -523,7 +524,7 @@ __global__ void brute_force_full_general(
     }
     const size_t i = index - j * (j - 1) / 2;
 
-    const auto* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pi = pos3[i];
     double3 pj = pos3[j];
     double3 vector = pj - pi;

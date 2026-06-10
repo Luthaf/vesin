@@ -41,8 +41,10 @@ option(VESIN_ENABLE_NVTX "Enable NVTX profiling markers" OFF)
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet_cuda.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_buffers.cpp
 )
 
 if (BUILD_VESIN_FOR_PYTHON)
@@ -90,7 +92,7 @@ else()
     FetchContent_Declare(
         gpulite
         GIT_REPOSITORY https://github.com/metatensor/gpu-lite.git
-        GIT_TAG ceb0934e2294b680ebce37242b2e4f26921152e6 # tag 'mts-v1.2.0'
+        GIT_TAG 6c221167aeca7e113ea6f27e9a2e12391bdb189a # mts-v1.3.0
         EXCLUDE_FROM_ALL
     )
 endif()

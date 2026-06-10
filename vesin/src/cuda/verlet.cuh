@@ -5,18 +5,18 @@
 
 // CUDA Verlet cache support uses the existing cell-list builder to create
 // candidate pairs at cutoff + skin. These kernels validate the cached
-// reference positions and filter those cached candidates at the exact cutoff.
+// reference points and filter those cached candidates at the exact cutoff.
 
 __global__ void check_verlet_displacements(
-    const double* positions,
-    const double* ref_positions,
+    const double* points,
+    const double* ref_points,
     size_t n_points,
     double half_skin_sq,
     int* rebuild_flag
 );
 
 __global__ void filter_verlet_candidates(
-    const double* positions,
+    const double* points,
     const double* box,
     const size_t* candidate_pairs,
     const int* candidate_shifts,

@@ -36,7 +36,7 @@ __device__ inline double3 normalize3(const double3& v) {
 }
 
 __global__ void compute_bounding_box(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     size_t n_points,
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
@@ -52,7 +52,7 @@ __global__ void compute_bounding_box(
     double local_min[3] = {MAX_DOUBLE, MAX_DOUBLE, MAX_DOUBLE};
     double local_max[3] = {MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE};
 
-    const auto* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
     for (size_t idx = tid; idx < n_points; idx += blockDim.x) {
         double3 point = pos3[idx];
         local_min[0] = min(local_min[0], point.x);
@@ -269,7 +269,7 @@ __global__ void compute_cell_grid_params(
 }
 
 __global__ void assign_cell_indices(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const double* __restrict__ inv_box,
     const bool* __restrict__ periodic,
     const int* __restrict__ n_cells,
@@ -285,7 +285,7 @@ __global__ void assign_cell_indices(
     }
 
     // Vectorized position load
-    const auto* pos3 = reinterpret_cast<const double3*>(positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
     double3 pos = pos3[i];
 
     // frac = pos @ inv_box (inv_box stored row-major: rows are inv_box[0..2], inv_box[3..5], inv_box[6..8])
@@ -382,12 +382,12 @@ __global__ void prefix_sum_cells(
 }
 
 __global__ void scatter_particles(
-    const double* __restrict__ positions,
+    const double* __restrict__ points,
     const int* __restrict__ cell_indices,
     const int* __restrict__ particle_shifts,
     int* __restrict__ cell_offsets,
     size_t n_points,
-    double* __restrict__ sorted_positions,
+    double* __restrict__ sorted_points,
     int* __restrict__ sorted_indices,
     int* __restrict__ sorted_shifts,
     int* __restrict__ sorted_cell_indices
@@ -400,9 +400,9 @@ __global__ void scatter_particles(
     int cell = cell_indices[i];
     int slot = atomicAdd(&cell_offsets[cell], 1);
 
-    // Vectorized position copy
-    const auto* pos_in = reinterpret_cast<const double3*>(positions);
-    auto* pos_out = reinterpret_cast<double3*>(sorted_positions);
+    // Vectorized points copy
+    const auto* pos_in = reinterpret_cast<const double3*>(points);
+    auto* pos_out = reinterpret_cast<double3*>(sorted_points);
     pos_out[slot] = pos_in[i];
 
     sorted_indices[slot] = static_cast<int>(i);
@@ -418,7 +418,7 @@ __global__ void scatter_particles(
 #define MAX_BUFFERED_PAIRS 8
 
 __global__ void find_neighbors_cell_list(
-    const double* __restrict__ sorted_positions,
+    const double* __restrict__ sorted_points,
     const int* __restrict__ sorted_indices,
     const int* __restrict__ sorted_shifts,
     const int* __restrict__ sorted_cell_indices,
@@ -478,7 +478,7 @@ __global__ void find_neighbors_cell_list(
     const double3 box_row2 = box3[2]; // box[6], box[7], box[8]
 
     // Vectorized position load
-    const auto* pos3 = reinterpret_cast<const double3*>(sorted_positions);
+    const auto* pos3 = reinterpret_cast<const double3*>(sorted_points);
     const double3 ri = pos3[i];
     int orig_i = __ldg(&sorted_indices[i]);
     int shift_i_x = __ldg(&sorted_shifts[i * 3 + 0]);

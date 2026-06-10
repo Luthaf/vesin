@@ -4,7 +4,7 @@
 #include <cstddef>
 
 __global__ void brute_force_half_orthogonal(
-    const double* positions,
+    const double* points,
     const double* box_diag,
     const bool* periodic,
     size_t n_points,
@@ -22,7 +22,7 @@ __global__ void brute_force_half_orthogonal(
 );
 
 __global__ void brute_force_full_orthogonal(
-    const double* positions,
+    const double* points,
     const double* box_diag,
     const bool* periodic,
     size_t n_points,
@@ -40,7 +40,7 @@ __global__ void brute_force_full_orthogonal(
 );
 
 __global__ void brute_force_half_general(
-    const double* positions,
+    const double* points,
     const double* box,
     const double* inv_box,
     const bool* periodic,
@@ -59,7 +59,7 @@ __global__ void brute_force_half_general(
 );
 
 __global__ void brute_force_full_general(
-    const double* positions,
+    const double* points,
     const double* box,
     const double* inv_box,
     const bool* periodic,

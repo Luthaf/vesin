@@ -1,30 +1,15 @@
+import argparse
+import json
 import time
 
 import ase.build
-import ase.neighborlist
-import matscipy.neighbours
 import numpy as np
-import pymatgen.core
 import torch
-import torch_nl
-
-
-# NNPOps is not available on PyPI
-try:
-    import NNPOps.neighbors
-
-    HAS_NNPOPS = True
-except ImportError:
-    HAS_NNPOPS = False
-
-try:
-    from nvalchemiops.torch.neighbors import neighbor_list as nvalchemi_neighbor_list
-
-    HAS_NVALCHEMI = True
-except ImportError:
-    HAS_NVALCHEMI = False
 
 import vesin
+
+
+HAS_CUDA = torch.cuda.is_available()
 
 
 def benchmark(setup, function, atoms, cutoff):
@@ -54,39 +39,21 @@ def benchmark(setup, function, atoms, cutoff):
     return (end - start) / n_iter
 
 
-def setup_torch_nl_cpu(atoms, cutoff):
-    pos, cell, pbc, batch, n_atoms = torch_nl.ase2data(
-        [atoms], device=torch.device("cpu")
-    )
-    return cutoff, pos, cell, pbc, batch
-
-
-def setup_torch_nl_cuda(atoms, cutoff):
-    pos, cell, pbc, batch, n_atoms = torch_nl.ase2data(
-        [atoms], device=torch.device("cuda")
-    )
-    return cutoff, pos, cell, pbc, batch
-
-
-def torch_nl_run(cutoff, pos, cell, pbc, batch):
-    return torch_nl.compute_neighborlist(
-        cutoff, pos, cell, pbc, batch, self_interaction=True
-    )
-
-
 def setup_nnpops_cpu(atoms, cutoff):
     positions = torch.tensor(atoms.positions)
-    box_vector = torch.tensor(atoms.cell)
+    box_vector = torch.tensor(atoms.cell[:])
     return positions, cutoff, box_vector
 
 
 def setup_nnpops_cuda(atoms, cutoff):
     positions = torch.tensor(atoms.positions).to("cuda")
-    box_vector = torch.tensor(atoms.cell).to("cuda")
+    box_vector = torch.tensor(atoms.cell[:]).to("cuda")
     return positions, cutoff, box_vector
 
 
 def nnpops_run(positions, cutoff, box_vectors):
+    import NNPOps.neighbors
+
     return NNPOps.neighbors.getNeighborPairs(
         positions, cutoff=cutoff, box_vectors=box_vectors
     )
@@ -107,6 +74,8 @@ def setup_nvalchemi_cuda(atoms, cutoff):
 
 
 def nvalchemi_run(positions, cutoff, cell, pbc):
+    from nvalchemiops.torch.neighbors import neighbor_list as nvalchemi_neighbor_list
+
     return nvalchemi_neighbor_list(positions, cutoff, cell=cell, pbc=pbc)
 
 
@@ -115,6 +84,8 @@ def setup_ase_like(atoms, cutoff):
 
 
 def setup_pymatgen(atoms, cutoff):
+    import pymatgen.core
+
     structure = pymatgen.core.Structure(
         atoms.cell[:],
         atoms.numbers,
@@ -128,20 +99,65 @@ def pymatgen_run(structure, cutoff):
     return structure.get_neighbor_list(cutoff)
 
 
-def setup_vesin(atoms, cutoff):
+def ase_run(quantities, atoms, cutoff):
+    import ase.neighborlist
+
+    return ase.neighborlist.neighbor_list(quantities, atoms, cutoff)
+
+
+def matscipy_run(quantities, atoms, cutoff):
+    import matscipy.neighbours
+
+    return matscipy.neighbours.neighbour_list(
+        cutoff=cutoff,
+        positions=atoms.positions,
+        cell=atoms.cell,
+        pbc=atoms.pbc,
+        quantities=quantities,
+    )
+
+
+def setup_sisl(atoms, cutoff):
+    import sisl
+
+    return sisl.Geometry.new.ase(atoms), cutoff
+
+
+def sisl_run(system, cutoff):
+    import sisl
+
+    finder = sisl.geom.NeighborFinder(system, R=cutoff)
+    finder.find_neighbors()
+
+
+def setup_vesin_cpu(atoms, cutoff):
     calculator = vesin.NeighborList(
         cutoff=cutoff,
         full_list=True,
         sorted=False,
     )
-    return calculator, atoms
+    return calculator, atoms.positions, atoms.cell[:], atoms.pbc
 
 
-def vesin_run(calculator, atoms):
-    return calculator.compute(atoms.positions, atoms.cell, atoms.pbc, quantities="ijSd")
+def setup_vesin_cuda(atoms, cutoff):
+    calculator = vesin.NeighborList(
+        cutoff=cutoff,
+        full_list=True,
+        sorted=False,
+    )
+    return (
+        calculator,
+        torch.tensor(atoms.positions).to("cuda"),
+        torch.tensor(atoms.cell[:]).to("cuda"),
+        torch.tensor(atoms.pbc).to("cuda"),
+    )
 
 
-def determine_super_cell(max_cell_repeat, max_log_size_delta, max_cell_ratio):
+def vesin_run(calculator, positions, cell, pbc):
+    return calculator.compute(positions, cell, pbc, quantities="ijSd", copy=False)
+
+
+def determine_super_cell(atoms, max_cell_repeat, max_log_size_delta, max_cell_ratio):
     """
     Determine which super cells to include. We want equally spaced number of atoms in
     log scale, and cells that are not too anisotropic.
@@ -186,146 +202,131 @@ def determine_super_cell(max_cell_repeat, max_log_size_delta, max_cell_ratio):
     return filtered_repeats
 
 
-atoms = ase.build.bulk("C", "diamond", 3.567, orthorhombic=True)
+def get_version(impl):
+    if impl == "ase":
+        import ase
 
-repeats = determine_super_cell(
-    max_cell_repeat=20, max_log_size_delta=0.1, max_cell_ratio=3
-)
+        return ase.__version__
+    elif impl == "matscipy":
+        import matscipy
+
+        return matscipy.__version__
+    elif impl == "pymatgen":
+        import pymatgen.core
+
+        return pymatgen.core.__version__
+    elif impl == "sisl":
+        import sisl
+
+        return sisl.__version__
+    elif impl == "vesin_cpu" or impl == "vesin_cuda":
+        return vesin.__version__
+    elif impl == "nvalchemi_cpu" or impl == "nvalchemi_cuda":
+        import nvalchemiops
+
+        return nvalchemiops.__version__
+    elif impl == "nnpops_cpu" or impl == "nnpops_cuda":
+        import NNPOps
+
+        return NNPOps.__version__
+    else:
+        raise ValueError(f"Unknown implementation: {impl}")
 
 
-n_atoms = {}
-ase_time = {}
-matscipy_time = {}
-torch_nl_cpu_time = {}
-torch_nl_cuda_time = {}
-pymatgen_time = {}
-vesin_time = {}
-nvalchemi_cpu_time = {}
-nvalchemi_cuda_time = {}
+def run_benchmark(impl, atoms, cutoff):
+    if impl == "ase":
+        return benchmark(setup_ase_like, ase_run, atoms, cutoff)
+    elif impl == "matscipy":
+        return benchmark(setup_ase_like, matscipy_run, atoms, cutoff)
+    elif impl == "pymatgen":
+        return benchmark(setup_pymatgen, pymatgen_run, atoms, cutoff)
+    elif impl == "sisl":
+        return benchmark(setup_sisl, sisl_run, atoms, cutoff)
+    elif impl == "vesin_cpu":
+        return benchmark(setup_vesin_cpu, vesin_run, atoms, cutoff)
+    elif impl == "vesin_cuda":
+        return benchmark(setup_vesin_cuda, vesin_run, atoms, cutoff)
+    elif impl == "nvalchemi_cpu":
+        return benchmark(setup_nvalchemi_cpu, nvalchemi_run, atoms, cutoff)
+    elif impl == "nvalchemi_cuda":
+        return benchmark(setup_nvalchemi_cuda, nvalchemi_run, atoms, cutoff)
+    elif impl == "nnpops_cpu":
+        if np.any(atoms.cell.lengths() < 2 * cutoff):
+            print("   NNPOps can not run for this super cell")
+            return float("nan")
+        else:
+            return benchmark(setup_nnpops_cpu, nnpops_run, atoms, cutoff)
+    elif impl == "nnpops_cuda":
+        if np.any(atoms.cell.lengths() < 2 * cutoff):
+            print("   NNPOps can not run for this super cell")
+            return float("nan")
+        else:
+            return benchmark(setup_nnpops_cuda, nnpops_run, atoms, cutoff)
+    else:
+        raise ValueError(f"Unknown implementation: {impl}")
 
-for cutoff in [3, 6, 12]:
-    print(f"===========  CUTOFF={cutoff}  =============")
 
-    n_atoms[cutoff] = []
-    ase_time[cutoff] = []
-    matscipy_time[cutoff] = []
-    torch_nl_cpu_time[cutoff] = []
-    torch_nl_cuda_time[cutoff] = []
-    pymatgen_time[cutoff] = []
-    vesin_time[cutoff] = []
-    nvalchemi_cpu_time[cutoff] = []
-    nvalchemi_cuda_time[cutoff] = []
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Benchmark neighbor list implementations"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for benchmark results (default: no output)",
+    )
+    parser.add_argument(
+        "implementations",
+        nargs="*",
+        default=["all"],
+        help="List of implementations to benchmark (default: all)",
+    )
+    args = parser.parse_args()
 
+    if args.implementations == ["all"]:
+        args.implementations = [
+            "ase",
+            "matscipy",
+            "pymatgen",
+            "sisl",
+            "vesin_cpu",
+            "nvalchemi_cpu",
+            "nnpops_cpu",
+        ]
+
+        if HAS_CUDA:
+            args.implementations.append("vesin_cuda")
+            args.implementations.append("nvalchemi_cuda")
+            args.implementations.append("nnpops_cuda")
+
+    atoms = ase.build.bulk("C", "diamond", 3.567, orthorhombic=True)
+    repeats = determine_super_cell(
+        atoms, max_cell_repeat=20, max_log_size_delta=0.1, max_cell_ratio=3
+    )
+
+    data = {"n_atoms": []}
+    for impl in args.implementations:
+        data[impl] = {
+            "version": get_version(impl),
+            "cutoff_3": [],
+            "cutoff_6": [],
+            "cutoff_12": [],
+        }
+
+    structures = []
     for kx, ky, kz in repeats:
         super_cell = atoms.repeat((kx, ky, kz))
-        print(len(super_cell), "atoms")
-        n_atoms[cutoff].append(len(super_cell))
+        print(f"\n{len(super_cell)} atoms")
+        data["n_atoms"].append(len(super_cell))
 
-        # ASE
-        timing = benchmark(
-            setup_ase_like,
-            ase.neighborlist.neighbor_list,
-            super_cell,
-            cutoff,
-        )
-        ase_time[cutoff].append(timing * 1e3)
-        print(f"   ase took {timing * 1e3:.3f} ms")
+        for cutoff in [3.0, 6.0, 12.0]:
+            print(f"Cutoff: {cutoff} Å")
 
-        # MATSCIPY
-        timing = benchmark(
-            setup_ase_like,
-            matscipy.neighbours.neighbour_list,
-            super_cell,
-            cutoff,
-        )
-        matscipy_time[cutoff].append(timing * 1e3)
-        print(f"   matscipy took {timing * 1e3:.3f} ms")
+            for impl in args.implementations:
+                timing = run_benchmark(impl, super_cell, cutoff=cutoff)
+                data[impl][f"cutoff_{int(cutoff)}"].append(timing)
+                print(f"    {impl} took {1e3 * timing:.4f} ms")
 
-        # TORCH_NL CPU
-        timing = benchmark(
-            setup_torch_nl_cpu,
-            torch_nl_run,
-            super_cell,
-            cutoff,
-        )
-        torch_nl_cpu_time[cutoff].append(timing * 1e3)
-        print(f"   torch_nl (cpu) took {timing * 1e3:.3f} ms")
-
-        # TORCH_NL CUDA
-        timing = benchmark(
-            setup_torch_nl_cuda,
-            torch_nl_run,
-            super_cell,
-            cutoff,
-        )
-        torch_nl_cuda_time[cutoff].append(timing * 1e3)
-        print(f"   torch_nl (cuda) took {timing * 1e3:.3f} ms")
-
-        if HAS_NNPOPS:
-            if np.any(super_cell.cell.lengths() < 2 * cutoff):
-                print("   NNPOps can not run for this super cell")
-            else:
-                # NNPOps CPU
-                timing = benchmark(
-                    setup_nnpops_cpu,
-                    nnpops_run,
-                    super_cell,
-                    cutoff,
-                )
-                torch_nl_cpu_time[cutoff].append(timing * 1e3)
-                print(f"   NNPOps (cpu) took {timing * 1e3:.3f} ms")
-
-                # NNPOps CUDA
-                timing = benchmark(
-                    setup_nnpops_cuda,
-                    nnpops_run,
-                    super_cell,
-                    cutoff,
-                )
-                torch_nl_cuda_time[cutoff].append(timing * 1e3)
-                print(f"   NNPOps (cuda) took {timing * 1e3:.3f} ms")
-
-        if HAS_NVALCHEMI:
-            try:
-                # nvalchemi CPU
-                timing = benchmark(
-                    setup_nvalchemi_cpu,
-                    nvalchemi_run,
-                    super_cell,
-                    cutoff,
-                )
-                nvalchemi_cpu_time[cutoff].append(timing * 1e3)
-                print(f"   nvalchemi (cpu) took {timing * 1e3:.3f} ms")
-
-                # nvalchemi CUDA
-                timing = benchmark(
-                    setup_nvalchemi_cuda,
-                    nvalchemi_run,
-                    super_cell,
-                    cutoff,
-                )
-                nvalchemi_cuda_time[cutoff].append(timing * 1e3)
-                print(f"   nvalchemi (cuda) took {timing * 1e3:.3f} ms")
-            except OSError as e:
-                print(f"   nvalchemi skipped: {e}")
-
-        # Pymatgen
-        timing = benchmark(
-            setup_pymatgen,
-            pymatgen_run,
-            super_cell,
-            cutoff,
-        )
-        pymatgen_time[cutoff].append(timing * 1e3)
-        print(f"   pymatgen took {timing * 1e3:.3f} ms")
-
-        # VESIN
-        timing = benchmark(
-            setup_vesin,
-            vesin_run,
-            super_cell,
-            cutoff,
-        )
-        vesin_time[cutoff].append(timing * 1e3)
-        print(f"   vesin took {timing * 1e3:.3f} ms")
-        print()
+    if args.output is not None:
+        json.dump(data, open(args.output, "w"), indent=4)

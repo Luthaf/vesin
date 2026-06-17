@@ -51,8 +51,10 @@ private:
 
     /// Did the options changed since the cache was built?
     bool options_changed(VesinOptions options) const;
-    /// Did the box or periodicity changed since the cache was built?
-    bool box_changed(const double h_box[9], const bool h_periodic[3]) const;
+    /// Did the box size/shape change since the cache was built?
+    bool box_size_changed(const double h_box[9]) const;
+    /// Did the periodicity change since the cache was built?
+    bool box_periodic_changed(const bool h_periodic[3]) const;
     /// Allocate the buffer for reference data
     void allocate_ref_buffers(size_t n_points);
     void rebuild_cache(const double (*points)[3], size_t n_points, const double box[3][3], const bool periodic[3], int32_t device_id, VesinOptions options);

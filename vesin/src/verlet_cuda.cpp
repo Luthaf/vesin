@@ -166,16 +166,13 @@ void VerletCache::rebuild_cache(
     // When the box changed (e.g. NPT), part of the skin budget is eaten by the
     // affine box deformation. Shrink the per-point displacement threshold by
     // half the corner displacement, and force a rebuild when the box moved too
-    // much, or when the change is along a non-periodic direction (which the
-    // corner-point correction does not cover).
+    // much. The corner displacement uses the full box matrix: non-periodic
+    // directions carry no shift, so including them only over-estimates the
+    // bound (more rebuilds, never fewer), keeping any mix of periodicity correct.
     double corner_displacement = 0.0;
     if (can_reuse && this->box_size_changed(h_box)) {
-        if (h_periodic[0] && h_periodic[1] && h_periodic[2]) {
-            corner_displacement = corner_point_displacements(h_box, this->ref_box_);
-            if (corner_displacement >= options.skin) {
-                can_reuse = false;
-            }
-        } else {
+        corner_displacement = corner_point_displacements(h_box, this->ref_box_);
+        if (corner_displacement >= options.skin) {
             can_reuse = false;
         }
     }

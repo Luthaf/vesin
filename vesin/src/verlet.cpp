@@ -7,6 +7,29 @@
 
 using namespace vesin;
 
+// Sum of the two largest box-corner displacements, used to shrink the Verlet
+// rebuild threshold when the box deforms (e.g. NPT). 
+static double corner_point_displacements(const Matrix& box, const Matrix& ref_box) {
+    double delta1 = 0.0;
+    double delta2 = 0.0;
+    for (size_t i = 0; i < 8; i++) {
+        auto bits = Vector{
+            static_cast<double>(i & 1),
+            static_cast<double>((i >> 1) & 1),
+            static_cast<double>((i >> 2) & 1),
+        };
+        auto displacement = bits * box - bits * ref_box;
+        double delta = displacement.dot(displacement);
+        if (delta > delta1) {
+            delta2 = delta1;
+            delta1 = delta;
+        } else if (delta > delta2) {
+            delta2 = delta;
+        }
+    }
+    return std::sqrt(delta1) + std::sqrt(delta2);
+}
+
 cpu::VerletList::~VerletList() {
     this->clear_candidates();
 }
@@ -48,13 +71,12 @@ bool cpu::VerletList::needs_rebuild(
             return true;
         }
     }
-
-    for (size_t i = 0; i < 3; i++) {
-        for (size_t j = 0; j < 3; j++) {
-            if (std::abs(box.matrix()[i][j] - ref_matrix_[i][j]) > 1e-12) {
-                return true;
-            }
-        }
+    // The corner displacement uses the full box matrix: non-periodic directions
+    // carry no shift, so including them only over-estimates the bound (more
+    // rebuilds, never fewer). This stays correct for any mix of periodicity.
+    auto half_displacement = corner_point_displacements(box.matrix(), ref_matrix_) / 2.0;
+    if (half_displacement * half_displacement > half_skin_sq_) {
+        return true;
     }
 
     // Verlet-list reuse is valid while every atom stays within skin/2 of its
@@ -62,10 +84,14 @@ bool cpu::VerletList::needs_rebuild(
     // candidate list built at cutoff + skin. See Verlet, Phys. Rev. 159, 98-103
     // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
     // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
+    // One can also take the change of the box into account, see the 
+    // implementation of LAMMPS:
+    // https://github.com/lammps/lammps/blob/3bfc12b02799eedf79d779d66fad8c4c60554084/src/neighbor.cpp#L2434-L2448
+    auto half_threshold_sq = (sqrt(half_skin_sq_) - half_displacement) * (sqrt(half_skin_sq_) - half_displacement);
     for (size_t i = 0; i < n_points; i++) {
         auto displacement = points[i] - ref_points_[i];
         double displacement_sq = displacement.dot(displacement);
-        if (displacement_sq > half_skin_sq_) {
+        if (displacement_sq > half_threshold_sq) {
             return true;
         }
     }

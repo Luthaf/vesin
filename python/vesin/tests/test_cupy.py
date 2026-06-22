@@ -514,3 +514,56 @@ def test_verlet_trajectory():
     points = cp.asnumpy(points)
     initial = cp.asnumpy(initial)
     assert np.any(np.linalg.norm(points - initial, axis=1) > skin)
+
+
+def test_verlet_trajectory_changing_box():
+    """Verlet output must match the direct calculation when the box deforms (NPT)."""
+    rng = np.random.default_rng(0)
+    points = cp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.5, 0.0, 0.0],
+            [0.0, 1.5, 0.0],
+            [0.0, 0.0, 1.5],
+            [1.5, 1.5, 1.5],
+        ]
+    )
+    base = 5.0 * cp.eye(3)
+
+    nl_direct = NeighborList(cutoff=3.0, full_list=False)
+    nl = NeighborList(cutoff=3.0, full_list=False, skin=0.5)
+
+    for _ in range(100):
+        points += 0.05 * cp.asarray(rng.normal(size=points.shape))
+        # barostat-like deformation: triclinic box that scales and shears
+        box = base + 0.3 * cp.asarray(rng.normal(size=(3, 3)))
+
+        direct = nl_direct.compute(
+            points=points, box=box, periodic=True, quantities="ijS"
+        )
+        verlet = nl.compute(points, box, periodic=True, quantities="ijS")
+
+        compare_nl_results(direct, verlet)
+
+
+def test_verlet_trajectory_changing_box_mixed_pbc():
+    """2D-periodic slab: in-plane (periodic) box deformation must match direct."""
+    rng = np.random.default_rng(0)
+    points = cp.asarray(rng.uniform(-2.0, 2.0, size=(8, 3)))
+    periodic = [True, True, False]
+
+    nl_direct = NeighborList(cutoff=3.0, full_list=False)
+    nl = NeighborList(cutoff=3.0, full_list=False, skin=0.5)
+
+    for _ in range(100):
+        points += 0.05 * cp.asarray(rng.normal(size=points.shape))
+        # deform only the in-plane (periodic) vectors, including shear
+        box = cp.asarray(np.diag([5.0, 5.0, 20.0]))
+        box[:2, :2] += 0.3 * cp.asarray(rng.normal(size=(2, 2)))
+
+        direct = nl_direct.compute(
+            points=points, box=box, periodic=periodic, quantities="ijS"
+        )
+        verlet = nl.compute(points, box, periodic=periodic, quantities="ijS")
+
+        compare_nl_results(direct, verlet)

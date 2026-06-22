@@ -8,7 +8,7 @@
 using namespace vesin;
 
 // Sum of the two largest box-corner displacements, used to shrink the Verlet
-// rebuild threshold when the box deforms (e.g. NPT). 
+// rebuild threshold when the box deforms (e.g. NPT).
 static double corner_point_displacements(const Matrix& box, const Matrix& ref_box) {
     double delta1 = 0.0;
     double delta2 = 0.0;
@@ -84,7 +84,7 @@ bool cpu::VerletList::needs_rebuild(
     // candidate list built at cutoff + skin. See Verlet, Phys. Rev. 159, 98-103
     // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
     // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
-    // One can also take the change of the box into account, see the 
+    // One can also take the change of the box into account, see the
     // implementation of LAMMPS:
     // https://github.com/lammps/lammps/blob/3bfc12b02799eedf79d779d66fad8c4c60554084/src/neighbor.cpp#L2434-L2448
     auto half_threshold_sq = (sqrt(half_skin_sq_) - half_displacement) * (sqrt(half_skin_sq_) - half_displacement);

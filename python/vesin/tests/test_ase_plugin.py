@@ -113,26 +113,49 @@ def test_device_equivalence_vs_ase():
 
 
 @device
-def test_device_needs_rebuild_scalar():
+def test_device_needs_rebuild_delegates():
+    # Reuse is delegated to Vesin's persistent NeighborList(skin=); needs_rebuild
+    # is a no-op device-resident True (the consumer always calls build_device).
     import cupy as cp
 
     atoms = _system()
-    base = atoms.positions
     be = device_neighbor_list()
     be.build_device(
-        cp.asarray(base),
+        cp.asarray(atoms.positions),
         np.asarray(atoms.cell[:]),
         tuple(bool(b) for b in atoms.pbc),
         4.0,
         "ijS",
     )
-    skin = 0.4
-    nr = be.needs_rebuild(cp.asarray(base), skin=skin)
-    assert nr.__dlpack_device__()[0] == 2
-    assert bool(nr) is False
-    moved = base.copy()
-    moved[0, 0] += 1.0
-    assert bool(be.needs_rebuild(cp.asarray(moved), skin=skin)) is True
+    nr = be.needs_rebuild(cp.asarray(atoms.positions), skin=0.4)
+    assert nr.__dlpack_device__()[0] == 2  # device-resident
+    assert bool(nr) is True
+
+
+@device
+def test_device_skin_reuse_correct():
+    # With skin>0 the persistent calculator reuses the list across a sub-skin
+    # move; the result must still match a fresh build (Vesin filters to the true
+    # cutoff on reuse).
+    import cupy as cp
+
+    from vesin._ase_device import VesinDeviceNeighborList
+
+    atoms = _system()
+    cell = np.asarray(atoms.cell[:])
+    pbc = tuple(bool(b) for b in atoms.pbc)
+    be = VesinDeviceNeighborList(skin=0.5)
+    be.build_device(cp.asarray(atoms.positions), cell, pbc, 4.0, "ijS")  # seed cache
+    moved = atoms.positions + 0.05  # sub-skin displacement -> reuse path
+    res = be.build_device(cp.asarray(moved), cell, pbc, 4.0, "ijS")
+    vi = cp.asnumpy(res.get("i"))
+    vj = cp.asnumpy(res.get("j"))
+    vS = cp.asnumpy(res.get("S"))
+
+    a2 = atoms.copy()
+    a2.positions = moved
+    ai, aj, aS = ase.neighborlist.neighbor_list("ijS", a2, 4.0)
+    assert _ijS_set(vi, vj, vS) == _ijS_set(ai, aj, aS)
 
 
 @device

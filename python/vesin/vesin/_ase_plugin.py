@@ -32,12 +32,15 @@ def neighbor_list(quantities, atoms, cutoff, *, self_interaction=False):
     return ase_neighbor_list(quantities, atoms, cutoff)
 
 
-def device_neighbor_list(device_id=0):
+def device_neighbor_list(device_id=0, skin=0.0):
     """Return the *experimental* device-resident Vesin backend.
 
     The result satisfies ASE's experimental ``DeviceNeighborList`` protocol
     (:mod:`ase._4.plugins.neighborlist_device`) and builds edge data on-device
     (exchanged via DLPack). GPU-only (CUDA) and requires CuPy.
+
+    ``skin`` sets the Verlet skin of the backend's persistent ``NeighborList`` so
+    it reuses the list across steps (``skin=0`` rebuilds every call).
 
     The device capability is separate from the host ``neighbor_list``
     registration: the host ``NeighborListPlugin`` carries no device slot, so a
@@ -46,7 +49,7 @@ def device_neighbor_list(device_id=0):
     """
     from ._ase_device import VesinDeviceNeighborList
 
-    return VesinDeviceNeighborList(device_id=device_id)
+    return VesinDeviceNeighborList(device_id=device_id, skin=skin)
 
 
 try:

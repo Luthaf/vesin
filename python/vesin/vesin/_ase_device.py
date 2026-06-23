@@ -21,12 +21,16 @@ Notes / limitations
 * No fixed-capacity / dense output -- Vesin currently returns COO only, so the
   padded (``max_capacity``) path is unsupported and raises. (Dense output is in
   progress upstream; the padded path can map onto it once available.)
-* ``needs_rebuild`` returns an on-device boolean scalar (a CuPy max-squared-
-  displacement reduction; no host sync inside the call) so a compiled consumer
-  can branch on rebuild-vs-reuse without leaving the device. Vesin's
-  ``NeighborList`` already rebuilds on device as needed via its ``skin=`` Verlet
-  reuse, but does not expose that decision as a queryable scalar; if it did, this
-  adapter would use it directly instead of the explicit reduction.
+* Reuse is delegated to Vesin: the adapter holds a **persistent**
+  ``NeighborList(skin=...)`` and ``build_device`` calls ``.compute`` on it, so
+  Vesin's own Verlet logic reuses the list across steps (displacement, and box
+  changes once Luthaf/vesin#172 lands -- NPT). ``needs_rebuild`` therefore just
+  returns a device-resident ``True`` (a no-op signal): the consumer always calls
+  ``build_device`` and Vesin makes the reuse cheap internally. The Verlet skin is
+  set at construction (``VesinDeviceNeighborList(skin=...)``), matching Vesin's
+  API; ``needs_rebuild``'s ``skin`` argument is unused. (A compiled consumer that
+  wants to *skip* the build itself would instead need an explicit device-scalar
+  displacement check -- an open ASE-protocol design point.)
 * Scalar cutoff only; ``self_interaction=True`` rejected -- both raise.
 """
 
@@ -93,10 +97,14 @@ class VesinDeviceNeighborList:
 
     differentiable = False
 
-    def __init__(self, device_id=0):
+    def __init__(self, device_id=0, skin=0.0):
         self._device_type = 2  # kDLCUDA (Vesin's GPU backend is CUDA)
         self._device_id = int(device_id)
-        self._ref = None  # cached build-time positions (device)
+        # Persistent calculator so Vesin's own Verlet ``skin`` reuse kicks in
+        # across steps. skin=0 means rebuild every call (no reuse).
+        self._skin = float(skin)
+        self._nl = None
+        self._nl_cutoff = None
 
     @property
     def device(self):
@@ -138,14 +146,18 @@ class VesinDeviceNeighborList:
         cp = _cupy()
         pos = cp.from_dlpack(positions)  # device array (zero-copy view)
         self._device_id = int(pos.device.id)
-        # Snapshot build-time positions on device for needs_rebuild (the consumer
-        # may overwrite its positions buffer in place each step).
-        self._ref = pos.copy()
         box = _to_device_cell(cell)
         pbc_t = tuple(bool(b) for b in pbc)
 
-        calculator = NeighborList(cutoff=float(cutoff), full_list=True)
-        out = calculator.compute(pos, box, pbc_t, quantities=quantities)
+        # Reuse one persistent NeighborList so Vesin's Verlet ``skin`` reuse spans
+        # calls (rebuilt only if the cutoff changes). Vesin decides internally
+        # whether to rebuild or reuse on each ``.compute``.
+        if self._nl is None or self._nl_cutoff != float(cutoff):
+            self._nl = NeighborList(
+                cutoff=float(cutoff), full_list=True, skin=self._skin
+            )
+            self._nl_cutoff = float(cutoff)
+        out = self._nl.compute(pos, box, pbc_t, quantities=quantities)
         if not isinstance(out, (list, tuple)):  # single-quantity -> bare array
             out = (out,)
         # Keyed by NAME (Vesin returns in requested order; we never rely on it).
@@ -154,15 +166,16 @@ class VesinDeviceNeighborList:
         return VesinDeviceResult(arrays, n_edges=n_edges)
 
     def needs_rebuild(self, positions, *, skin, stream=None):
-        """On-device 0-d bool: max squared displacement > skin**2.
+        """Delegate reuse to Vesin: return a device-resident ``True`` scalar.
 
-        CuPy reduction (device-resident); the result stays on device -- no host
-        sync inside the call. The eager ``bool()`` (CuPy's native ``__bool__``)
-        is the single documented sync point; a compiled consumer adopts the
-        scalar via ``from_dlpack`` and branches in-graph.
+        Vesin's persistent ``NeighborList(skin=...)`` owns the rebuild-vs-reuse
+        decision internally (displacement, and box changes once Luthaf/vesin#172
+        lands), so the adapter always signals "build" and lets ``build_device``'s
+        persistent calculator reuse the list cheaply. The ``skin`` argument is not
+        used here -- the Verlet skin is set at construction
+        (``VesinDeviceNeighborList(skin=...)``), matching Vesin's API. (A compiled
+        consumer that needs to *skip* the build itself would instead want an
+        explicit device-scalar displacement check; see the ASE protocol notes.)
         """
-        if self._ref is None:
-            raise RuntimeError("call build_device(...) before needs_rebuild(...)")
         cp = _cupy()
-        cur = cp.from_dlpack(positions)
-        return cp.max(((cur - self._ref) ** 2).sum(axis=1)) > float(skin) ** 2
+        return cp.asarray(True)

@@ -130,8 +130,7 @@ class VesinDeviceNeighborList:
         invalid = set(quantities) - set("ijdDS")
         if invalid or not quantities:
             raise ValueError(
-                f'quantities must be a non-empty subset of "ijdDS"; '
-                f"got {quantities!r}."
+                f'quantities must be a non-empty subset of "ijdDS"; got {quantities!r}.'
             )
 
         from ._neighbors import NeighborList
@@ -150,7 +149,7 @@ class VesinDeviceNeighborList:
         if not isinstance(out, (list, tuple)):  # single-quantity -> bare array
             out = (out,)
         # Keyed by NAME (Vesin returns in requested order; we never rely on it).
-        arrays = {name: arr for name, arr in zip(quantities, out)}
+        arrays = {name: arr for name, arr in zip(quantities, out, strict=True)}
         n_edges = int(arrays[quantities[0]].shape[0])
         return VesinDeviceResult(arrays, n_edges=n_edges)
 

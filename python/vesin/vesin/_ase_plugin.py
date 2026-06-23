@@ -10,6 +10,7 @@ Registration is guarded so installing Vesin alongside an ASE that predates the v
 plugin API registers nothing rather than breaking plugin discovery. The heavy
 imports (ase, CuPy) happen lazily, inside the adapters.
 """
+
 from __future__ import annotations
 
 

@@ -106,7 +106,6 @@ def test_device_equivalence_vs_ase():
     vi = cp.asnumpy(res.get("i"))
     vj = cp.asnumpy(res.get("j"))
     vS = cp.asnumpy(res.get("S"))
-    vD = cp.asnumpy(res.get("D"))
     assert res.get("i").__dlpack_device__()[0] == 2  # device-resident
 
     ai, aj, aS, aD = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
@@ -121,8 +120,11 @@ def test_device_needs_rebuild_scalar():
     base = atoms.positions
     be = device_neighbor_list()
     be.build_device(
-        cp.asarray(base), np.asarray(atoms.cell[:]),
-        tuple(bool(b) for b in atoms.pbc), 4.0, "ijS",
+        cp.asarray(base),
+        np.asarray(atoms.cell[:]),
+        tuple(bool(b) for b in atoms.pbc),
+        4.0,
+        "ijS",
     )
     skin = 0.4
     nr = be.needs_rebuild(cp.asarray(base), skin=skin)
@@ -141,6 +143,9 @@ def test_device_padded_unsupported():
     be = device_neighbor_list()
     with pytest.raises(NotImplementedError):
         be.build_device(
-            cp.asarray(atoms.positions), np.asarray(atoms.cell[:]),
-            tuple(bool(b) for b in atoms.pbc), 4.0, max_capacity=64,
+            cp.asarray(atoms.positions),
+            np.asarray(atoms.cell[:]),
+            tuple(bool(b) for b in atoms.pbc),
+            4.0,
+            max_capacity=64,
         )

@@ -13,15 +13,20 @@ device-resident CuPy arrays. The host path is unchanged (``vesin.ase_neighbor_li
 
 Notes / limitations
 -------------------
-* ``differentiable = False`` (the CuPy path is not an autograd graph; Vesin's
-  *torch* binding is autograd-differentiable but computes on CPU, so it does not
-  satisfy this device protocol).
-* No fixed-capacity / dense output -- Vesin returns COO only, so the padded
-  (``max_capacity``) path is unsupported and raises.
-* ``needs_rebuild`` is a CuPy max-squared-displacement reduction (device-resident
-  0-d bool, no host sync inside the call). Vesin's ``NeighborList`` also has a
-  native ``skin=`` Verlet reuse, but that does not expose an on-device rebuild
-  scalar, so the protocol uses the explicit reduction here.
+* ``differentiable = False`` here only because this adapter goes through the
+  **CuPy** path, which is not an autograd framework -- not a Vesin limitation.
+  Vesin's torch binding (``vesin-torch``) runs on GPU and is autograd-
+  differentiable, so it would make a natural ``differentiable = True`` device
+  backend for this protocol (a useful follow-up).
+* No fixed-capacity / dense output -- Vesin currently returns COO only, so the
+  padded (``max_capacity``) path is unsupported and raises. (Dense output is in
+  progress upstream; the padded path can map onto it once available.)
+* ``needs_rebuild`` returns an on-device boolean scalar (a CuPy max-squared-
+  displacement reduction; no host sync inside the call) so a compiled consumer
+  can branch on rebuild-vs-reuse without leaving the device. Vesin's
+  ``NeighborList`` already rebuilds on device as needed via its ``skin=`` Verlet
+  reuse, but does not expose that decision as a queryable scalar; if it did, this
+  adapter would use it directly instead of the explicit reduction.
 * Scalar cutoff only; ``self_interaction=True`` rejected -- both raise.
 """
 

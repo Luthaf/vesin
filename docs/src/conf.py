@@ -73,7 +73,7 @@ intersphinx_mapping = {
     "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
-    "ase": ("https://wiki.fysik.dtu.dk/ase/", None),
+    "ase": ("https://ase-lib.org/", None),
 }
 
 html_theme = "furo"

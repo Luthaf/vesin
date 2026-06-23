@@ -63,4 +63,6 @@ filterwarnings = [
     "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    # from ASE
+    "ignore:Setting the shape on a NumPy array has been deprecated in NumPy 2.5:DeprecationWarning",
 ]

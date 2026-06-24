@@ -20,6 +20,33 @@ const unsigned char CUDA_VERLET_HEX[] = {
 };
 const char* CUDA_VERLET_CODE = reinterpret_cast<const char*>(CUDA_VERLET_HEX);
 
+static double corner_point_displacements(
+    const double h_box[9],
+    const double h_ref_box[9]
+) {
+    double delta1 = 0.0;
+    double delta2 = 0.0;
+    for (size_t i = 0; i < 8; i++) {
+        const double b0 = (i & 1) ? 1.0 : 0.0;
+        const double b1 = (i & 2) ? 1.0 : 0.0;
+        const double b2 = (i & 4) ? 1.0 : 0.0;
+        double delta = 0.0;
+        for (size_t j = 0; j < 3; j++) {
+            double c = h_box[j] * b0 + h_box[j + 3] * b1 + h_box[j + 6] * b2;
+            double c_ref = h_ref_box[j] * b0 + h_ref_box[j + 3] * b1 + h_ref_box[j + 6] * b2;
+            double del = c - c_ref;
+            delta += del * del;
+        }
+        if (delta > delta1) {
+            delta2 = delta1;
+            delta1 = delta;
+        } else if (delta > delta2) {
+            delta2 = delta;
+        }
+    }
+    return std::sqrt(delta1) + std::sqrt(delta2);
+}
+
 VerletCache::~VerletCache() {
     try {
         this->free_buffers();
@@ -89,13 +116,17 @@ bool VerletCache::options_changed(VesinOptions options) const {
            this->options_.full != options.full;
 }
 
-bool VerletCache::box_changed(const double h_box[9], const bool h_periodic[3]) const {
+bool VerletCache::box_size_changed(const double h_box[9]) const {
     for (size_t i = 0; i < 9; i++) {
         if (std::abs(this->ref_box_[i] - h_box[i]) > 1e-12) {
             return true;
         }
     }
 
+    return false;
+}
+
+bool VerletCache::box_periodic_changed(const bool h_periodic[3]) const {
     for (size_t i = 0; i < 3; i++) {
         if (this->ref_periodic_[i] != h_periodic[i]) {
             return true;
@@ -130,7 +161,23 @@ void VerletCache::rebuild_cache(
     GPULITE_CUDART_CALL(cudaMemcpy(h_box, d_box, sizeof(double) * 9, cudaMemcpyDeviceToHost));
     GPULITE_CUDART_CALL(cudaMemcpy(h_periodic, d_periodic, sizeof(bool) * 3, cudaMemcpyDeviceToHost));
 
-    if (this->has_cache_ && this->n_ref_points_ == n_points && !this->box_changed(h_box, h_periodic)) {
+    bool can_reuse = this->has_cache_ && this->n_ref_points_ == n_points && !this->box_periodic_changed(h_periodic);
+
+    // When the box changed (e.g. NPT), part of the skin budget is eaten by the
+    // affine box deformation. Shrink the per-point displacement threshold by
+    // half the corner displacement, and force a rebuild when the box moved too
+    // much. The corner displacement uses the full box matrix: non-periodic
+    // directions carry no shift, so including them only over-estimates the
+    // bound (more rebuilds, never fewer), keeping any mix of periodicity correct.
+    double corner_displacement = 0.0;
+    if (can_reuse && this->box_size_changed(h_box)) {
+        corner_displacement = corner_point_displacements(h_box, this->ref_box_);
+        if (corner_displacement >= options.skin) {
+            can_reuse = false;
+        }
+    }
+
+    if (can_reuse) {
         auto& factory = gpulite::KernelFactory::instance(device_id);
 
         GPULITE_CUDART_CALL(cudaMemset(this->d_rebuild_flag_, 0, sizeof(int32_t)));
@@ -149,7 +196,9 @@ void VerletCache::rebuild_cache(
         config.gridDim = dim3(std::max(blocks, static_cast<size_t>(1)));
         config.blockDim = dim3(threads);
 
-        auto half_skin_sq = (options.skin / 2.0) * (options.skin / 2.0);
+        double half_threshold = (options.skin - corner_displacement) / 2.0;
+        double half_skin_sq = half_threshold * half_threshold;
+
         kernel->launch(
             config,
             d_points,

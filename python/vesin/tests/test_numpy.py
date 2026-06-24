@@ -488,3 +488,64 @@ def test_verlet_trajectory():
 
     # Some points should have moved more than the skin distance over the trajectory
     assert np.any(np.linalg.norm(points - initial, axis=1) > skin)
+
+
+def test_verlet_trajectory_changing_box():
+    """Verlet output must match the direct calculation when the box deforms (NPT).
+
+    Exercises the box-change rebuild path: anisotropic scaling + shear, with
+    deformations large enough to sometimes exhaust the skin and force a rebuild.
+    """
+    rng = np.random.default_rng(0)
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.5, 0.0, 0.0],
+            [0.0, 1.5, 0.0],
+            [0.0, 0.0, 1.5],
+            [1.5, 1.5, 1.5],
+        ]
+    )
+    base = 5.0 * np.eye(3)
+
+    nl_direct = NeighborList(cutoff=3.0, full_list=False)
+    nl = NeighborList(cutoff=3.0, full_list=False, skin=0.5)
+
+    for _ in range(100):
+        points += 0.05 * rng.normal(size=points.shape)
+        # barostat-like deformation: triclinic box that scales and shears
+        box = base + 0.3 * rng.normal(size=(3, 3))
+
+        direct = nl_direct.compute(
+            points=points, box=box, periodic=True, quantities="ijS"
+        )
+        verlet = nl.compute(points, box, periodic=True, quantities="ijS")
+
+        compare_nl_results(direct, verlet)
+
+
+def test_verlet_trajectory_changing_box_mixed_pbc():
+    """2D-periodic slab: in-plane (periodic) box deformation must match direct.
+
+    Guards against the box-change correction being skipped when only some
+    directions are periodic.
+    """
+    rng = np.random.default_rng(0)
+    points = rng.uniform(-2.0, 2.0, size=(8, 3))
+    periodic = [True, True, False]
+
+    nl_direct = NeighborList(cutoff=3.0, full_list=False)
+    nl = NeighborList(cutoff=3.0, full_list=False, skin=0.5)
+
+    for _ in range(100):
+        points += 0.05 * rng.normal(size=points.shape)
+        # deform only the in-plane (periodic) vectors, including shear
+        box = np.diag([5.0, 5.0, 20.0])
+        box[:2, :2] += 0.3 * rng.normal(size=(2, 2))
+
+        direct = nl_direct.compute(
+            points=points, box=box, periodic=periodic, quantities="ijS"
+        )
+        verlet = nl.compute(points, box, periodic=periodic, quantities="ijS")
+
+        compare_nl_results(direct, verlet)

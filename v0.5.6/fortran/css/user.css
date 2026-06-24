@@ -1,0 +1,12 @@
+#jumbotron {
+    padding: 1rem !important;
+}
+
+#jumbotron .btn-lg {
+    padding: 0.5rem 1rem !important;
+    font-size: 1rem !important;
+}
+
+#jumbotron p {
+    display: inline;
+}

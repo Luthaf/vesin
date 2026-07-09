@@ -17,6 +17,13 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+### Added
+
+- Experimental ASE neighbour-list plugin (`vesin._ase_plugin`): registers Vesin
+  under the `ase.plugins` entry point as a host `NeighborListFunction` backend,
+  plus an optional device-resident `DeviceNeighborList` capability (CUDA via
+  CuPy) for ASE's experimental device neighbour-list protocol.
+
 ### Changed
 
 - Importing from `vesin.torch` is deprecated, users should now import from

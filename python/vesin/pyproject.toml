@@ -32,6 +32,11 @@ classifiers = [
 
 [project.optional-dependencies]
 torch = ["vesin-torch"]
+ase = ["ase"]
+
+# ASE v4 neighbour-list plugin discovery (registers nothing on older ASE).
+[project.entry-points."ase.plugins"]
+vesin = "vesin._ase_plugin"
 
 [project.urls]
 homepage = "https://github.com/Luthaf/vesin/"

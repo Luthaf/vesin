@@ -17,8 +17,14 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.6.0](https://github.com/Luthaf/vesin/releases/tag/v0.6.0) - 2026-07-09
+
 ### Added
 
+- The neighbor list code now has a `skin` parameter, used to compute a larger
+  neighbor list than requested, and reuse it across multiple calls.
+- The CPU implentation can now use multiple threads to compute the neighbor
+  list, controlled by the `n_threads` parameter.
 - Added support for PyTorch v2.13 in the `vesin-torch` wheels on PyPI
 
 ### Changed

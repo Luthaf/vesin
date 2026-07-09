@@ -72,6 +72,7 @@ class NeighborList:
 
     def __init__(
         self,
+        *,
         cutoff: float,
         full_list: bool,
         sorted: bool = False,

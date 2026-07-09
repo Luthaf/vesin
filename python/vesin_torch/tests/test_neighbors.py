@@ -94,8 +94,23 @@ def test_all_alone_no_neighbors(quantities, dtype):
 
 
 class NeighborListWrap:
-    def __init__(self, cutoff: float, full_list: bool, sorted: bool):
-        self._c = NeighborList(cutoff=cutoff, full_list=full_list, sorted=sorted)
+    def __init__(
+        self,
+        cutoff: float,
+        full_list: bool,
+        sorted: bool,
+        algorithm: str,
+        skin: float,
+        n_threads: int,
+    ):
+        self._c = NeighborList(
+            cutoff=cutoff,
+            full_list=full_list,
+            sorted=sorted,
+            algorithm=algorithm,
+            skin=skin,
+            n_threads=n_threads,
+        )
 
     def compute(
         self,

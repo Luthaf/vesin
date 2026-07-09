@@ -63,6 +63,11 @@ module vesin_c
         !> Which algorithm to use for the calculation
         integer(c_int) :: algorithm = VesinAutoAlgorithm
 
+        !> Skin size for Verlet caching. A positive value enables caching the
+        !! neighbor list until any atom moves farther than `skin/2` from its
+        !! reference coordinates.
+        real(c_double) :: skin = 0.0_c_double
+
         !> Number of CPU threads to use. Must be zero or positive. If zero,
         !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
         !! otherwise defaults to the number of available CPU cores.
@@ -76,10 +81,6 @@ module vesin_c
 
         !> Should the returned `VesinNeighborList` contain `vector`?
         logical(c_bool) :: return_vectors = .false.
-
-        !> Skin size for Verlet caching.
-        real(c_double) :: skin = 0.0_c_double
-
     end type VesinOptions
 
     !> Used as return type from `vesin_neighbors()`.

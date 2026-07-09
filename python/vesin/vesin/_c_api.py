@@ -26,11 +26,11 @@ class VesinOptions(ctypes.Structure):
         ("full", ctypes.c_bool),
         ("sorted", ctypes.c_bool),
         ("algorithm", VesinAlgorithm),
+        ("skin", ctypes.c_double),
         ("n_threads", ctypes.c_int32),
         ("return_shifts", ctypes.c_bool),
         ("return_distances", ctypes.c_bool),
         ("return_vectors", ctypes.c_bool),
-        ("skin", ctypes.c_double),
     ]
 
 

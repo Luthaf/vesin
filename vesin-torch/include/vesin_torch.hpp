@@ -45,6 +45,9 @@ public:
     //         shifts in the list of pairs is unspecified.
     /// @param algorithm the algorithm to use for neighbor list calculation. One
     ///        of `"auto"`, `"brute_force"`, or `"cell_list"`.
+    /// @param skin skin size for Verlet caching. A positive value enables
+    ///        caching the neighbor list until any atom moves farther than
+    ///        ``skin/2`` from its reference coordinates.
     /// @param n_threads number of CPU threads to use. Must be zero or positive.
     ///        A value of 0 lets Vesin choose from `OMP_NUM_THREADS` or CPU cores.
     NeighborListHolder(
@@ -52,6 +55,7 @@ public:
         bool full_list,
         bool sorted = false,
         std::string algorithm = "auto",
+        double skin = 0.0,
         int64_t n_threads = 0
     );
     ~NeighborListHolder();
@@ -103,6 +107,7 @@ private:
     bool full_list_;
     bool sorted_;
     std::string algorithm_;
+    double skin_;
     int64_t n_threads_;
     VesinNeighborList* data_;
 };

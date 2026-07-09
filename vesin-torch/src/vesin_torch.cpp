@@ -54,12 +54,14 @@ NeighborListHolder::NeighborListHolder(
     bool full_list,
     bool sorted,
     std::string algorithm,
+    double skin,
     int64_t n_threads
 ):
     cutoff_(cutoff),
     full_list_(full_list),
     sorted_(sorted),
     algorithm_(std::move(algorithm)),
+    skin_(skin),
     n_threads_(n_threads),
     data_(nullptr) {
     if (n_threads_ < 0) {
@@ -180,6 +182,7 @@ std::vector<torch::Tensor> NeighborListHolder::compute(
         /*full=*/this->full_list_,
         /*sorted=*/this->sorted_,
         /*algorithm=*/algorithm,
+        /*skin=*/this->skin_,
         /*n_threads=*/n_threads,
         /*return_shifts=*/return_shifts,
         /*return_distances=*/return_distances,
@@ -322,11 +325,12 @@ TORCH_LIBRARY(vesin, m) {
     // clang-format off
     m.class_<NeighborListHolder>("_NeighborList")
         .def(
-            torch::init<double, bool, bool, std::string, int64_t>(), DOCSTRING, {
+            torch::init<double, bool, bool, std::string, double, int64_t>(), DOCSTRING, {
                 torch::arg("cutoff"),
                 torch::arg("full_list"),
                 torch::arg("sorted") = false,
                 torch::arg("algorithm") = "auto",
+                torch::arg("skin") = 0.0,
                 torch::arg("n_threads") = 0,
             }
         )

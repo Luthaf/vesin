@@ -17,6 +17,10 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+### Added
+
+- Added support for PyTorch v2.13 in the `vesin-torch` wheels on PyPI
+
 ### Changed
 
 - Importing from `vesin.torch` is deprecated, users should now import from

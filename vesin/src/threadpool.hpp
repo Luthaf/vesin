@@ -1,7 +1,7 @@
 #ifndef VESIN_CPU_THREADPOOL_HPP
 #define VESIN_CPU_THREADPOOL_HPP
 
-#include <algorithm>
+#include <cstddef>
 #include <exception>
 #include <vector>
 
@@ -12,6 +12,13 @@
 
 namespace vesin {
 namespace cpu {
+
+namespace details {
+    // Functions for `pthread_atfork` handlers.
+    void fork_prepare();
+    void fork_parent();
+    void fork_child();
+}
 
 /// Small reusable thread pool for CPU parallel regions.
 ///
@@ -25,28 +32,9 @@ namespace cpu {
 /// new one appears.
 class ThreadPool {
 public:
-    ThreadPool():
-        n_threads_(std::max<size_t>(1, static_cast<size_t>(std::thread::hardware_concurrency()))) {
-        workers_.reserve(n_threads_ - 1);
-        for (size_t thread_id = 1; thread_id < n_threads_; thread_id++) {
-            workers_.emplace_back([this, thread_id]() {
-                this->worker(thread_id);
-            });
-        }
-    }
+    ThreadPool();
 
-    ~ThreadPool() {
-        {
-            auto lock = std::lock_guard<std::mutex>(mutex_);
-            stopping_ = true;
-            generation_ += 1;
-        }
-        start_cv_.notify_all();
-
-        for (auto& worker_thread : workers_) {
-            worker_thread.join();
-        }
-    }
+    ~ThreadPool();
 
     /// Maximum number of threads available in this pool.
     ///
@@ -75,11 +63,17 @@ public:
 
         auto run_lock = std::unique_lock<std::mutex>(run_mutex_);
 
+        if (after_fork_) {
+            this->reinit_after_fork();
+        }
+
+        this->ensure_workers();
+
         active_threads = std::max<size_t>(1, active_threads);
         active_threads = std::min(active_threads, n_threads_);
         active_threads = std::min(active_threads, n_tasks);
 
-        if (active_threads <= 1 || n_tasks <= 1) {
+        if (active_threads <= 1 || n_tasks <= 1 || workers_.empty()) {
             for (size_t task_i = 0; task_i < n_tasks; task_i++) {
                 task(task_i, 0);
             }
@@ -95,7 +89,7 @@ public:
                 (*function)(task_i, thread_id);
             };
             first_exception_ = nullptr;
-            has_exception_.store(false);
+            has_exception_ = false;
             active_threads_ = active_threads;
             running_workers_ = active_threads_ - 1;
             generation_ += 1;
@@ -116,64 +110,41 @@ public:
         }
     }
 
+    /// Access the global thread pool (lazily created on first use).
+    static ThreadPool& global();
+
 private:
+    /// Create worker threads if they don't exist yet.
+    ///
+    /// Called at the top of every `run()` — workers are created lazily rather
+    /// than in the constructor so that `pthread_atfork` can tear them down
+    /// before a fork and let `run()` recreate them afterwards.
+    void ensure_workers();
+
+    /// Prepare the pool for fork: stop all workers, join them, and clear the
+    /// worker vector.  Afterwards no mutexes or condition variables represent
+    /// any waiter state.
+    ///
+    /// This acquires `run_mutex_` to wait for any in-flight `run()` call to
+    /// finish.  Once it returns, the window before the actual `fork()` is
+    /// tiny, but a concurrent call to `run()` may still slip in.  Such a call
+    /// will see `stopping_ == true`, skip worker creation, and fall back to
+    /// single-threaded execution — guaranteeing that `run_mutex_` is released
+    /// before the kernel `fork()`.
+    void prepare_for_fork();
+
+    /// Reset bookkeeping after fork.  Workers are NOT created here — that
+    /// happens lazily on the first `run()` call.
+    void reinit_after_fork();
+
     /// Main loop for background workers.
     ///
     /// Workers block on `start_cv_` while idle, wake for each new generation,
     /// execute their chunk, then decrement `running_workers_`.
-    void worker(size_t thread_id) {
-        size_t seen_generation = 0;
-
-        auto lock = std::unique_lock<std::mutex>(mutex_);
-        while (true) {
-            start_cv_.wait(lock, [this, seen_generation]() {
-                return stopping_ || generation_ != seen_generation;
-            });
-
-            if (stopping_) {
-                return;
-            }
-
-            seen_generation = generation_;
-            auto is_active = thread_id < active_threads_;
-            auto active_threads = active_threads_;
-            lock.unlock();
-            if (is_active) {
-                this->execute_assigned_tasks(thread_id, active_threads);
-            }
-            lock.lock();
-
-            if (is_active) {
-                running_workers_ -= 1;
-                if (running_workers_ == 0) {
-                    done_cv_.notify_one();
-                }
-            }
-        }
-    }
+    void worker(size_t thread_id);
 
     /// Execute this thread's deterministic chunk for the current generation.
-    void execute_assigned_tasks(size_t thread_id, size_t active_threads) {
-        auto begin = (thread_id * n_tasks_) / active_threads;
-        auto end = ((thread_id + 1) * n_tasks_) / active_threads;
-
-        for (size_t task_i = begin; task_i < end; task_i++) {
-            if (has_exception_.load()) {
-                return;
-            }
-
-            try {
-                task_function_(task_data_, task_i, thread_id);
-            } catch (...) {
-                auto lock = std::lock_guard<std::mutex>(mutex_);
-                if (first_exception_ == nullptr) {
-                    first_exception_ = std::current_exception();
-                    has_exception_.store(true);
-                }
-                return;
-            }
-        }
-    }
+    void execute_assigned_tasks(size_t thread_id, size_t active_threads);
 
     size_t n_threads_;
     std::vector<std::thread> workers_;
@@ -216,6 +187,14 @@ private:
     /// the caller thread after workers finish/abort.
     std::exception_ptr first_exception_;
     std::atomic<bool> has_exception_ = false;
+
+    /// Did we just fork?  If true, the next `run()` call will reinitialize
+    /// bookkeeping and recreate worker threads.
+    std::atomic<bool> after_fork_ = false;
+
+    friend void details::fork_prepare();
+    friend void details::fork_parent();
+    friend void details::fork_child();
 };
 
 } // namespace cpu

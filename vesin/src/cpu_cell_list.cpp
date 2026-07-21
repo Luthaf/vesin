@@ -53,11 +53,6 @@ struct ThreadLocalNeighborLists {
     }
 };
 
-static ThreadPool& global_thread_pool() {
-    static auto pool = ThreadPool();
-    return pool;
-}
-
 void vesin::cpu::cell_list_neighbors(
     const Vector* points,
     size_t n_points,
@@ -84,7 +79,7 @@ void vesin::cpu::cell_list_neighbors(
 
     auto thread_count = std::max<size_t>(1, static_cast<size_t>(options.n_threads));
     thread_count = std::min(thread_count, cell_list.n_cells());
-    auto& thread_pool = global_thread_pool();
+    auto& thread_pool = ThreadPool::global();
 
     auto thread_locals = ThreadLocalNeighborLists(thread_count);
 

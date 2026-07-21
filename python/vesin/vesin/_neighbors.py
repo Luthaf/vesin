@@ -17,7 +17,7 @@ from ._c_api import (
     VesinOptions,
     VesinUnknownDevice,
 )
-from ._c_lib import _get_library
+from ._c_lib import get_library
 
 
 try:
@@ -96,7 +96,7 @@ class NeighborList:
             integer. If set to 0, Vesin uses ``OMP_NUM_THREADS`` when set to a
             positive integer, and otherwise the number of available CPU cores.
         """
-        self._lib = _get_library()
+        self._lib = get_library()
         self.cutoff = float(cutoff)
         self.full_list = bool(full_list)
         self.sorted = bool(sorted)
@@ -482,7 +482,7 @@ def _list_shared_libraries():
     """
     Return a list of paths to shared libraries loaded by the current process.
     """
-    lib = _get_library()
+    lib = get_library()
 
     # First call to get the number of libraries
     # We pass a count of 0, so vesin_list_libraries returns the total count

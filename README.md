@@ -48,7 +48,7 @@ i, j, S, d = calculator.compute(
     points=positions,
     box=box,
     periodic=True,
-    quantities="ijSd"
+    quantities="ijSd",
 )
 ```
 

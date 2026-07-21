@@ -81,4 +81,4 @@ def _check_dll(path):
         )
 
 
-_get_library = LibraryFinder()
+get_library = LibraryFinder()

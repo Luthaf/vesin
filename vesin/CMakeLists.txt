@@ -40,6 +40,7 @@ option(VESIN_ENABLE_NVTX "Enable NVTX profiling markers" OFF)
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/threadpool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp

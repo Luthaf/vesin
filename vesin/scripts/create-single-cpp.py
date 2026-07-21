@@ -95,6 +95,7 @@ if __name__ == "__main__":
         ALREADY_SEEN.clear()
         with open(os.path.join(DIST, "vesin-single-build.cpp"), "w") as output:
             add_version(output)
+            merge_files("threadpool.cpp", output)
             merge_files("cpu_cell_list.cpp", output)
             merge_files("verlet.cpp", output)
             merge_files("vesin_cuda.cpp", output)
@@ -105,6 +106,7 @@ if __name__ == "__main__":
         ALREADY_SEEN.clear()
         with open(os.path.join(DIST, "vesin-single-build-nocuda.cpp"), "w") as output:
             add_version(output)
+            merge_files("threadpool.cpp", output)
             merge_files("cpu_cell_list.cpp", output)
             merge_files("verlet.cpp", output)
             merge_files("vesin_cuda_stub.cpp", output)

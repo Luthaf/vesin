@@ -17,6 +17,13 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.6.1](https://github.com/Luthaf/vesin/releases/tag/v0.6.1) - 2026-07-29
+
+### Fixed
+
+- fixed a deadlock that occured in the multithreaded CPU code when using vesin
+  together with `fork`, typically through Python's `multiprocessing`.
+
 ## [Version 0.6.0](https://github.com/Luthaf/vesin/releases/tag/v0.6.0) - 2026-07-09
 
 ### Added

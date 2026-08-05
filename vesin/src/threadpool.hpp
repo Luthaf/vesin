@@ -20,6 +20,24 @@ namespace details {
     void fork_child();
 }
 
+/// Task scheduling strategy for `ThreadPool::run`.
+///
+/// `Static` splits the tasks into contiguous, deterministic chunks (one per
+/// thread); `Dynamic` dispatches tasks in fixed-size chunks to whichever
+/// thread becomes free first, which improves load balancing when the per-task
+/// cost varies (at the cost of non-deterministic ordering of the output).
+struct Scheduling {
+    enum Kind { Static, Dynamic };
+
+    /// Scheduling strategy in use.
+    Kind kind = Static;
+    /// Number of tasks per chunk when `kind == Dynamic`. Ignored for `Static`.
+    size_t chunk_size = 256;
+
+    static Scheduling static_() { return {Static, 0}; }
+    static Scheduling dynamic(size_t chunk = 256) { return {Dynamic, chunk}; }
+};
+
 /// Small reusable thread pool for CPU parallel regions.
 ///
 /// The pool always creates one worker slot per available CPU core (according to
@@ -49,14 +67,19 @@ public:
     /// `active_threads` selects how many threads from the pool should
     /// participate in this run. It is clamped to `[1, min(max_threads(), n_tasks)]`.
     ///
-    /// Tasks are split deterministically into contiguous chunks based on
-    /// `thread_id` among active threads; this keeps ordering stable across
-    /// runs.
+    /// `scheduling` selects how tasks are assigned to threads:
+    ///  - `Scheduling::static_()` (the default) splits tasks into contiguous,
+    ///    deterministic chunks — one per thread. This keeps ordering stable
+    ///    across runs.
+    ///  - `Scheduling::dynamic(chunk)` dispatches tasks in fixed-size chunks
+    ///    to whichever thread is free. This improves load balancing when the
+    ///    per-task cost varies, at the cost of non-deterministic ordering of
+    ///    the output (the set of results is still correct).
     ///
     /// Exceptions are captured and rethrown on the caller thread after workers
     /// finish/abort.
     template <typename Function>
-    void run(size_t active_threads, size_t n_tasks, Function task) {
+    void run(size_t active_threads, size_t n_tasks, Scheduling scheduling, Function task) {
         if (n_tasks == 0) {
             return;
         }
@@ -92,6 +115,8 @@ public:
             has_exception_ = false;
             active_threads_ = active_threads;
             running_workers_ = active_threads_ - 1;
+            scheduling_ = scheduling;
+            next_chunk_.store(0, std::memory_order_relaxed);
             generation_ += 1;
         }
         start_cv_.notify_all();
@@ -143,7 +168,10 @@ private:
     /// execute their chunk, then decrement `running_workers_`.
     void worker(size_t thread_id);
 
-    /// Execute this thread's deterministic chunk for the current generation.
+    /// Execute this thread's tasks for the current generation.
+    ///
+    /// Dispatches according to `sched_`: contiguous chunks for `Static`, or
+    /// atomically-stealing fixed-size chunks for `Dynamic`.
     void execute_assigned_tasks(size_t thread_id, size_t active_threads);
 
     size_t n_threads_;
@@ -176,6 +204,10 @@ private:
     size_t running_workers_ = 0;
     /// Number of threads participating in the current generation.
     size_t active_threads_ = 1;
+    /// Scheduling strategy for the current generation.
+    Scheduling scheduling_;
+    /// Next task index to be dispatched in `Dynamic` mode.
+    std::atomic<size_t> next_chunk_{0};
 
     using task_function_t = void (*)(void*, size_t, size_t);
 

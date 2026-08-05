@@ -7,6 +7,7 @@
 #include "vesin.h"
 
 #include "types.hpp"
+#include "threadpool.hpp"
 
 namespace vesin {
 namespace cpu {
@@ -71,9 +72,17 @@ public:
     /// is uniquely identified by its `index`.
     void add_point(size_t index, Vector position);
 
-    /// Iterate over all possible pairs, calling the given callback every time
+    /// Iterate over all possible pairs, calling the given callback every time.
+    ///
+    /// `scheduling` selects the task scheduling strategy used by the thread
+    /// pool.
     template <typename Function>
-    void foreach_pair(ThreadPool& thread_pool, size_t n_threads, Function callback);
+    void foreach_pair(
+        ThreadPool& thread_pool,
+        size_t n_threads,
+        Scheduling scheduling,
+        Function callback
+    );
 
     /// Number of cells in this list.
     size_t n_cells() const {

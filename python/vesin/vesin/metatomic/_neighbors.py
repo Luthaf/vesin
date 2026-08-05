@@ -73,12 +73,10 @@ class NeighborList:
         >>> calculator = NeighborList(options, length_unit="Angstrom")
         >>> neighbors = calculator.compute(system)
         >>> neighbors
-        TensorBlock
-            samples (18): ['first_atom', 'second_atom', 'cell_shift_a', 'cell_shift_b', 'cell_shift_c']
-            components (3): ['xyz']
-            properties (1): ['distance']
-            gradients: None
-        <BLANKLINE>
+        TensorBlock with shape (18, 3, 1)
+            samples: [first_atom, second_atom, cell_shift_a, cell_shift_b, cell_shift_c]
+            components: [xyz]
+            properties: [distance]
         >>>
         >>> # The returned TensorBlock can then be registered with the system
         >>> system.add_neighbor_list(options, neighbors)

@@ -120,7 +120,7 @@ def polymer_chain() -> SystemForTests:
     box = np.diag([8 * spacing, 18.0, 18.0]).astype(np.float64)
     return SystemForTests(
         name="polymer_chain",
-        transform_summary="",
+        transform_summary="nothing",
         points=points,
         box=box,
         periodic=(True, False, False),
@@ -145,7 +145,7 @@ def graphene_sheet() -> SystemForTests:
 
     return SystemForTests(
         name="graphene_sheet_2d",
-        transform_summary="",
+        transform_summary="nothing",
         points=np.asarray(points, dtype=np.float64),
         box=np.array(
             [
@@ -167,7 +167,7 @@ def diamond_crystal() -> SystemForTests:
     positions += rng.normal(scale=1.0, size=positions.shape)
     return SystemForTests(
         name="diamond_crystal_3d",
-        transform_summary="",
+        transform_summary="nothing",
         points=positions,
         box=np.asarray(atoms.cell[:], dtype=np.float64),
         periodic=tuple(bool(value) for value in atoms.pbc),
@@ -178,7 +178,7 @@ def naphthalene_cluster() -> SystemForTests:
     atoms = ase.io.read(f"{CURRENT_DIR}/data/naphthalene.xyz")
     return SystemForTests(
         name="naphthalene_cluster_non_periodic",
-        transform_summary="",
+        transform_summary="nothing",
         points=np.asarray(atoms.positions, dtype=np.float64),
         box=np.diag([30.0, 30.0, 30.0]).astype(np.float64),
         periodic=(False, False, False),
@@ -188,7 +188,7 @@ def naphthalene_cluster() -> SystemForTests:
 def issue_153() -> SystemForTests:
     return SystemForTests(
         name="issue_153",
-        transform_summary="",
+        transform_summary="nothing",
         points=np.asarray([[0.0, 2.5, 0.0], [2.0, 0.0, 0.0]], dtype=np.float64),
         box=np.diag([4.0, 4.5, 0.0]).astype(np.float64),
         periodic=(True, True, False),
@@ -199,7 +199,7 @@ def system_from_xyz(name):
     atoms = ase.io.read(f"{CURRENT_DIR}/data/{name}.xyz")
     return SystemForTests(
         name=name,
-        transform_summary="",
+        transform_summary="nothing",
         points=atoms.positions,
         box=atoms.cell[:],
         periodic=atoms.pbc,

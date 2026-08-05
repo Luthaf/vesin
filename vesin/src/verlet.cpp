@@ -105,7 +105,8 @@ bool cpu::VerletList::needs_rebuild(
 void cpu::VerletList::rebuild(
     const Vector* points,
     size_t n_points,
-    const BoundingBox& box
+    const BoundingBox& box,
+    cpu::CellListBuffersCPU& buffers
 ) {
     this->clear_candidates();
 
@@ -126,7 +127,15 @@ void cpu::VerletList::rebuild(
     candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points);
 
     size_t candidate_capacity = 0;
-    cpu::cell_list_neighbors(points, n_points, std::move(candidate_box), build_options, candidates_, candidate_capacity);
+    cpu::cell_list_neighbors(
+        points,
+        n_points,
+        std::move(candidate_box),
+        build_options,
+        buffers,
+        candidates_,
+        candidate_capacity
+    );
 
     ref_points_.resize(n_points);
     std::memcpy(ref_points_.data(), points, n_points * sizeof(Vector));

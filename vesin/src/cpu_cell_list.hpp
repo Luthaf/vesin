@@ -2,17 +2,40 @@
 #define VESIN_CPU_CELL_LIST_HPP
 
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 #include "vesin.h"
 
 #include "types.hpp"
-#include "threadpool.hpp"
 
 namespace vesin {
 namespace cpu {
 
 struct VerletList;
+
+/// All memory allocations used by the CPU cell-list algorithm, stored
+/// separately from `CellList` so they can be reused across calls to
+/// `cell_list_neighbors()`. Each call clears and rewrites the data, only the
+/// allocations (vector capacity) are kept.
+struct CellListBuffersCPU {
+    /// `original_index[s]` is the original point index at sorted position `s`.
+    std::vector<size_t> original_index;
+    /// `sorted_shifts[s]` is the CellShift of the point at sorted position `s`.
+    std::vector<CellShift> sorted_shifts;
+    /// `cell_start[c]` is the first sorted position in cell `c`.
+    std::vector<size_t> cell_start;
+    /// `cell_count[c]` is the number of points in cell `c`.
+    std::vector<size_t> cell_count;
+    /// `wrapped_positions[s]` is the position of the point at sorted position
+    /// `s` wrapped back into the unit cell.
+    std::vector<Vector> wrapped_positions;
+
+    /// Scratch: per-point neighbor count before the prefix sum (first pass).
+    std::vector<size_t> count;
+    /// Scratch: per-thread partial counts merged into `count` (first pass).
+    std::vector<std::vector<size_t>> local_counts;
+};
 
 /// Extra CPU allocation metadata stored in `VesinNeighborList::opaque`.
 struct ExtraDataCpu {
@@ -34,6 +57,8 @@ struct ExtraDataCpu {
     size_t capacity = 0;
     /// Optional cached Verlet state for `skin > 0` calculations.
     VerletList* verlet_state = nullptr;
+    /// Cached allocations for the cell-list path, reused across calls.
+    CellListBuffersCPU cell_list_buffers;
 };
 
 class ThreadPool;
@@ -45,6 +70,7 @@ void cell_list_neighbors(
     size_t n_points,
     BoundingBox box,
     VesinOptions options,
+    CellListBuffersCPU& buffers,
     VesinNeighborList& neighbors,
     size_t& capacity
 );
@@ -57,60 +83,88 @@ void neighbors(
     VesinNeighborList& neighbors
 );
 
-/// The cell list is used to sort atoms inside bins/cells.
+/// The cell list is used to sort points inside bins/cells.
 ///
-/// The list of potential pairs is then constructed by looking through all
-/// neighboring cells (the number of cells to search depends on the cutoff and
-/// the size of the cells) for each atom to create pair candidates.
+/// Points are binned into a 3-D grid of cells whose size is determined by the
+/// cutoff and the bounding box. `build()` bins all points into their cells
+/// and finalises the cell list into a compressed sparse row (CSR) layout that
+/// supports efficient per-point neighbour queries via `foreach_neighbor_of()`.
+///
+/// The data arrays live in a caller-owned `CellListBuffersCPU`, so the allocated
+/// storage can be reused across neighbor list calls; this `CellList` only holds
+/// the grid geometry (box, cells per direction, search range) and a reference
+/// to the buffers.
+///
+/// ## CSR layout
+///
+/// `build()` first bins each point into its cell (computing the periodic wrap
+/// shift if the box is periodic), then flattens the per-cell point lists into a
+/// single contiguous sequence of "sorted positions", laid out cell by cell in
+/// row-major cell order. Three parallel arrays indexed by sorted position `s`
+/// store the point data:
+///
+///  - `original_index[s]` — the original point index;
+///  - `sorted_shifts[s]` — the periodic wrap shift;
+///  - `wrapped_positions[s]` — the position wrapped back into the unit cell.
+///
+/// The cell structure is then compressed into two offset arrays, mirroring
+/// the row pointers of a CSR matrix:
+///
+///  - `cell_start[c]` — the first sorted position belonging to cell `c`;
+///  - `cell_count[c]` — the number of points in cell `c`.
+///
+/// The points of cell `c` therefore occupy the contiguous range
+/// `[cell_start[c], cell_start[c] + cell_count[c])`. `build()` fills these
+/// arrays directly, without any intermediate per-cell storage: a first pass
+/// counts the points per cell, a prefix sum derives the `cell_start` offsets,
+/// and a second pass scatters each point into its final CSR slot. Traversing a
+/// neighbouring cell during a query is then just a sequential scan of that
+/// slice.
 class CellList {
 public:
     /// Create a new `CellList` for the given bounding box and cutoff,
-    /// determining all required parameters.
-    CellList(BoundingBox box, double cutoff);
+    /// determining all required parameters. All data arrays are stored in
+    /// `buffers`, which must outlive this object.
+    CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff);
 
-    /// Add a single point to the cell list at the given `position`. The point
-    /// is uniquely identified by its `index`.
-    void add_point(size_t index, Vector position);
+    /// Build the cell list for the given points: bin the points into cells,
+    /// then produce the CSR layout and the wrapped positions (see the class
+    /// documentation). Must be called before `foreach_neighbor_of()`. Can be
+    /// called again on the same `CellList` to re-bin a new set of points.
+    void build(const Vector* points, size_t n_points);
 
-    /// Iterate over all possible pairs, calling the given callback every time.
-    ///
-    /// `scheduling` selects the task scheduling strategy used by the thread
-    /// pool.
+    /// Iterate over all neighbours of the point at `sorted_i`, calling
+    /// `callback(point_j, shift, vector, distance2)` for each pair that passes
+    /// the cutoff and the half-list filter (if `options.full` is false).
     template <typename Function>
-    void foreach_pair(
-        ThreadPool& thread_pool,
-        size_t n_threads,
-        Scheduling scheduling,
-        Function callback
-    );
+    void foreach_neighbor_of(size_t sorted_i, VesinOptions options, Function callback) const;
 
-    /// Number of cells in this list.
-    size_t n_cells() const {
-        return cells_shape_[0] * cells_shape_[1] * cells_shape_[2];
-    }
+    /// Original index of the point at sorted position `sorted`.
+    size_t original_index(size_t sorted) const { return buffers_.original_index[sorted]; }
+
+    /// Number of cells in each direction of the grid.
+    const std::array<size_t, 3>& n_cells() const { return n_cells_; }
+    /// Get the search range.
+    const std::array<int32_t, 3>& n_search() const { return n_search_; }
+    /// Get the bounding box.
+    const BoundingBox& box() const { return box_; }
 
 private:
+    /// Data arrays for the cell list, owned by the caller.
+    CellListBuffersCPU& buffers_;
+
+    BoundingBox box_;
+
     /// How many cells do we need to look at when searching neighbors to include
     /// all neighbors below cutoff
     std::array<int32_t, 3> n_search_;
 
-    /// the cells themselves are a list of points & corresponding
-    /// shift to place the point inside the cell
-    struct Point {
-        size_t index;
-        CellShift shift;
-    };
-    struct Cell: public std::vector<Point> {};
+    /// number of cells in all directions
+    std::array<size_t, 3> n_cells_;
 
-    // raw data for the cells
-    std::vector<Cell> cells_;
-    // shape of the cell array
-    std::array<size_t, 3> cells_shape_;
-
-    BoundingBox box_;
-
-    Cell& get_cell(std::array<int32_t, 3> index);
-    const Cell& get_cell(std::array<int32_t, 3> index) const;
+    /// Compute the linear index of the cell containing a point at `position`,
+    /// together with the periodic wrap shift used to place it inside the cell.
+    std::pair<size_t, CellShift> point_cell(Vector position) const;
 };
 
 /// Wrapper around `VesinNeighborList` that behaves like a std::vector,
@@ -129,10 +183,38 @@ public:
         neighbors.length += 1;
     }
 
-    void set_pair(size_t index, size_t first, size_t second);
-    void set_shift(size_t index, vesin::CellShift shift);
-    void set_distance(size_t index, double distance);
-    void set_vector(size_t index, vesin::Vector vector);
+    void set_pair(size_t index, size_t first, size_t second) {
+        while (index >= capacity) {
+            this->grow();
+        }
+        neighbors.pairs[index][0] = first;
+        neighbors.pairs[index][1] = second;
+    }
+
+    void set_shift(size_t index, vesin::CellShift shift) {
+        while (index >= capacity) {
+            this->grow();
+        }
+        neighbors.shifts[index][0] = shift[0];
+        neighbors.shifts[index][1] = shift[1];
+        neighbors.shifts[index][2] = shift[2];
+    }
+
+    void set_distance(size_t index, double distance) {
+        while (index >= capacity) {
+            this->grow();
+        }
+        neighbors.distances[index] = distance;
+    }
+
+    void set_vector(size_t index, vesin::Vector vector) {
+        while (index >= capacity) {
+            this->grow();
+        }
+        neighbors.vectors[index][0] = vector[0];
+        neighbors.vectors[index][1] = vector[1];
+        neighbors.vectors[index][2] = vector[2];
+    }
 
     // reset length to 0, and allocate/deallocate members of
     // `neighbors` according to `options`

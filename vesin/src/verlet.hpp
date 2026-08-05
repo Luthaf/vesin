@@ -11,6 +11,8 @@
 namespace vesin {
 namespace cpu {
 
+struct CellListBuffersCPU;
+
 /// On-CPU Verlet neighbor list.
 ///
 /// This class manages an over-complete candidate neighbor list, computed for
@@ -48,10 +50,13 @@ struct VerletList {
     ///
     /// The rebuild operation stores candidates in full `VesinNeighborList` form
     /// and captures the state used to validate future `needs_rebuild` checks.
+    /// The `buffers` argument provides reusable cell-list allocations, e.g.
+    /// from `ExtraDataCpu`.
     void rebuild(
         const Vector* points,
         size_t n_points,
-        const BoundingBox& box
+        const BoundingBox& box,
+        CellListBuffersCPU& buffers
     );
 
     /// Filter cached candidates at the exact user cutoff for the current

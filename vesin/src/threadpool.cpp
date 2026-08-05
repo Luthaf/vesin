@@ -79,6 +79,8 @@ void ThreadPool::reinit_after_fork() {
     task_function_ = nullptr;
     first_exception_ = nullptr;
     has_exception_ = false;
+    scheduling_ = Scheduling{};
+    next_chunk_.store(0, std::memory_order_relaxed);
 }
 
 
@@ -114,24 +116,42 @@ void ThreadPool::worker(size_t thread_id) {
 }
 
 void ThreadPool::execute_assigned_tasks(size_t thread_id, size_t active_threads) {
-    auto begin = (thread_id * n_tasks_) / active_threads;
-    auto end = ((thread_id + 1) * n_tasks_) / active_threads;
-
-    for (size_t task_i = begin; task_i < end; task_i++) {
-        if (has_exception_.load()) {
-            return;
-        }
-
-        try {
-            task_function_(task_data_, task_i, thread_id);
-        } catch (...) {
-            auto lock = std::lock_guard<std::mutex>(mutex_);
-            if (first_exception_ == nullptr) {
-                first_exception_ = std::current_exception();
-                has_exception_.store(true);
+    auto run_chunk = [&](size_t begin, size_t end) {
+        for (size_t task_i = begin; task_i < end; task_i++) {
+            if (has_exception_.load()) {
+                return;
             }
-            return;
+
+            try {
+                task_function_(task_data_, task_i, thread_id);
+            } catch (...) {
+                auto lock = std::lock_guard<std::mutex>(mutex_);
+                if (first_exception_ == nullptr) {
+                    first_exception_ = std::current_exception();
+                    has_exception_.store(true);
+                }
+                return;
+            }
         }
+    };
+
+    if (scheduling_.kind == Scheduling::Dynamic) {
+        auto chunk = std::max<size_t>(1, scheduling_.chunk_size);
+        while (true) {
+            if (has_exception_.load()) {
+                return;
+            }
+            auto begin = next_chunk_.fetch_add(chunk, std::memory_order_relaxed);
+            if (begin >= n_tasks_) {
+                return;
+            }
+            auto end = std::min(begin + chunk, n_tasks_);
+            run_chunk(begin, end);
+        }
+    } else {
+        auto begin = (thread_id * n_tasks_) / active_threads;
+        auto end = ((thread_id + 1) * n_tasks_) / active_threads;
+        run_chunk(begin, end);
     }
 }
 

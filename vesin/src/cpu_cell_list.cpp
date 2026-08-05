@@ -92,7 +92,8 @@ void vesin::cpu::cell_list_neighbors(
         local_thread_neighbors.emplace_back(list);
     }
 
-    cell_list.foreach_pair(thread_pool, thread_count, [&](size_t first, size_t second, CellShift shift, size_t thread_id) {
+    cell_list.foreach_pair(thread_pool, thread_count, Scheduling::dynamic(256),
+        [&](size_t first, size_t second, CellShift shift, size_t thread_id) {
         if (!options.full) {
             // filter out some pairs for half neighbor lists
             if (first > second) {
@@ -168,7 +169,7 @@ void vesin::cpu::cell_list_neighbors(
 
     neighbors.grow(final_length);
 
-    thread_pool.run(thread_count, thread_locals.raw.size(), [&](size_t local_i, size_t /*thread_id*/) {
+    thread_pool.run(thread_count, thread_locals.raw.size(), Scheduling::static_(), [&](size_t local_i, size_t /*thread_id*/) {
         const auto& local_neighbors = thread_locals.raw[local_i];
         auto offset = local_offsets[local_i];
 
@@ -369,10 +370,10 @@ void CellList::add_point(size_t index, Vector position) {
 }
 
 template <typename Function>
-void CellList::foreach_pair(ThreadPool& thread_pool, size_t n_threads, Function callback) {
+void CellList::foreach_pair(ThreadPool& thread_pool, size_t n_threads, Scheduling scheduling, Function callback) {
     auto total_cells = cells_shape_[0] * cells_shape_[1] * cells_shape_[2];
 
-    thread_pool.run(n_threads, total_cells, [&](size_t linear_cell_i, size_t thread_id) {
+    thread_pool.run(n_threads, total_cells, scheduling, [&](size_t linear_cell_i, size_t thread_id) {
         auto stride_x = cells_shape_[0];
         auto stride_xy = cells_shape_[0] * cells_shape_[1];
 

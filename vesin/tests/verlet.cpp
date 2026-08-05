@@ -34,9 +34,11 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
     state.set_options(options);
     size_t output_capacity = 0;
 
+    auto buffers = vesin::cpu::CellListBuffersCPU();
+
     auto lot_of_pairs_box = vesin::BoundingBox(box_matrix, periodic);
     lot_of_pairs_box.make_bounding_for(lot_of_pairs_points, 4);
-    state.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box);
+    state.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box, buffers);
 
     REQUIRE(state.candidate_count() == 3);
     auto few_pairs_box = vesin::BoundingBox(box_matrix, periodic);
@@ -89,7 +91,8 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
 
     auto state = vesin::cpu::VerletList();
     state.set_options(options);
-    state.rebuild(initial_points, 2, ref_box);
+    auto buffers = vesin::cpu::CellListBuffersCPU();
+    state.rebuild(initial_points, 2, ref_box, buffers);
 
     // this is within the skin distance (0.12 -> 0.95 is 0.17 with periodic
     // boundaries) and should not trigger a rebuild

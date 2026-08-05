@@ -45,11 +45,10 @@ def ase_neighbors(system, cutoff):
     return sort_neighbors(*ase.neighborlist.neighbor_list("ijSDd", atoms, cutoff))
 
 
-def vesin_neighbors(system, cutoff, sorted):
+def vesin_neighbors(system, cutoff):
     calculator = NeighborList(
         cutoff=cutoff,
         full_list=True,
-        sorted=sorted,
         algorithm="cell_list",
     )
 
@@ -65,9 +64,8 @@ def vesin_neighbors(system, cutoff, sorted):
 
 @pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
 @pytest.mark.parametrize("cutoff", [3.0, 5.0, 7.0, 10.0])
-@pytest.mark.parametrize("sorted", [True, False])
 @pytest.mark.parametrize("transform", ["none", "rotate", "rotate_and_translate"])
-def test_against_ase(system, cutoff, sorted, transform):
+def test_against_ase(system, cutoff, transform):
     if transform == "none":
         pass
     elif transform == "rotate":
@@ -80,9 +78,7 @@ def test_against_ase(system, cutoff, sorted, transform):
     expected_i, expected_j, expected_S, expected_D, expected_d = ase_neighbors(
         system, cutoff
     )
-    actual_i, actual_j, actual_S, actual_D, actual_d = vesin_neighbors(
-        system, cutoff, sorted=sorted
-    )
+    actual_i, actual_j, actual_S, actual_D, actual_d = vesin_neighbors(system, cutoff)
 
     message = (
         f"Neighbors do not match between ASE and vesin for {system.name}, "
@@ -113,7 +109,7 @@ def test_slab_slow():
 def test_pairs_output():
     atoms = ase.io.read(f"{CURRENT_DIR}/data/diamond.xyz")
 
-    calculator = NeighborList(cutoff=2.0, full_list=True, sorted=False)
+    calculator = NeighborList(cutoff=2.0, full_list=True)
     i, j, P = calculator.compute(
         points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="ijP"
     )
@@ -157,16 +153,14 @@ def test_sorting():
     (unsorted_i,) = calculator.compute(
         points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="i"
     )
-    assert not np.all(np.sort(unsorted_i) == unsorted_i)
+    # on CPU, the output is always sorted, even if sorted=False is passed
+    assert np.all(unsorted_i == np.sort(unsorted_i))
 
     calculator = NeighborList(cutoff=2.0, full_list=True, sorted=True)
     (sorted_i,) = calculator.compute(
         points=atoms.positions, box=atoms.cell[:], periodic=True, quantities="i"
     )
     assert np.all(sorted_i == np.sort(sorted_i))
-
-    # check that unsorted is not already sorted by chance
-    assert not np.all(sorted_i == unsorted_i)
 
     # https://github.com/Luthaf/vesin/issues/34
     atoms = ase.io.read(f"{CURRENT_DIR}/data/Cd2I4O12.xyz")

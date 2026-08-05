@@ -11,7 +11,7 @@
 
 using namespace vesin::cuda;
 
-CellListBuffers::~CellListBuffers() {
+CellListBuffersCUDA::~CellListBuffersCUDA() {
     try {
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_indices));
         GPULITE_CUDART_CALL(cudaFree(this->d_particle_shifts));
@@ -32,14 +32,14 @@ CellListBuffers::~CellListBuffers() {
     }
 }
 
-CellListBuffers::CellListBuffers(CellListBuffers&& other) noexcept:
-    CellListBuffers() {
+CellListBuffersCUDA::CellListBuffersCUDA(CellListBuffersCUDA&& other) noexcept:
+    CellListBuffersCUDA() {
     *this = std::move(other);
 }
 
-CellListBuffers& CellListBuffers::operator=(CellListBuffers&& other) noexcept {
+CellListBuffersCUDA& CellListBuffersCUDA::operator=(CellListBuffersCUDA&& other) noexcept {
     if (this != &other) {
-        this->~CellListBuffers();
+        this->~CellListBuffersCUDA();
 
         this->points_capacity = other.points_capacity;
         other.points_capacity = 0;
@@ -92,7 +92,7 @@ CellListBuffers& CellListBuffers::operator=(CellListBuffers&& other) noexcept {
     return *this;
 }
 
-void CellListBuffers::allocate(size_t n_points, size_t n_cells) {
+void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
     if (this->points_capacity < n_points) {
         // Free old point-related buffers
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_indices));

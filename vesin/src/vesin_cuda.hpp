@@ -21,7 +21,7 @@ struct CudaNeighborListExtras;
 #endif
 
 /// @brief Buffers for cell list-based neighbor search
-struct CellListBuffers {
+struct CellListBuffersCUDA {
     size_t points_capacity = 0; // Capacity for point-related arrays
     size_t cells_capacity = 0;  // Capacity for cell-related arrays
 
@@ -50,14 +50,14 @@ struct CellListBuffers {
 
     void allocate(size_t n_points, size_t n_cells);
 
-    CellListBuffers() = default;
-    ~CellListBuffers();
+    CellListBuffersCUDA() = default;
+    ~CellListBuffersCUDA();
 
-    CellListBuffers(CellListBuffers&& other) noexcept;
-    CellListBuffers& operator=(CellListBuffers&& other) noexcept;
+    CellListBuffersCUDA(CellListBuffersCUDA&& other) noexcept;
+    CellListBuffersCUDA& operator=(CellListBuffersCUDA&& other) noexcept;
 
-    CellListBuffers(const CellListBuffers&) = delete;
-    CellListBuffers& operator=(const CellListBuffers&) = delete;
+    CellListBuffersCUDA(const CellListBuffersCUDA&) = delete;
+    CellListBuffersCUDA& operator=(const CellListBuffersCUDA&) = delete;
 };
 
 struct SortBuffers {
@@ -89,7 +89,7 @@ struct CudaNeighborListExtras {
     size_t* pinned_length_ptr = nullptr;
 
     // Cell list buffers (allocated on demand for large systems)
-    CellListBuffers cell_list;
+    CellListBuffersCUDA cell_list;
 
     // Buffers for optimized brute force kernels
     double* d_box_diag = nullptr;     // [3] diagonal elements for orthogonal boxes

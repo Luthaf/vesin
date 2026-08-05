@@ -147,21 +147,21 @@ TEST_CASE("FCC unit cell") {
     bool periodic[3] = {true, true, true};
 
     auto expected_vectors = std::vector<std::array<double, 3>>{
-        {1.5, 0.0, -1.5},
-        {1.5, -1.5, 0.0},
-        {0.0, 1.5, -1.5},
-        {1.5, 1.5, 0.0},
-        {1.5, 0.0, 1.5},
         {0.0, 1.5, 1.5},
+        {1.5, -1.5, 0.0},
+        {1.5, 0.0, 1.5},
+        {0.0, 1.5, -1.5},
+        {1.5, 0.0, -1.5},
+        {1.5, 1.5, 0.0},
     };
 
     auto expected_shifts = std::vector<std::array<int32_t, 3>>{
-        {-1, 0, 1},
-        {-1, 1, 0},
-        {0, -1, 1},
-        {0, 0, 1},
-        {0, 1, 0},
         {1, 0, 0},
+        {-1, 1, 0},
+        {0, 1, 0},
+        {0, -1, 1},
+        {-1, 0, 1},
+        {0, 0, 1},
     };
 
     auto expected_pairs = std::vector<std::array<size_t, 2>>(6, {0, 0});
@@ -202,8 +202,8 @@ TEST_CASE("Large box, small cutoff") {
     auto expected_pairs = std::vector<std::array<size_t, 2>>{
         {0, 1},
         {0, 2},
-        {3, 4},
         {3, 5},
+        {3, 4},
     };
     auto expected_shifts = std::vector<std::array<int32_t, 3>>(4, {0, 0, 0});
     auto expected_distances = std::vector<double>(4, 2.0);
@@ -237,14 +237,14 @@ TEST_CASE("Cutoff larger than the box size") {
     auto expected_pairs = std::vector<std::array<size_t, 2>>(3, {0, 0});
     auto expected_distances = std::vector<double>(3, 0.5);
     auto expected_shifts = std::vector<std::array<int32_t, 3>>{
-        {0, 0, 1},
-        {0, 1, 0},
         {1, 0, 0},
+        {0, 1, 0},
+        {0, 0, 1},
     };
     auto expected_vectors = std::vector<std::array<double, 3>>{
-        {0.0, 0.0, 0.5},
-        {0.0, 0.5, 0.0},
         {0.5, 0.0, 0.0},
+        {0.0, 0.5, 0.0},
+        {0.0, 0.0, 0.5},
     };
 
     check_neighbors(

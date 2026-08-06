@@ -13,15 +13,55 @@ namespace cpu {
 
 struct CellListBuffersCPU;
 
+/// All reusable allocations and persistent state for the Verlet neighbor list,
+/// stored separately from `VerletList` so they persist across cache
+/// invalidations and are reused across calls.
+struct VerletBuffersCPU {
+    VerletBuffersCPU() = default;
+    ~VerletBuffersCPU();
+
+    VerletBuffersCPU(const VerletBuffersCPU&) = delete;
+    VerletBuffersCPU& operator=(const VerletBuffersCPU&) = delete;
+    VerletBuffersCPU(VerletBuffersCPU&&) = delete;
+    VerletBuffersCPU& operator=(VerletBuffersCPU&&) = delete;
+
+    /// Options used to build the current cache.
+    VesinOptions options;
+
+    /// Whether a usable cache is currently available.
+    bool has_cache = false;
+
+    /// Over-complete candidate list generated at `cutoff + skin`.
+    VesinNeighborList candidates;
+
+    /// Reference points at the time the candidates were built.
+    std::vector<Vector> ref_points;
+    /// Box matrix used for candidate generation and displacement validation.
+    Matrix ref_matrix;
+    /// Periodicity flags for the cached box.
+    std::array<bool, 3> ref_periodic;
+
+    /// Scratch buffer containing per-block match count (filter pass 1).
+    std::vector<size_t> block_counts;
+    /// Scratch buffer containing per-block output offset (prefix sum of
+    /// `block_counts`).
+    std::vector<size_t> block_offsets;
+    /// Scratch buffer containing pair vectors for matching candidates
+    std::vector<Vector> candidates_vectors;
+    /// Scratch buffer containing squared distances for all candidates
+    std::vector<double> candidates_distances_sq;
+};
+
 /// On-CPU Verlet neighbor list.
 ///
-/// This class manages an over-complete candidate neighbor list, computed for
-/// `cutoff + skin`, and the associated reference state for validating
-/// neighbor-list reuse.
+/// This class is a lightweight wrapper around a `VerletBuffersCPU` reference,
+/// providing the cache-management logic (rebuild validation) and the
+/// two-pass parallel filter. It is designed to be constructed per-call,
+/// like `CellList`, while the buffers persist in `ExtraDataCpu`.
 struct VerletList {
-    /// Initialize an empty Verlet list with no cached candidates.
-    VerletList() = default;
-    ~VerletList();
+    /// Construct a Verlet list operating on the given `buffers`.
+    VerletList(VerletBuffersCPU& buffers) : buffers_(buffers) {}
+    ~VerletList() = default;
 
     VerletList(const VerletList&) = delete;
     VerletList& operator=(const VerletList&) = delete;
@@ -35,11 +75,6 @@ struct VerletList {
     void set_options(VesinOptions options);
 
     /// Return `true` if the cache should be rebuilt for the current `points`.
-    ///
-    /// The caller passes the current points and box; a rebuild is required
-    /// after any structural change that could invalidate cached candidates (box
-    /// topology/periodicity changes, points count changes, or large
-    /// displacement from the reference points).
     bool needs_rebuild(
         const Vector* points,
         size_t n_points,
@@ -47,16 +82,11 @@ struct VerletList {
     ) const;
 
     /// Build the over-complete candidate list at `cutoff + skin`.
-    ///
-    /// The rebuild operation stores candidates in full `VesinNeighborList` form
-    /// and captures the state used to validate future `needs_rebuild` checks.
-    /// The `buffers` argument provides reusable cell-list allocations, e.g.
-    /// from `ExtraDataCpu`.
     void rebuild(
         const Vector* points,
         size_t n_points,
         const BoundingBox& box,
-        CellListBuffersCPU& buffers
+        CellListBuffersCPU& cell_buffers
     );
 
     /// Filter cached candidates at the exact user cutoff for the current
@@ -67,37 +97,13 @@ struct VerletList {
         VesinOptions options,
         VesinNeighborList& neighbors,
         size_t& output_capacity
-    ) const;
-
-    /// Number of pairs currently stored in the cached candidate list.
-    size_t candidate_count() const {
-        return candidates_.length;
-    }
+    );
 
 private:
     /// Release candidate buffers and reset cache metadata.
     void clear_candidates();
 
-    /// Reference points at the time the candidates were built.
-    std::vector<Vector> ref_points_;
-    /// Box matrix used for candidate generation and displacement validation.
-    Matrix ref_matrix_;
-    /// Periodicity flags for the cached box.
-    std::array<bool, 3> ref_periodic_ = {false, false, false};
-
-    /// Over-complete candidate list generated at `cutoff + skin`.
-    ///
-    /// The list is kept in normal neighbor-list representation so rebuild and
-    /// recompute paths can share storage and filtering logic.
-    VesinNeighborList candidates_;
-
-    /// Options used to build the current cache.
-    VesinOptions options_ = {};
-    /// Rebuild threshold used to invalidate a cache (`(skin/2)^2`).
-    double half_skin_sq_ = 0.0;
-
-    /// Whether a usable cache is currently available.
-    bool has_cache_ = false;
+    VerletBuffersCPU& buffers_;
 };
 
 } // namespace cpu

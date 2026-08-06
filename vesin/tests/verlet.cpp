@@ -30,34 +30,34 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
         {2.7, 0.0, 0.0},
     };
 
-    auto state = vesin::cpu::VerletList();
-    state.set_options(options);
+    auto verlet_buffers = vesin::cpu::VerletBuffersCPU();
+    auto verlet = vesin::cpu::VerletList(verlet_buffers);
+    verlet.set_options(options);
     size_t output_capacity = 0;
 
-    auto buffers = vesin::cpu::CellListBuffersCPU();
+    auto cell_buffers = vesin::cpu::CellListBuffersCPU();
 
     auto lot_of_pairs_box = vesin::BoundingBox(box_matrix, periodic);
     lot_of_pairs_box.make_bounding_for(lot_of_pairs_points, 4);
-    state.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box, buffers);
+    verlet.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box, cell_buffers);
 
-    REQUIRE(state.candidate_count() == 3);
     auto few_pairs_box = vesin::BoundingBox(box_matrix, periodic);
     few_pairs_box.make_bounding_for(few_pairs_points, 4);
-    REQUIRE_FALSE(state.needs_rebuild(few_pairs_points, 4, few_pairs_box));
+    REQUIRE_FALSE(verlet.needs_rebuild(few_pairs_points, 4, few_pairs_box));
 
     auto neighbors = VesinNeighborList();
     neighbors.device = {VesinCPU, 0};
-    state.filter(lot_of_pairs_points, lot_of_pairs_box, options, neighbors, output_capacity);
+    verlet.filter(lot_of_pairs_points, lot_of_pairs_box, options, neighbors, output_capacity);
     REQUIRE(neighbors.length == 3);
     REQUIRE(output_capacity >= 3);
 
     auto initial_capacity = output_capacity;
 
-    state.filter(few_pairs_points, few_pairs_box, options, neighbors, output_capacity);
+    verlet.filter(few_pairs_points, few_pairs_box, options, neighbors, output_capacity);
     REQUIRE(neighbors.length == 1);
     CHECK(output_capacity == initial_capacity);
 
-    state.filter(lot_of_pairs_points, lot_of_pairs_box, options, neighbors, output_capacity);
+    verlet.filter(lot_of_pairs_points, lot_of_pairs_box, options, neighbors, output_capacity);
     REQUIRE(neighbors.length == 3);
     CHECK(output_capacity == initial_capacity);
 
@@ -89,10 +89,11 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
     auto ref_box = vesin::BoundingBox(box_matrix, periodic);
     ref_box.make_bounding_for(initial_points, 2);
 
-    auto state = vesin::cpu::VerletList();
+    auto verlet_buffers = vesin::cpu::VerletBuffersCPU();
+    auto state = vesin::cpu::VerletList(verlet_buffers);
     state.set_options(options);
-    auto buffers = vesin::cpu::CellListBuffersCPU();
-    state.rebuild(initial_points, 2, ref_box, buffers);
+    auto cell_buffers = vesin::cpu::CellListBuffersCPU();
+    state.rebuild(initial_points, 2, ref_box, cell_buffers);
 
     // this is within the skin distance (0.12 -> 0.95 is 0.17 with periodic
     // boundaries) and should not trigger a rebuild

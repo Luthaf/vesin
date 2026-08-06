@@ -8,6 +8,7 @@
 #include "vesin.h"
 
 #include "types.hpp"
+#include "verlet.hpp"
 
 namespace vesin {
 namespace cpu {
@@ -42,7 +43,7 @@ struct ExtraDataCpu {
     /// Initialize empty CPU-side metadata.
     ExtraDataCpu() = default;
     /// Release optional Verlet cache state.
-    ~ExtraDataCpu();
+    ~ExtraDataCpu() = default;
 
     /// Disallow copy construction; this object owns CPU-side cache metadata.
     ExtraDataCpu(const ExtraDataCpu&) = delete;
@@ -55,8 +56,8 @@ struct ExtraDataCpu {
 
     /// Persisted GrowableNeighborList output capacity.
     size_t capacity = 0;
-    /// Optional cached Verlet state for `skin > 0` calculations.
-    VerletList* verlet_state = nullptr;
+    /// Reusable Verlet cache state and filter scratch for `skin > 0`.
+    VerletBuffersCPU verlet_buffers;
     /// Cached allocations for the cell-list path, reused across calls.
     CellListBuffersCPU cell_list_buffers;
 };
@@ -167,8 +168,8 @@ private:
     std::pair<size_t, CellShift> point_cell(Vector position) const;
 };
 
-/// Wrapper around `VesinNeighborList` that behaves like a std::vector,
-/// automatically growing memory allocations.
+/// Wrapper around `VesinNeighborList` that manages the output buffers,
+/// keeping them allocated to at least `capacity` entries across calls.
 class GrowableNeighborList {
 public:
     VesinNeighborList& neighbors;
@@ -179,54 +180,14 @@ public:
         return neighbors.length;
     }
 
-    void increment_length() {
-        neighbors.length += 1;
-    }
-
-    void set_pair(size_t index, size_t first, size_t second) {
-        while (index >= capacity) {
-            this->grow();
-        }
-        neighbors.pairs[index][0] = first;
-        neighbors.pairs[index][1] = second;
-    }
-
-    void set_shift(size_t index, vesin::CellShift shift) {
-        while (index >= capacity) {
-            this->grow();
-        }
-        neighbors.shifts[index][0] = shift[0];
-        neighbors.shifts[index][1] = shift[1];
-        neighbors.shifts[index][2] = shift[2];
-    }
-
-    void set_distance(size_t index, double distance) {
-        while (index >= capacity) {
-            this->grow();
-        }
-        neighbors.distances[index] = distance;
-    }
-
-    void set_vector(size_t index, vesin::Vector vector) {
-        while (index >= capacity) {
-            this->grow();
-        }
-        neighbors.vectors[index][0] = vector[0];
-        neighbors.vectors[index][1] = vector[1];
-        neighbors.vectors[index][2] = vector[2];
-    }
-
     // reset length to 0, and allocate/deallocate members of
     // `neighbors` according to `options`
     void reset();
 
-    // allocate more memory & update capacity, `new_size = 0` means doubling the
-    // current capacity, otherwise grow to at least `new_size` capacity. This
-    // function does not update the `length` of `neighbors`.
-    void grow(size_t new_size = 0);
-
-    // sort the pairs currently in the neighbor list
-    void sort();
+    // grow the output buffers to hold at least `new_size` entries & update
+    // capacity. This is a no-op if `new_size <= capacity`. This function does
+    // not update the `length` of `neighbors`.
+    void grow(size_t new_size);
 };
 
 } // namespace cpu

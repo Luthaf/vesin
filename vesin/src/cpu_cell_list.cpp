@@ -3,7 +3,7 @@
 #include <cstring>
 
 #include <algorithm>
-#include <numeric>
+#include <limits>
 #include <tuple>
 
 #include "cpu_cell_list.hpp"
@@ -28,10 +28,6 @@ static void validate_algorithm(VesinOptions options) {
     if (options.algorithm != VesinAutoAlgorithm && options.algorithm != VesinCellList) {
         throw std::runtime_error("only VesinAutoAlgorithm and VesinCellList are supported on CPU");
     }
-}
-
-ExtraDataCpu::~ExtraDataCpu() {
-    delete this->verlet_state;
 }
 
 void vesin::cpu::cell_list_neighbors(
@@ -85,9 +81,9 @@ void vesin::cpu::cell_list_neighbors(
     }
     auto n_pairs = buffers.count[n_points];
 
-    // Allocate output buffers at exact size
-    auto initial_capacity = std::max(capacity, n_pairs);
-    auto neighbors = GrowableNeighborList{raw_neighbors, initial_capacity, options};
+    // Allocate output buffers at least as large as the retained capacity,
+    // growing to `n_pairs` when needed.
+    auto neighbors = GrowableNeighborList{raw_neighbors, capacity, options};
     neighbors.reset();
     neighbors.grow(n_pairs);
 
@@ -137,11 +133,7 @@ void vesin::cpu::neighbors(
 
     auto& extra = extra_data(raw_neighbors);
     if (options.skin > 0.0) {
-        if (extra.verlet_state == nullptr) {
-            extra.verlet_state = new VerletList();
-        }
-
-        auto& state = *extra.verlet_state;
+        auto state = VerletList(extra.verlet_buffers);
         state.set_options(options);
 
         if (state.needs_rebuild(points, n_points, box)) {
@@ -150,10 +142,6 @@ void vesin::cpu::neighbors(
 
         state.filter(points, box, options, raw_neighbors, extra.capacity);
     } else {
-        // Remove verlet state if it exists from a previous call
-        delete extra.verlet_state;
-        extra.verlet_state = nullptr;
-
         cell_list_neighbors(
             points,
             n_points,
@@ -490,8 +478,8 @@ static scalar_t* alloc(scalar_t* ptr, size_t size, size_t new_size) {
 void GrowableNeighborList::grow(size_t new_size) {
     assert(this->neighbors.device.type == VesinCPU);
 
-    if (new_size == 0) {
-        new_size = neighbors.length == 0 ? 1 : neighbors.length * 2;
+    if (new_size <= this->capacity) {
+        return;
     }
 
     auto* new_pairs = alloc<size_t, 2>(neighbors.pairs, neighbors.length, new_size);
@@ -582,104 +570,6 @@ void GrowableNeighborList::reset() {
     this->neighbors.shifts = shifts;
     this->neighbors.distances = distances;
     this->neighbors.vectors = vectors;
-}
-
-void GrowableNeighborList::sort() {
-    if (this->length() == 0) {
-        return;
-    }
-
-    // step 1: sort an array of indices, comparing the pairs at the indices
-    auto indices = std::vector<int64_t>(this->length(), 0);
-    std::iota(std::begin(indices), std::end(indices), 0);
-
-    struct compare_pairs {
-        compare_pairs(size_t (*pairs_)[2]):
-            pairs(pairs_) {}
-
-        bool operator()(int64_t a, int64_t b) const {
-            return pairs[a][0] < pairs[b][0];
-        }
-
-        size_t (*pairs)[2];
-    };
-
-    std::sort(
-        std::begin(indices),
-        std::end(indices),
-        compare_pairs(this->neighbors.pairs)
-    );
-
-    // step 2: move all data according to the sorted indices.
-    auto* sorted_pairs = alloc<size_t, 2>(nullptr, 0, this->capacity);
-
-    int32_t (*sorted_shifts)[3] = nullptr;
-    if (options.return_shifts) {
-        sorted_shifts = alloc<int32_t, 3>(nullptr, 0, this->capacity);
-    }
-
-    double* sorted_distances = nullptr;
-    if (options.return_distances) {
-        sorted_distances = alloc<double>(nullptr, 0, this->capacity);
-    }
-
-    double (*sorted_vectors)[3] = nullptr;
-    if (options.return_vectors) {
-        sorted_vectors = alloc<double, 3>(nullptr, 0, this->capacity);
-    }
-
-    if (
-        (sorted_pairs == nullptr) ||
-        (options.return_shifts && sorted_shifts == nullptr) ||
-        (options.return_distances && sorted_distances == nullptr) ||
-        (options.return_vectors && sorted_vectors == nullptr)
-    ) {
-        std::free(sorted_pairs);
-        std::free(sorted_shifts);
-        std::free(sorted_distances);
-        std::free(sorted_vectors);
-        throw std::runtime_error("could not allocate memory for sorting neighbor list");
-    }
-
-    for (size_t i = 0; i < this->neighbors.length; i++) {
-        auto from = static_cast<size_t>(indices[i]);
-        sorted_pairs[i][0] = this->neighbors.pairs[from][0];
-        sorted_pairs[i][1] = this->neighbors.pairs[from][1];
-
-        if (options.return_shifts) {
-            sorted_shifts[i][0] = this->neighbors.shifts[from][0];
-            sorted_shifts[i][1] = this->neighbors.shifts[from][1];
-            sorted_shifts[i][2] = this->neighbors.shifts[from][2];
-        }
-
-        if (options.return_distances) {
-            sorted_distances[i] = this->neighbors.distances[from];
-        }
-
-        if (options.return_vectors) {
-            sorted_vectors[i][0] = this->neighbors.vectors[from][0];
-            sorted_vectors[i][1] = this->neighbors.vectors[from][1];
-            sorted_vectors[i][2] = this->neighbors.vectors[from][2];
-        }
-    }
-
-    std::free(this->neighbors.pairs);
-    this->neighbors.pairs = sorted_pairs;
-
-    if (options.return_shifts) {
-        std::free(this->neighbors.shifts);
-        this->neighbors.shifts = sorted_shifts;
-    }
-
-    if (options.return_distances) {
-        std::free(this->neighbors.distances);
-        this->neighbors.distances = sorted_distances;
-    }
-
-    if (options.return_vectors) {
-        std::free(this->neighbors.vectors);
-        this->neighbors.vectors = sorted_vectors;
-    }
 }
 
 void vesin::cpu::free_neighbors(VesinNeighborList& neighbors) {

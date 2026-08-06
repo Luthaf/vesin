@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstring>
 
 #include "cpu_cell_list.hpp"
+#include "threadpool.hpp"
 #include "verlet.hpp"
 
 using namespace vesin;
@@ -33,27 +35,30 @@ static double corner_point_displacements(const Matrix& box, const Matrix& ref_bo
     return std::sqrt(delta1) + std::sqrt(delta2);
 }
 
-cpu::VerletList::~VerletList() {
-    this->clear_candidates();
+cpu::VerletBuffersCPU::~VerletBuffersCPU() {
+    if (candidates.device.type == VesinCPU) {
+        cpu::free_neighbors(candidates);
+    }
 }
 
 void cpu::VerletList::clear_candidates() {
-    if (candidates_.device.type == VesinCPU) {
-        cpu::free_neighbors(candidates_);
+    if (buffers_.candidates.device.type == VesinCPU) {
+        cpu::free_neighbors(buffers_.candidates);
     }
 
-    candidates_ = VesinNeighborList();
-    has_cache_ = false;
-    ref_points_.clear();
+    buffers_.candidates = VesinNeighborList();
+    buffers_.has_cache = false;
+    buffers_.ref_points.clear();
 }
 
 void cpu::VerletList::set_options(VesinOptions options) {
-    if (options_.cutoff != options.cutoff || options_.skin != options.skin || options_.full != options.full) {
+    if (buffers_.options.cutoff != options.cutoff ||
+        buffers_.options.skin != options.skin ||
+        buffers_.options.full != options.full) {
         this->clear_candidates();
     }
 
-    options_ = options;
-    half_skin_sq_ = (options.skin / 2.0) * (options.skin / 2.0);
+    buffers_.options = options;
 }
 
 bool cpu::VerletList::needs_rebuild(
@@ -61,38 +66,37 @@ bool cpu::VerletList::needs_rebuild(
     size_t n_points,
     const BoundingBox& box
 ) const {
-    if (!has_cache_) {
+    if (!buffers_.has_cache) {
         return true;
     }
 
-    if (n_points != ref_points_.size()) {
+    if (n_points != buffers_.ref_points.size()) {
         return true;
     }
 
     for (size_t d = 0; d < 3; d++) {
-        if (box.periodic(d) != ref_periodic_[d]) {
+        if (box.periodic(d) != buffers_.ref_periodic[d]) {
             return true;
         }
     }
     // The corner displacement uses the full box matrix: non-periodic directions
     // carry no shift, so including them only over-estimates the bound (more
     // rebuilds, never fewer). This stays correct for any mix of periodicity.
-    auto half_displacement = corner_point_displacements(box.matrix(), ref_matrix_) / 2.0;
-    if (half_displacement * half_displacement > half_skin_sq_) {
+    auto half_displacement = corner_point_displacements(box.matrix(), buffers_.ref_matrix) / 2.0;
+    auto half_skin_sq = (buffers_.options.skin / 2.0) * (buffers_.options.skin / 2.0);
+    if (half_displacement * half_displacement > half_skin_sq) {
         return true;
     }
 
     // Verlet-list reuse is valid while every atom stays within skin/2 of its
     // reference position: any pair inside cutoff is present in the cached
-    // candidate list built at cutoff + skin. See Verlet, Phys. Rev. 159, 98-103
-    // (1967), doi:10.1103/PhysRev.159.98, and Chialvo and Debenedetti, Comput.
-    // Phys. Commun. 60, 215-224 (1990), doi:10.1016/0010-4655(90)90007-N.
-    // One can also take the change of the box into account, see the
-    // implementation of LAMMPS:
+    // candidate list built at cutoff + skin. See doi:10.1103/PhysRev.159.98,
+    // and doi:10.1016/0010-4655(90)90007-N. One can also take the change of the
+    // box into account, see the implementation of LAMMPS:
     // https://github.com/lammps/lammps/blob/3bfc12b02799eedf79d779d66fad8c4c60554084/src/neighbor.cpp#L2434-L2448
-    auto half_threshold_sq = (sqrt(half_skin_sq_) - half_displacement) * (sqrt(half_skin_sq_) - half_displacement);
+    auto half_threshold_sq = (sqrt(half_skin_sq) - half_displacement) * (sqrt(half_skin_sq) - half_displacement);
     for (size_t i = 0; i < n_points; i++) {
-        auto displacement = points[i] - ref_points_[i];
+        auto displacement = points[i] - buffers_.ref_points[i];
         double displacement_sq = displacement.dot(displacement);
         if (displacement_sq > half_threshold_sq) {
             return true;
@@ -106,13 +110,14 @@ void cpu::VerletList::rebuild(
     const Vector* points,
     size_t n_points,
     const BoundingBox& box,
-    cpu::CellListBuffersCPU& buffers
+    cpu::CellListBuffersCPU& cell_buffers
 ) {
     this->clear_candidates();
 
+    auto& options = buffers_.options;
     auto build_options = VesinOptions();
-    build_options.cutoff = options_.cutoff + options_.skin;
-    build_options.full = options_.full;
+    build_options.cutoff = options.cutoff + options.skin;
+    build_options.full = options.full;
     build_options.sorted = false;
     build_options.algorithm = VesinCellList;
     build_options.return_shifts = true;
@@ -120,7 +125,7 @@ void cpu::VerletList::rebuild(
     build_options.return_vectors = false;
     build_options.skin = 0.0;
 
-    candidates_.device = {VesinCPU, 0};
+    buffers_.candidates.device = {VesinCPU, 0};
 
     auto periodic = std::array<bool, 3>{box.periodic(0), box.periodic(1), box.periodic(2)};
     auto candidate_box = BoundingBox(box.matrix(), periodic.data());
@@ -132,69 +137,159 @@ void cpu::VerletList::rebuild(
         n_points,
         std::move(candidate_box),
         build_options,
-        buffers,
-        candidates_,
+        cell_buffers,
+        buffers_.candidates,
         candidate_capacity
     );
 
-    ref_points_.resize(n_points);
-    std::memcpy(ref_points_.data(), points, n_points * sizeof(Vector));
-    ref_matrix_ = box.matrix();
+    buffers_.ref_points.resize(n_points);
+    std::memcpy(buffers_.ref_points.data(), points, n_points * sizeof(Vector));
+    buffers_.ref_matrix = box.matrix();
     for (size_t d = 0; d < 3; d++) {
-        ref_periodic_[d] = box.periodic(d);
+        buffers_.ref_periodic[d] = box.periodic(d);
     }
 
-    has_cache_ = true;
+    buffers_.has_cache = true;
 }
 
+
+// The cached candidates list is an over-complete pair list, sorted by first
+// index. Each call filters candidates with the exact cutoff and the requested
+// shift/vector outputs, using the same two-pass parallel count-then-scatter
+// structure as `cell_list_neighbors`.
 void cpu::VerletList::filter(
     const Vector* points,
     const BoundingBox& box,
     VesinOptions options,
     VesinNeighborList& neighbors,
     size_t& output_capacity
-) const {
-    double cutoff_sq = options_.cutoff * options_.cutoff;
+) {
+    double cutoff_sq = buffers_.options.cutoff * buffers_.options.cutoff;
+    auto n_candidates = buffers_.candidates.length;
 
-    auto initial_capacity = std::max(output_capacity, neighbors.length);
-
-    auto growable = cpu::GrowableNeighborList{neighbors, initial_capacity, options};
-    growable.reset();
-
-    // The cached list is an over-complete Verlet candidate list. Each call
-    // filters candidates with the exact cutoff and requested shift/vector outputs.
-    for (size_t k = 0; k < candidates_.length; k++) {
-        size_t i = candidates_.pairs[k][0];
-        size_t j = candidates_.pairs[k][1];
-
-        auto shift = CellShift(candidates_.shifts[k]);
-
-        auto vec = points[j] - points[i] + shift.cartesian(box);
-        double dist_sq = vec.dot(vec);
-
-        if (dist_sq < cutoff_sq) {
-            auto idx = growable.length();
-            growable.set_pair(idx, i, j);
-
-            if (options.return_shifts) {
-                growable.set_shift(idx, shift);
+    // Precompute the cartesian shift vectors in a fixed table covering shifts
+    // in {-SHIFT_MAX, ..., SHIFT_MAX}^3. The shift range depends on the
+    // cell/cutoff ratio, but a small table covers the common case and replaces
+    // a call to `shift.cartesian(box)` per candidate with a table lookup.
+    // Out-of-range shifts fall back to the call.
+    constexpr int SHIFT_MAX = 3;
+    auto matrix = box.matrix();
+    Vector shift_lookup[2 * SHIFT_MAX + 1][2 * SHIFT_MAX + 1][2 * SHIFT_MAX + 1];
+    for (int sx = 0; sx < 2 * SHIFT_MAX + 1; sx++) {
+        for (int sy = 0; sy < 2 * SHIFT_MAX + 1; sy++) {
+            for (int sz = 0; sz < 2 * SHIFT_MAX + 1; sz++) {
+                auto shift_vec = Vector{
+                    static_cast<double>(sx - SHIFT_MAX),
+                    static_cast<double>(sy - SHIFT_MAX),
+                    static_cast<double>(sz - SHIFT_MAX),
+                };
+                shift_lookup[sx][sy][sz] = shift_vec * matrix;
             }
-
-            if (options.return_distances) {
-                growable.set_distance(idx, std::sqrt(dist_sq));
-            }
-
-            if (options.return_vectors) {
-                growable.set_vector(idx, vec);
-            }
-
-            growable.increment_length();
         }
     }
 
-    if (options.sorted) {
-        growable.sort();
+    // Split the candidates into blocks, count how many pass the cutoff per
+    // block in parallel.
+    constexpr size_t FILTER_BLOCK_SIZE = 2048;
+    auto n_blocks = (n_candidates + FILTER_BLOCK_SIZE - 1) / FILTER_BLOCK_SIZE;
+    buffers_.block_counts.resize(n_blocks);
+    buffers_.block_offsets.resize(n_blocks + 1);
+
+    buffers_.candidates_distances_sq.resize(n_candidates);
+    if (options.return_vectors) {
+        buffers_.candidates_vectors.resize(n_candidates);
     }
 
+    auto& thread_pool = ThreadPool::global();
+    auto thread_count = std::max<size_t>(1, static_cast<size_t>(options.n_threads));
+
+    thread_pool.run(thread_count, n_blocks, Scheduling::dynamic(1), [&](size_t block, size_t) {
+        auto begin = block * FILTER_BLOCK_SIZE;
+        auto end = std::min(begin + FILTER_BLOCK_SIZE, n_candidates);
+        auto* pairs = buffers_.candidates.pairs;
+        auto* shifts = buffers_.candidates.shifts;
+
+        size_t count = 0;
+        for (size_t k = begin; k < end; k++) {
+            size_t i = pairs[k][0];
+            size_t j = pairs[k][1];
+
+            auto* shift = shifts[k];
+            Vector shift_vec;
+            if (shift[0] >= -SHIFT_MAX && shift[0] <= SHIFT_MAX &&
+                shift[1] >= -SHIFT_MAX && shift[1] <= SHIFT_MAX &&
+                shift[2] >= -SHIFT_MAX && shift[2] <= SHIFT_MAX)
+            {
+                shift_vec = shift_lookup[shift[0] + SHIFT_MAX][shift[1] + SHIFT_MAX][shift[2] + SHIFT_MAX];
+            } else {
+                shift_vec = CellShift(shift).cartesian(box);
+            }
+
+            auto vector = points[j] - points[i] + shift_vec;
+            double distance_sq = vector.dot(vector);
+            buffers_.candidates_distances_sq[k] = distance_sq;
+
+            if (distance_sq < cutoff_sq) {
+                count++;
+                if (options.return_vectors) {
+                    buffers_.candidates_vectors[k][0] = vector[0];
+                    buffers_.candidates_vectors[k][1] = vector[1];
+                    buffers_.candidates_vectors[k][2] = vector[2];
+                }
+            }
+        }
+        buffers_.block_counts[block] = count;
+    });
+
+    // Prefix sum -> write offset of each block in the output array.
+    size_t offset = 0;
+    buffers_.block_offsets[0] = 0;
+    for (size_t block = 0; block < n_blocks; block++) {
+        offset += buffers_.block_counts[block];
+        buffers_.block_offsets[block + 1] = offset;
+    }
+    auto n_filtered = offset;
+
+    // Allocate output buffers at least as large as the retained capacity,
+    // growing to `n_filtered` when needed.
+    auto growable = cpu::GrowableNeighborList{neighbors, output_capacity, options};
+    growable.reset();
+    growable.grow(n_filtered);
+
+    // Actually fill the output buffers with the passing candidates. Each block
+    // writes to its own pre-computed offset, so no locks are needed.
+    thread_pool.run(thread_count, n_blocks, Scheduling::dynamic(1), [&](size_t block, size_t) {
+        auto begin = block * FILTER_BLOCK_SIZE;
+        auto end = std::min(begin + FILTER_BLOCK_SIZE, n_candidates);
+        auto out = buffers_.block_offsets[block];
+
+        for (size_t k = begin; k < end; k++) {
+            auto distance_sq = buffers_.candidates_distances_sq[k];
+
+            if (distance_sq < cutoff_sq) {
+                assert(out < growable.capacity);
+                neighbors.pairs[out][0] = buffers_.candidates.pairs[k][0];
+                neighbors.pairs[out][1] = buffers_.candidates.pairs[k][1];
+                if (options.return_shifts) {
+                    neighbors.shifts[out][0] = buffers_.candidates.shifts[k][0];
+                    neighbors.shifts[out][1] = buffers_.candidates.shifts[k][1];
+                    neighbors.shifts[out][2] = buffers_.candidates.shifts[k][2];
+                }
+
+                if (options.return_distances) {
+                    neighbors.distances[out] = std::sqrt(distance_sq);
+                }
+
+                if (options.return_vectors) {
+                    neighbors.vectors[out][0] = buffers_.candidates_vectors[k][0];
+                    neighbors.vectors[out][1] = buffers_.candidates_vectors[k][1];
+                    neighbors.vectors[out][2] = buffers_.candidates_vectors[k][2];
+                }
+                out++;
+            }
+        }
+    });
+
+    neighbors.length = n_filtered;
     output_capacity = growable.capacity;
 }

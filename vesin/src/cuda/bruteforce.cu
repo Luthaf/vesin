@@ -678,9 +678,15 @@ __global__ void mic_box_check(
         if (cutoff * 2.0 > min_dim) {
             result |= BOX_STATUS_ERROR;
         }
+
         if (is_orthogonal) {
             result |= BOX_STATUS_ORTHOGONAL;
         }
+
+        if (n_periodic == 3) {
+            result |= BOX_STATUS_FULLY_PERIODIC;
+        }
+
         status[0] = result;
     }
 }

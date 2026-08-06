@@ -57,7 +57,7 @@ private:
     bool box_periodic_changed(const bool h_periodic[3]) const;
     /// Allocate the buffer for reference data
     void allocate_ref_buffers(size_t n_points);
-    void rebuild_cache(const double (*points)[3], size_t n_points, const double box[3][3], const bool periodic[3], int32_t device_id, VesinOptions options);
+    void rebuild_cache(const double (*points)[3], size_t n_points, const double box[3][3], const bool periodic[3], VesinOptions options, VesinNeighborList& neighbors);
     void filter_neighbors(const double (*d_points)[3], size_t n_points, const double d_box[3][3], VesinOptions options, VesinNeighborList& neighbors) const;
 };
 

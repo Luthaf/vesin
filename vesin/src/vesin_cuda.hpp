@@ -20,6 +20,11 @@ struct CudaNeighborListExtras;
 #define VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT 128
 #endif
 
+/// Most blocks used for the first pass of the bounding box reduction. The
+/// second pass reduces this many partials in a single block, and the scratch
+/// buffer holding them is allocated once at this size (48 kB).
+static constexpr size_t MAX_BOUNDING_BOX_BLOCKS = 1024;
+
 /// @brief Buffers for cell list-based neighbor search
 struct CellListBuffersCUDA {
     size_t points_capacity = 0; // Capacity for point-related arrays
@@ -34,11 +39,24 @@ struct CellListBuffersCUDA {
     int32_t* d_cell_starts = nullptr;  // [cells_capacity] starting index in sorted arrays
     int32_t* d_cell_offsets = nullptr; // [cells_capacity] working copy for scatter
 
+    // Scratch for the multi-block scan of d_cell_counts → d_cell_starts
+    int32_t* d_cell_block_totals = nullptr;  // [ceil(cells_capacity/1024)]
+    int32_t* d_cell_block_offsets = nullptr; // [ceil(cells_capacity/1024)]
+    int32_t* d_cell_block_totals2 = nullptr; // [ceil(n_blocks1/1024)]
+
     // Sorted particle data (device, for coalesced memory access)
-    double* d_sorted_points = nullptr;        // [points_capacity * 3]
+    double* d_sorted_points = nullptr;        // [points_capacity * 3] raw positions (kept for compat)
+    double* d_wrapped_positions = nullptr;    // [points_capacity * 3] positions wrapped into cell
     int32_t* d_sorted_indices = nullptr;      // [points_capacity] original particle indices
     int32_t* d_sorted_shifts = nullptr;       // [points_capacity * 3] shifts for sorted particles
     int32_t* d_sorted_cell_indices = nullptr; // [points_capacity] cell indices in sorted order
+
+    // Two-pass count/fill scratch (device)
+    int32_t* d_counts = nullptr;          // [points_capacity] per-atom neighbor count (pass 1)
+    int32_t* d_write_offsets = nullptr;    // [points_capacity + 1] per-atom write offset (prefix sum)
+    int32_t* d_block_totals = nullptr;     // [ceil(points_capacity/1024)] multi-block scan scratch
+    int32_t* d_block_offsets = nullptr;    // [ceil(points_capacity/1024)] level-2 scan scratch
+    int32_t* d_block_totals2 = nullptr;    // [ceil(n_blocks1/1024)] level-2 block totals (≤256 elts)
 
     // Cell grid parameters (device, computed on device)
     int32_t* d_n_cells = nullptr;       // [3] number of cells in each direction
@@ -47,6 +65,9 @@ struct CellListBuffersCUDA {
 
     double* d_face_distances = nullptr; // [3] distances between faces of the box
     double* d_bounding_min = nullptr;   // [3] bottom of the bounding box
+
+    // [MAX_BOUNDING_BOX_BLOCKS * 6] per-block partial bounding boxes
+    double* d_bbox_partials = nullptr;
 
     void allocate(size_t n_points, size_t n_cells);
 
@@ -79,14 +100,29 @@ struct SortBuffers {
     SortBuffers& operator=(const SortBuffers&) = delete;
 };
 
+/// Host-side staging for the small device-to-host transfers.
+///
+/// This is pinned memory, which makes `cudaMemcpyAsync` actually asynchronous.
+struct PinnedReadback {
+    double box_diag[3];
+    double box[9];
+    bool periodic[3];
+    size_t length;
+    int32_t box_status;
+    int32_t last_offset;
+    int32_t last_count;
+    int32_t overflow;
+    int32_t rebuild;
+};
+
 struct CudaNeighborListExtras {
     size_t pairs_capacity = 0;           // Capacity for the pair buffers in the VesinNeighborList
     size_t* d_length_ptr = nullptr;      // GPU-side counter
     int32_t* d_cell_check_ptr = nullptr; // GPU-side status code for checking cell
     int32_t* d_overflow_flag = nullptr;  // GPU-side flag to detect overflow of pair buffers
 
-    // Pinned host memory for async D2H copy
-    size_t* pinned_length_ptr = nullptr;
+    // Pinned host staging for every device-to-host readback, see PinnedReadback
+    PinnedReadback* pinned = nullptr;
 
     // Cell list buffers (allocated on demand for large systems)
     CellListBuffersCUDA cell_list;
@@ -157,6 +193,11 @@ inline CudaNeighborListExtras* get_cuda_extras(VesinNeighborList& neighbors) {
 /// is a no-op. Otherwise, existing buffers are freed and new ones are allocated
 /// with the requested capacity.
 void allocate_output_buffers(VesinNeighborList& neighbors, size_t n_pairs, VesinOptions options);
+
+/// Sort the pairs in `neighbors` by the first particle index. Uses a bitonic
+/// sort on the GPU. Only needed by the bruteforce and Verlet paths — the
+/// cell-list two-pass path produces output already sorted by first index.
+void sort_pairs(VesinOptions options, VesinNeighborList& neighbors);
 
 } // namespace cuda
 } // namespace vesin

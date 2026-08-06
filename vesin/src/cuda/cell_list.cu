@@ -66,25 +66,83 @@ __device__ void invert_matrix(const double3 box[3], double3 inverse[3]) {
     );
 }
 
-__global__ void compute_bounding_box(
-    const double (*__restrict__ points)[3],
-    size_t n_points,
+// Block size for the two bounding box kernels. Must be a power of two, for the
+// tree reduction below. Keep `BOUNDING_BOX_BLOCK` in vesin_cuda.cpp in sync.
+#define BOUNDING_BOX_BLOCK 256
+
+__device__ const double BOUNDING_BOX_MAX = 1e300;
+__device__ const double BOUNDING_BOX_MIN = -1e300;
+
+// Reduce `local_min` / `local_max` across the block, leaving the result in
+// element 0 of the shared arrays. `blockDim.x` must be a power of two.
+__device__ inline void reduce_bounding_box_block(
+    double shared_min[3][BOUNDING_BOX_BLOCK],
+    double shared_max[3][BOUNDING_BOX_BLOCK],
+    const double local_min[3],
+    const double local_max[3]
+) {
+    int tid = static_cast<int>(threadIdx.x);
+    for (int dim = 0; dim < 3; dim++) {
+        shared_min[dim][tid] = local_min[dim];
+        shared_max[dim][tid] = local_max[dim];
+    }
+    __syncthreads();
+
+    for (int stride = static_cast<int>(blockDim.x) / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            for (int dim = 0; dim < 3; dim++) {
+                shared_min[dim][tid] = min(shared_min[dim][tid], shared_min[dim][tid + stride]);
+                shared_max[dim][tid] = max(shared_max[dim][tid], shared_max[dim][tid + stride]);
+            }
+        }
+        __syncthreads();
+    }
+}
+
+// Turn a min/max corner into the outputs the cell list wants.
+__device__ inline void write_bounding_box(
+    const double* corner_min,
+    const double* corner_max,
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
 ) {
-    // 256 here must match the number of threads used to launch this kernel.
-    __shared__ double shared_min[3][256];
-    __shared__ double shared_max[3][256];
+    for (int dim = 0; dim < 3; dim++) {
+        bounding_min[dim] = corner_min[dim];
 
-    int tid = static_cast<int>(threadIdx.x);
-    constexpr double MAX_DOUBLE = 1e300;
-    constexpr double MIN_DOUBLE = -1e300;
+        // Add 1% margin to bounding box size to ensure particles on the
+        // edge are included in cells
+        face_distances[dim] = (corner_max[dim] - corner_min[dim]) * 1.01;
 
-    double local_min[3] = {MAX_DOUBLE, MAX_DOUBLE, MAX_DOUBLE};
-    double local_max[3] = {MIN_DOUBLE, MIN_DOUBLE, MIN_DOUBLE};
+        // make sure the distance is not too small (to prevent searching too
+        // many cells down the line). This can happen if all point are in
+        // the same plane in this direction
+        if (face_distances[dim] < 1.0) {
+            face_distances[dim] = 1.0;
+        }
+    }
+}
+
+// First step of `compute_bounding_box`: per-block partial bounding boxes.
+//
+// When launched with a single block there is nothing left to combine, so it
+// writes the final answer directly and the caller can skip the second step.
+__global__ void compute_bounding_box(
+    const double (*__restrict__ points)[3],
+    size_t n_points,
+    double* __restrict__ partials,
+    double* __restrict__ face_distances,
+    double* __restrict__ bounding_min
+) {
+    __shared__ double shared_min[3][BOUNDING_BOX_BLOCK];
+    __shared__ double shared_max[3][BOUNDING_BOX_BLOCK];
+
+    double local_min[3] = {BOUNDING_BOX_MAX, BOUNDING_BOX_MAX, BOUNDING_BOX_MAX};
+    double local_max[3] = {BOUNDING_BOX_MIN, BOUNDING_BOX_MIN, BOUNDING_BOX_MIN};
 
     const auto* pos3 = reinterpret_cast<const double3*>(points);
-    for (size_t idx = tid; idx < n_points; idx += blockDim.x) {
+    size_t start = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t step = gridDim.x * blockDim.x;
+    for (size_t idx = start; idx < n_points; idx += step) {
         double3 point = pos3[idx];
         local_min[0] = min(local_min[0], point.x);
         local_min[1] = min(local_min[1], point.y);
@@ -94,49 +152,103 @@ __global__ void compute_bounding_box(
         local_max[2] = max(local_max[2], point.z);
     }
 
-    shared_min[0][tid] = local_min[0];
-    shared_min[1][tid] = local_min[1];
-    shared_min[2][tid] = local_min[2];
-    shared_max[0][tid] = local_max[0];
-    shared_max[1][tid] = local_max[1];
-    shared_max[2][tid] = local_max[2];
-    __syncthreads();
+    reduce_bounding_box_block(shared_min, shared_max, local_min, local_max);
 
-    if (tid == 0) {
-        double final_min[3] = {shared_min[0][0], shared_min[1][0], shared_min[2][0]};
-        double final_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
+    if (threadIdx.x != 0) {
+        return;
+    }
 
-        for (int i = 1; i < blockDim.x; i++) {
-            final_min[0] = min(final_min[0], shared_min[0][i]);
-            final_min[1] = min(final_min[1], shared_min[1][i]);
-            final_min[2] = min(final_min[2], shared_min[2][i]);
-            final_max[0] = max(final_max[0], shared_max[0][i]);
-            final_max[1] = max(final_max[1], shared_max[1][i]);
-            final_max[2] = max(final_max[2], shared_max[2][i]);
-        }
+    double corner_min[3] = {shared_min[0][0], shared_min[1][0], shared_min[2][0]};
+    double corner_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
 
+    if (gridDim.x == 1) {
+        write_bounding_box(corner_min, corner_max, face_distances, bounding_min);
+    } else {
+        auto* out = partials + blockIdx.x * 6;
         for (int dim = 0; dim < 3; dim++) {
-            bounding_min[dim] = final_min[dim];
-
-            // Add 1% margin to bounding box size to ensure particles on the
-            // edge are included in cells
-            face_distances[dim] = (final_max[dim] - final_min[dim]) * 1.01;
-
-            // make sure the distance is not too small (to prevent searching too
-            // many cells down the line). This can happen if all point are in
-            // the same plane in this direction
-            if (face_distances[dim] < 1.0) {
-                face_distances[dim] = 1.0;
-            }
+            out[dim] = corner_min[dim];
+            out[3 + dim] = corner_max[dim];
         }
     }
+}
+
+// Second step of `compute_bounding_box`: combine the partials bounding boxes.
+// Launched with a single block; only needed when the first step used more than
+// one block.
+__global__ void reduce_bounding_box(
+    const double* __restrict__ partials,
+    size_t n_partials,
+    double* __restrict__ face_distances,
+    double* __restrict__ bounding_min
+) {
+    __shared__ double shared_min[3][BOUNDING_BOX_BLOCK];
+    __shared__ double shared_max[3][BOUNDING_BOX_BLOCK];
+
+    double local_min[3] = {BOUNDING_BOX_MAX, BOUNDING_BOX_MAX, BOUNDING_BOX_MAX};
+    double local_max[3] = {BOUNDING_BOX_MIN, BOUNDING_BOX_MIN, BOUNDING_BOX_MIN};
+
+    for (size_t i = threadIdx.x; i < n_partials; i += blockDim.x) {
+        const auto* in = partials + i * 6;
+        for (int dim = 0; dim < 3; dim++) {
+            local_min[dim] = min(local_min[dim], in[dim]);
+            local_max[dim] = max(local_max[dim], in[3 + dim]);
+        }
+    }
+
+    reduce_bounding_box_block(shared_min, shared_max, local_min, local_max);
+
+    if (threadIdx.x == 0) {
+        double corner_min[3] = {shared_min[0][0], shared_min[1][0], shared_min[2][0]};
+        double corner_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
+        write_bounding_box(corner_min, corner_max, face_distances, bounding_min);
+    }
+}
+
+
+// Shrink `n_cells` until the three dimensions multiply to `max_cells` or less,
+// and return that product.
+__device__ inline double fit_cells_in_budget(double n_cells[3], double max_cells) {
+    double total = n_cells[0] * n_cells[1] * n_cells[2];
+    if (total <= max_cells) {
+        return total;
+    }
+
+    // Scale all three at once to get close in one step,
+    double ratio = cbrt(max_cells / total);
+    for (int dim = 0; dim < 3; dim++) {
+        n_cells[dim] = max(1.0, floor(n_cells[dim] * ratio));
+    }
+    total = n_cells[0] * n_cells[1] * n_cells[2];
+
+    // then walk the largest dimension down, since rounding each dimension
+    // separately can leave the product just above the budget.
+    while (total > max_cells) {
+        int largest = 0;
+        if (n_cells[1] > n_cells[largest]) {
+            largest = 1;
+        }
+        if (n_cells[2] > n_cells[largest]) {
+            largest = 2;
+        }
+
+        if (n_cells[largest] <= 1.0) {
+            break;
+        }
+
+        n_cells[largest] -= 1.0;
+        total = n_cells[0] * n_cells[1] * n_cells[2];
+    }
+
+    return total;
 }
 
 __global__ void compute_cell_grid_params(
     const double box[3][3],
     const bool periodic[3],
     double cutoff,
+    size_t n_points,
     size_t max_cells,
+    double cell_visit_cost,
     double inv_box[3][3],
     int* __restrict__ n_cells,
     int* __restrict__ n_search,
@@ -223,39 +335,59 @@ __global__ void compute_cell_grid_params(
         face_distances[2] = abs(vc[0] * ab[0] + vc[1] * ab[1] + vc[2] * ab[2]) / ab_norm;
     }
 
-    // Compute number of cells based on cutoff (one cell per cutoff distance)
-    n_cells[0] = max(1, (int)floor(face_distances[0] / cutoff));
-    n_cells[1] = max(1, (int)floor(face_distances[1] / cutoff));
-    n_cells[2] = max(1, (int)floor(face_distances[2] / cutoff));
-
-    int total = n_cells[0] * n_cells[1] * n_cells[2];
-
-    // Limit total cells to effective maximum
-    if (total > max_cells) {
-        double ratio = cbrt((double)max_cells / total);
-        n_cells[0] = max(1, (int)floor(n_cells[0] * ratio));
-        n_cells[1] = max(1, (int)floor(n_cells[1] * ratio));
-        n_cells[2] = max(1, (int)floor(n_cells[2] * ratio));
-        total = n_cells[0] * n_cells[1] * n_cells[2];
-
-        // total might still be above max_cells due to separate rounding for
-        // separate dimensions. Decrease the largest dimension until the product
-        // fits
-        while (total > max_cells) {
-            if (n_cells[0] >= n_cells[1] && n_cells[0] >= n_cells[2] && n_cells[0] > 1) {
-                n_cells[0] -= 1;
-            } else if (n_cells[1] >= n_cells[0] && n_cells[1] >= n_cells[2] && n_cells[1] > 1) {
-                n_cells[1] -= 1;
-            } else if (n_cells[2] > 1) {
-                n_cells[2] -= 1;
-            } else {
-                break;
-            }
-
-            total = n_cells[0] * n_cells[1] * n_cells[2];
-        }
+    // Pick how many cells to put across one cutoff.
+    //
+    // Cells one cutoff wide is the textbook choice, but then the search sweeps
+    // a 3x3x3 block of them, i.e. (3 * cutoff)^3 of volume, where the cutoff
+    // sphere only occupies (4 pi / 3) * cutoff^3 -- a factor of 6.4 more
+    // candidate pairs than there are neighbors to find. Splitting each cutoff
+    // into `k` cells brings the swept span per dimension down from 3 * cutoff
+    // towards the (2 + 1/k) * cutoff floor, at the price of (2k+1)^3 cell
+    // visits instead of 27.
+    //
+    // That trade only pays off when the cells hold enough atoms for the
+    // candidates to dominate the cell visits. Minimising
+    //
+    //     cost(k) = atoms_per_cell * (2 + 1/k)^3 + cell_visit_cost * (2k+1)^3
+    //
+    // over k gives k = (atoms_per_cell / (2 * cell_visit_cost))^(1/4), where
+    // `atoms_per_cell` is measured on the one-cell-per-cutoff grid.
+    auto atoms_per_cell = (double)n_points;
+    for (int dim = 0; dim < 3; dim++) {
+        double count = floor(face_distances[dim] / cutoff);
+        count = min(max(count, 1.0), (double)max_cells);
+        atoms_per_cell /= count;
     }
-    n_cells_total[0] = total;
+
+    double k = sqrt(sqrt(atoms_per_cell / (2.0 * cell_visit_cost)));
+
+    // Cap cells_per_cutoff to 6, to prevent having too many cells to search in
+    // extreme cases.
+    int cells_per_cutoff = max(1, min((int)round(k), 6));
+
+    // Number of cells to put in each dimension.
+    double n_cells_per_dim[3];
+    for (int dim = 0; dim < 3; dim++) {
+        // Refining a non-periodic dimension under mixed periodicity buys
+        // nothing: `n_search` there is widened below to cover the whole extent
+        // regardless, so a finer grid sweeps the same atoms in more cells.
+        int dim_cells_per_cutoff = cells_per_cutoff;
+        if (n_periodic > 0 && n_periodic < 3 && !periodic[dim]) {
+            dim_cells_per_cutoff = 1;
+        }
+
+        double count = floor(dim_cells_per_cutoff * face_distances[dim] / cutoff);
+        n_cells_per_dim[dim] = min(max(count, 1.0), (double)max_cells);
+    }
+
+    double total = fit_cells_in_budget(n_cells_per_dim, (double)max_cells);
+
+    // `max_cells` is at most 2^21, so both the per-dimension counts and the
+    // total fit in an `int` by this point.
+    n_cells[0] = (int)n_cells_per_dim[0];
+    n_cells[1] = (int)n_cells_per_dim[1];
+    n_cells[2] = (int)n_cells_per_dim[2];
+    n_cells_total[0] = (int)total;
 
     // Compute search range - how many cells to search in each direction
     // When cells are larger than cutoff, we need to search more cells
@@ -344,58 +476,15 @@ __global__ void count_particles_per_cell(
     atomicAdd(&cell_counts[cell_indices[i]], 1);
 }
 
-__global__ void prefix_sum_cells(
-    const int* __restrict__ cell_counts,
-    int* __restrict__ cell_starts,
-    const int* __restrict__ n_cells_total_ptr
-) {
-    extern __shared__ int shared[];
-    int tid = static_cast<int>(threadIdx.x);
-    int nthreads = static_cast<int>(blockDim.x);
-    int n_cells_total = n_cells_total_ptr[0];
-
-    // Each thread computes sum for its chunk
-    int chunk_size = (n_cells_total + nthreads - 1) / nthreads;
-    int start = tid * chunk_size;
-    int end = min(start + chunk_size, n_cells_total);
-
-    // Local scan within chunk
-    int local_sum = 0;
-    for (int i = start; i < end; i++) {
-        int val = cell_counts[i];
-        cell_starts[i] = local_sum;
-        local_sum += val;
-    }
-
-    // Store chunk totals in shared memory
-    shared[tid] = local_sum;
-    __syncthreads();
-
-    // Thread 0 computes prefix sum of chunk totals
-    if (tid == 0) {
-        int sum = 0;
-        for (int i = 0; i < nthreads; i++) {
-            int val = shared[i];
-            shared[i] = sum;
-            sum += val;
-        }
-    }
-    __syncthreads();
-
-    // Add chunk offset to local results
-    int offset = shared[tid];
-    for (int i = start; i < end; i++) {
-        cell_starts[i] += offset;
-    }
-}
-
 __global__ void scatter_particles(
     const double (*__restrict__ points)[3],
     size_t n_points,
     const int* __restrict__ cell_indices,
     const int* __restrict__ particle_shifts,
+    const double box[3][3],
     int* __restrict__ cell_offsets,
     double* __restrict__ sorted_points,
+    double* __restrict__ wrapped_positions,
     int* __restrict__ sorted_indices,
     int* __restrict__ sorted_shifts,
     int* __restrict__ sorted_cell_indices
@@ -411,22 +500,332 @@ __global__ void scatter_particles(
     // Vectorized points copy
     const auto* pos_in = reinterpret_cast<const double3*>(points);
     auto* pos_out = reinterpret_cast<double3*>(sorted_points);
-    pos_out[slot] = pos_in[i];
+    auto* wrapped_out = reinterpret_cast<double3*>(wrapped_positions);
+    const double3 pos = pos_in[i];
+    pos_out[slot] = pos;
+
+    // Compute wrapped position: wrapped = pos - shift @ box
+    int shift_x = particle_shifts[i * 3 + 0];
+    int shift_y = particle_shifts[i * 3 + 1];
+    int shift_z = particle_shifts[i * 3 + 2];
+    const auto* box3 = reinterpret_cast<const double3*>(box);
+    double3 box_a = box3[0];
+    double3 box_b = box3[1];
+    double3 box_c = box3[2];
+    wrapped_out[slot] = make_double3(
+        pos.x - (shift_x * box_a.x + shift_y * box_b.x + shift_z * box_c.x),
+        pos.y - (shift_x * box_a.y + shift_y * box_b.y + shift_z * box_c.y),
+        pos.z - (shift_x * box_a.z + shift_y * box_b.z + shift_z * box_c.z)
+    );
 
     sorted_indices[slot] = static_cast<int>(i);
-    sorted_shifts[slot * 3 + 0] = particle_shifts[i * 3 + 0];
-    sorted_shifts[slot * 3 + 1] = particle_shifts[i * 3 + 1];
-    sorted_shifts[slot * 3 + 2] = particle_shifts[i * 3 + 2];
+    sorted_shifts[slot * 3 + 0] = shift_x;
+    sorted_shifts[slot * 3 + 1] = shift_y;
+    sorted_shifts[slot * 3 + 2] = shift_z;
     sorted_cell_indices[slot] = cell;
 }
 
-// THREADS_PER_PARTICLE threads cooperate on each particle's neighbor search
-#define THREADS_PER_PARTICLE 8
-// Buffer this many pairs before writing to global memory (reduces atomics)
-#define MAX_BUFFERED_PAIRS 8
+// -------------------------------------------------------------------------- //
+// Two-pass count/fill neighbor search
+//
+// Pass 1 (count_neighbors_cell_list): one thread per sorted position, counts
+//   neighbors and writes d_counts[orig_i].
+// Pass 2 (fill_neighbors_cell_list): same traversal, writes pairs/shifts/
+//   distances/vectors at pre-computed offsets from d_write_offsets[orig_i].
+//
+// The output is naturally sorted by orig_i (the prefix sum assigns contiguous
+// write slots per original atom), so no separate sort pass is needed.
+// -------------------------------------------------------------------------- //
 
-__global__ void find_neighbors_cell_list(
-    const double* __restrict__ sorted_points,
+// `THREADS_PER_PARTICLE` is the number of threads cooperating on one atom in
+// the neighbor search, and the resulting number of atoms a block covers. Must
+// divide 32, so that a group never straddles two warps.
+//
+// Keep `CELL_LIST_BLOCK` and `THREADS_PER_PARTICLE` in vesin_cuda.cpp in sync
+// with these: the host sizes the launch from them, and they size the shared
+// arrays here.
+#define CELL_LIST_BLOCK 256
+#define THREADS_PER_PARTICLE 8
+#define PARTICLES_PER_BLOCK (CELL_LIST_BLOCK / THREADS_PER_PARTICLE)
+
+// Shared neighbor traversal logic. `THREADS_PER_PARTICLE` threads cooperate on
+// the sorted position `sorted_i`, each walking the subset of neighbor cells
+// given by its `thread_in_group` (0 <= thread_in_group < THREADS_PER_PARTICLE).
+//
+// `Emit` is a functor called as emit(orig_j, shift_x, shift_y, shift_z, vec,
+// dist2) for each pair that passes the cutoff and half-list filters.
+template <typename Emit>
+__device__ inline void traverse_neighbors(
+    size_t sorted_i,
+    int thread_in_group,
+    const double* __restrict__ wrapped_positions,
+    const double box[3][3],
+    const bool periodic[3],
+    const int* __restrict__ n_cells,
+    const int* __restrict__ n_search,
+    const int* __restrict__ sorted_indices,
+    const int* __restrict__ sorted_shifts,
+    const int* __restrict__ sorted_cell_indices,
+    const int* __restrict__ cell_starts,
+    const int* __restrict__ cell_counts,
+    double cutoff2,
+    bool full_list,
+    Emit&& emit
+) {
+    int n_cells_x = n_cells[0];
+    int n_cells_y = n_cells[1];
+    int n_cells_z = n_cells[2];
+    int n_cells_xy = n_cells_x * n_cells_y;
+    int n_search_x = n_search[0];
+    int n_search_y = n_search[1];
+    int n_search_z = n_search[2];
+    bool pbc_x = periodic[0];
+    bool pbc_y = periodic[1];
+    bool pbc_z = periodic[2];
+
+    // Load box matrix rows as double3 for partial shift sums
+    const auto* box_d3 = reinterpret_cast<const double3*>(box);
+    auto box_a = box_d3[0];
+    auto box_b = box_d3[1];
+    auto box_c = box_d3[2];
+
+    const auto* wrapped_positions_d3 = reinterpret_cast<const double3*>(wrapped_positions);
+    auto wrapped_i = wrapped_positions_d3[sorted_i];
+    auto point_i = sorted_indices[sorted_i];
+    auto shift_i_x = sorted_shifts[sorted_i * 3 + 0];
+    auto shift_i_y = sorted_shifts[sorted_i * 3 + 1];
+    auto shift_i_z = sorted_shifts[sorted_i * 3 + 2];
+
+    int cell_i = sorted_cell_indices[sorted_i];
+    int cell_i_z = cell_i / n_cells_xy;
+    int cell_i_y = (cell_i % n_cells_xy) / n_cells_x;
+    int cell_i_x = cell_i % n_cells_x;
+
+    // The (dx, dy, dz) offsets of the cells to search form a box of
+    // `n_search_cells_x * n_search_cells_y * n_search_cells_z` entries. Each
+    // thread of the group walks a strided subset of that box: it decodes its
+    // starting point from the flattened index once, then advances by
+    // `n_threads`.
+    int n_search_cells_x = 2 * n_search_x + 1;
+    int n_search_cells_y = 2 * n_search_y + 1;
+    int n_search_cells_z = 2 * n_search_z + 1;
+
+    int index_x = thread_in_group % n_search_cells_x;
+    int index_rest = thread_in_group / n_search_cells_x;
+    int index_y = index_rest % n_search_cells_y;
+    int index_z = index_rest / n_search_cells_y;
+
+    // `index_z >= n_search_cells_z` already here means there are fewer cells to
+    // search than threads in the group, and this thread has nothing to do.
+    while (index_z < n_search_cells_z) {
+        int dx = index_x - n_search_x;
+        int dy = index_y - n_search_y;
+        int dz = index_z - n_search_z;
+
+        // Advance to the next cell handled by this thread. This is done up
+        // front so that the `continue`s below can not skip it.
+        index_x += THREADS_PER_PARTICLE;
+        while (index_x >= n_search_cells_x) {
+            index_x -= n_search_cells_x;
+            index_y += 1;
+        }
+        while (index_y >= n_search_cells_y) {
+            index_y -= n_search_cells_y;
+            index_z += 1;
+        }
+
+        int cell_j_x = cell_i_x + dx;
+        int cell_j_y = cell_i_y + dy;
+        int cell_j_z = cell_i_z + dz;
+        int cell_shift_x = 0;
+        int cell_shift_y = 0;
+        int cell_shift_z = 0;
+
+        if (pbc_x) {
+            while (cell_j_x < 0) {
+                cell_j_x += n_cells_x;
+                cell_shift_x -= 1;
+            }
+
+            while (cell_j_x >= n_cells_x) {
+                cell_j_x -= n_cells_x;
+                cell_shift_x += 1;
+            }
+        } else if (cell_j_x < 0 || cell_j_x >= n_cells_x) {
+            continue;
+        }
+
+        if (pbc_y) {
+            while (cell_j_y < 0) {
+                cell_j_y += n_cells_y;
+                cell_shift_y -= 1;
+            }
+
+            while (cell_j_y >= n_cells_y) {
+                cell_j_y -= n_cells_y;
+                cell_shift_y += 1;
+            }
+        } else if (cell_j_y < 0 || cell_j_y >= n_cells_y) {
+            continue;
+        }
+
+        if (pbc_z) {
+            while (cell_j_z < 0) {
+                cell_j_z += n_cells_z;
+                cell_shift_z -= 1;
+            }
+
+            while (cell_j_z >= n_cells_z) {
+                cell_j_z -= n_cells_z;
+                cell_shift_z += 1;
+            }
+        } else if (cell_j_z < 0 || cell_j_z >= n_cells_z) {
+            continue;
+        }
+
+        // Full cell shift vector: cell_shift @ box
+        double3 cell_shift_vec = make_double3(
+            box_a.x * cell_shift_x + box_b.x * cell_shift_y + box_c.x * cell_shift_z,
+            box_a.y * cell_shift_x + box_b.y * cell_shift_y + box_c.y * cell_shift_z,
+            box_a.z * cell_shift_x + box_b.z * cell_shift_y + box_c.z * cell_shift_z
+        );
+
+        int cell_j = cell_j_x + cell_j_y * n_cells_x + cell_j_z * n_cells_xy;
+        int start_j = cell_starts[cell_j];
+        int count_j = cell_counts[cell_j];
+
+        for (int k = start_j; k < start_j + count_j; k++) {
+            // Skip self in the same cell
+            if (k == (int)sorted_i && dx == 0 && dy == 0 && dz == 0) {
+                continue;
+            }
+
+            // Distance from wrapped positions (no per-pair matrix multiply)
+            const double3 wrapped_j = wrapped_positions_d3[k];
+            double3 vec = make_double3(
+                wrapped_j.x - wrapped_i.x + cell_shift_vec.x,
+                wrapped_j.y - wrapped_i.y + cell_shift_vec.y,
+                wrapped_j.z - wrapped_i.z + cell_shift_vec.z
+            );
+            double dist2 = dot3(vec, vec);
+
+            if (dist2 >= cutoff2) {
+                continue;
+            }
+
+            // Compute shift only for pairs that pass the cutoff
+            int orig_j = sorted_indices[k];
+            int shift_j_x = sorted_shifts[k * 3 + 0];
+            int shift_j_y = sorted_shifts[k * 3 + 1];
+            int shift_j_z = sorted_shifts[k * 3 + 2];
+
+            int total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
+            int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
+            int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
+
+            // Half-list filter
+            if (!full_list) {
+                if (point_i > orig_j) {
+                    continue;
+                }
+                if (point_i == orig_j) {
+                    int shift_sum = total_shift_x + total_shift_y + total_shift_z;
+                    if (shift_sum < 0) {
+                        continue;
+                    }
+                    if (shift_sum == 0) {
+                        if (total_shift_z < 0 || (total_shift_z == 0 && total_shift_y < 0)) {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            emit(orig_j, total_shift_x, total_shift_y, total_shift_z, vec, dist2);
+        }
+    }
+}
+
+// Which atom this thread helps with, and where it sits in its group.
+struct ParticleGroup {
+    size_t sorted_i;     // sorted position of the atom handled by the group
+    int thread_in_group; // 0 <= thread_in_group < THREADS_PER_PARTICLE
+    int slot;            // index of the group in the per-block shared arrays
+};
+
+__device__ inline ParticleGroup particle_group() {
+    int lane = static_cast<int>(threadIdx.x) % 32;
+    int warp = static_cast<int>(threadIdx.x) / 32;
+
+    ParticleGroup group;
+    group.thread_in_group = lane % THREADS_PER_PARTICLE;
+    group.slot = warp * (32 / THREADS_PER_PARTICLE) + lane / THREADS_PER_PARTICLE;
+    group.sorted_i = static_cast<size_t>(blockIdx.x) * PARTICLES_PER_BLOCK +
+                     static_cast<size_t>(group.slot);
+
+    return group;
+}
+
+// Pass 1: count neighbors per original atom.
+__global__ void count_neighbors_cell_list(
+    const double* __restrict__ wrapped_positions,
+    size_t n_points,
+    const double box[3][3],
+    const bool periodic[3],
+    const int* __restrict__ n_cells,
+    const int* __restrict__ n_search,
+    const int* __restrict__ sorted_indices,
+    const int* __restrict__ sorted_shifts,
+    const int* __restrict__ sorted_cell_indices,
+    const int* __restrict__ cell_starts,
+    const int* __restrict__ cell_counts,
+    double cutoff,
+    bool full_list,
+    int* __restrict__ counts  // [n_points] output
+) {
+    __shared__ int shared_counts[PARTICLES_PER_BLOCK];
+
+    auto group = particle_group();
+
+    if (static_cast<int>(threadIdx.x) < PARTICLES_PER_BLOCK) {
+        shared_counts[threadIdx.x] = 0;
+    }
+    __syncthreads();
+
+    // Threads past the end of the system still take part in the reduction and
+    // the barriers below, they just contribute a count of zero.
+    int count = 0;
+    if (group.sorted_i < n_points) {
+        traverse_neighbors(
+            group.sorted_i,
+            group.thread_in_group,
+            wrapped_positions,
+            box,
+            periodic,
+            n_cells,
+            n_search,
+            sorted_indices,
+            sorted_shifts,
+            sorted_cell_indices,
+            cell_starts,
+            cell_counts,
+            cutoff * cutoff,
+            full_list,
+            [&](int, int, int, int, double3, double) { count++; }
+        );
+    }
+
+    atomicAdd(&shared_counts[group.slot], count);
+    __syncthreads();
+
+    if (group.thread_in_group == 0 && group.sorted_i < n_points) {
+        counts[sorted_indices[group.sorted_i]] = shared_counts[group.slot];
+    }
+}
+
+// Pass 2: fill output arrays at pre-computed offsets.
+__global__ void fill_neighbors_cell_list(
+    const double* __restrict__ wrapped_positions,
     size_t n_points,
     const double box[3][3],
     const bool periodic[3],
@@ -442,264 +841,181 @@ __global__ void find_neighbors_cell_list(
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
-    size_t* length,
+    const int* __restrict__ write_offsets,  // [n_points] prefix sum
     size_t (*pair_indices)[2],
     int (*shifts_out)[3],
     double* distances,
-    double (*vectors)[3],
-    size_t max_pairs,
-    int* overflow_flag
+    double (*vectors)[3]
 ) {
-    // Thread organization: 32 threads/warp, THREADS_PER_PARTICLE threads per particle
-    // Example with THREADS_PER_PARTICLE=8: 4 particles per warp, each gets 8 threads
-    int warp_id = static_cast<int>(threadIdx.x) / 32;
-    int lane_id = static_cast<int>(threadIdx.x) % 32;
-    int particle_in_warp = lane_id / THREADS_PER_PARTICLE; // which particle in warp
-    int thread_in_group = lane_id % THREADS_PER_PARTICLE;  // thread's role within group
-    int particles_per_warp = 32 / THREADS_PER_PARTICLE;
+    // Write cursor for each group, so that the threads sharing an atom hand out
+    // distinct slots inside that atom's [write_offsets[i], +count_i) range.
+    __shared__ int shared_cursors[PARTICLES_PER_BLOCK];
 
-    int warps_per_block = static_cast<int>(blockDim.x) / 32;
-    size_t base_particle = (size_t)(blockIdx.x * warps_per_block + warp_id) * particles_per_warp;
-    size_t i = base_particle + particle_in_warp; // global particle index
+    auto group = particle_group();
 
-    if (i >= n_points) {
+    if (group.thread_in_group == 0 && group.sorted_i < n_points) {
+        shared_cursors[group.slot] = write_offsets[sorted_indices[group.sorted_i]];
+    }
+    __syncthreads();
+
+    if (group.sorted_i >= n_points) {
         return;
     }
 
-    double cutoff2 = cutoff * cutoff;
+    int point_i = sorted_indices[group.sorted_i];
 
-    int nc_x = __ldg(&n_cells[0]);
-    int nc_y = __ldg(&n_cells[1]);
-    int nc_z = __ldg(&n_cells[2]);
-    int nc_xy = nc_x * nc_y;
-    int ns_x = __ldg(&n_search[0]);
-    int ns_y = __ldg(&n_search[1]);
-    int ns_z = __ldg(&n_search[2]);
-    bool pbc_x = periodic[0];
-    bool pbc_y = periodic[1];
-    bool pbc_z = periodic[2];
+    traverse_neighbors(
+        group.sorted_i,
+        group.thread_in_group,
+        wrapped_positions,
+        box,
+        periodic,
+        n_cells,
+        n_search,
+        sorted_indices,
+        sorted_shifts,
+        sorted_cell_indices,
+        cell_starts,
+        cell_counts,
+        cutoff * cutoff,
+        full_list,
+        [&](int point_j, int sx, int sy, int sz, double3 vec, double dist2) {
+            int offset = atomicAdd(&shared_cursors[group.slot], 1);
 
-    // Load box matrix rows as double3
-    const auto* box3 = reinterpret_cast<const double3*>(box);
-    const double3 box_row0 = box3[0];
-    const double3 box_row1 = box3[1];
-    const double3 box_row2 = box3[2];
-
-    // Vectorized position load
-    const auto* pos3 = reinterpret_cast<const double3*>(sorted_points);
-    const double3 ri = pos3[i];
-    int orig_i = __ldg(&sorted_indices[i]);
-    int shift_i_x = __ldg(&sorted_shifts[i * 3 + 0]);
-    int shift_i_y = __ldg(&sorted_shifts[i * 3 + 1]);
-    int shift_i_z = __ldg(&sorted_shifts[i * 3 + 2]);
-
-    int cell_i = __ldg(&sorted_cell_indices[i]);
-    int cell_iz = cell_i / nc_xy;
-    int cell_iy = (cell_i % nc_xy) / nc_x;
-    int cell_ix = cell_i % nc_x;
-
-    // Per-thread output buffer to reduce atomic contention
-    int buffered_count = 0;
-    int buffered_j[MAX_BUFFERED_PAIRS];
-    int buffered_shift[MAX_BUFFERED_PAIRS * 3];
-    double buffered_dist[MAX_BUFFERED_PAIRS];
-    double buffered_vec[MAX_BUFFERED_PAIRS * 3];
-
-    // Threads in group split neighbor cells: thread 0 does cells 0,8,16,...; thread 1 does 1,9,17,...
-    int total_neighbor_cells = (2 * ns_x + 1) * (2 * ns_y + 1) * (2 * ns_z + 1);
-
-    for (int cell_idx = thread_in_group; cell_idx < total_neighbor_cells; cell_idx += THREADS_PER_PARTICLE) {
-        // Convert linear cell_idx to 3D offset (dx,dy,dz) from particle's cell
-        int temp = cell_idx;
-        int dx = (temp % (2 * ns_x + 1)) - ns_x;
-        temp /= (2 * ns_x + 1);
-        int dy = (temp % (2 * ns_y + 1)) - ns_y;
-        int dz = (temp / (2 * ns_y + 1)) - ns_z;
-
-        int cell_jx = cell_ix + dx;
-        int cell_jy = cell_iy + dy;
-        int cell_jz = cell_iz + dz;
-        int cell_shift_x = 0;
-        int cell_shift_y = 0;
-        int cell_shift_z = 0;
-
-        // Wrap cell indices for PBC, track shift; skip out-of-bounds for non-PBC
-        if (pbc_x) {
-            while (cell_jx < 0) {
-                cell_jx += nc_x;
-                cell_shift_x -= 1;
+            pair_indices[offset][0] = point_i;
+            pair_indices[offset][1] = point_j;
+            if (return_shifts) {
+                shifts_out[offset][0] = sx;
+                shifts_out[offset][1] = sy;
+                shifts_out[offset][2] = sz;
             }
-            while (cell_jx >= nc_x) {
-                cell_jx -= nc_x;
-                cell_shift_x += 1;
+            if (return_distances) {
+                distances[offset] = sqrt(dist2);
             }
-        } else {
-            if (cell_jx < 0 || cell_jx >= nc_x) {
-                continue;
+            if (return_vectors) {
+                vectors[offset][0] = vec.x;
+                vectors[offset][1] = vec.y;
+                vectors[offset][2] = vec.z;
             }
         }
+    );
+}
 
-        if (pbc_y) {
-            while (cell_jy < 0) {
-                cell_jy += nc_y;
-                cell_shift_y -= 1;
-            }
-            while (cell_jy >= nc_y) {
-                cell_jy -= nc_y;
-                cell_shift_y += 1;
-            }
-        } else {
-            if (cell_jy < 0 || cell_jy >= nc_y) {
-                continue;
-            }
-        }
+// -------------------------------------------------------------------------- //
+// Device-side exclusive prefix sum (3-phase multi-block scan)
+//
+// This is used to compute the prefix sum of the neighbor counts array, which is
+// needed to determine the write offsets for the neighbor pairs. The scan is
+// done in three phases:
+// 1. Each block computes a local exclusive scan of its chunk and stores the
+//    block total.
+// 2. A single block computes an exclusive scan of the block totals array.
+// 3. Each block adds the block offset to its local scan results to produce the
+//    final exclusive scan of the entire array.
+// -------------------------------------------------------------------------- //
 
-        if (pbc_z) {
-            while (cell_jz < 0) {
-                cell_jz += nc_z;
-                cell_shift_z -= 1;
-            }
-            while (cell_jz >= nc_z) {
-                cell_jz -= nc_z;
-                cell_shift_z += 1;
-            }
-        } else {
-            if (cell_jz < 0 || cell_jz >= nc_z) {
-                continue;
-            }
-        }
+// `device_exclusive_scan` in vesin_cuda.cpp sizes its launches from these, so
+// keep the two in sync. `SCAN_THREADS` is the required block size -- the phases
+// below size `scan_data` from it and index up to `SCAN_THREADS - 1`, so a
+// smaller block would read uninitialized shared memory instead of failing --
+// and `SCAN_MAX_BLOCKS` is the most block totals phase 2 can scan at once,
+// since it does so with a single block of `SCAN_THREADS` threads.
+#define SCAN_THREADS 256
+#define SCAN_ELEMENTS_PER_THREAD 4
+#define SCAN_ELEMENTS_PER_BLOCK (SCAN_THREADS * SCAN_ELEMENTS_PER_THREAD)  // 1024
+#define SCAN_MAX_BLOCKS SCAN_THREADS
 
-        int cell_j = cell_jx + cell_jy * nc_x + cell_jz * nc_xy;
-        int start_j = __ldg(&cell_starts[cell_j]);
-        int count_j = __ldg(&cell_counts[cell_j]);
+// Phase 1: each block does a local exclusive scan of its chunk and stores
+// the block total.
+__global__ void exclusive_scan_phase_1(
+    const int* __restrict__ d_in,
+    int* __restrict__ d_out,
+    int* __restrict__ d_block_totals,
+    size_t n
+) {
+    __shared__ int scan_data[SCAN_THREADS];
+    auto tid = threadIdx.x;
+    auto chunk_base = blockIdx.x * SCAN_ELEMENTS_PER_BLOCK;
+    auto thread_base = chunk_base + tid * SCAN_ELEMENTS_PER_THREAD;
 
-        for (int k = start_j; k < start_j + count_j; k++) {
-            int orig_j = __ldg(&sorted_indices[k]);
+    // Each thread loads SCAN_ELEMENTS_PER_THREAD elements and sums them
+    int local_sum = 0;
+    for (int i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
+        auto idx = thread_base + i;
+        local_sum += (idx < n) ? d_in[idx] : 0;
+    }
+    scan_data[tid] = local_sum;
+    __syncthreads();
 
-            int shift_j_x = __ldg(&sorted_shifts[k * 3 + 0]);
-            int shift_j_y = __ldg(&sorted_shifts[k * 3 + 1]);
-            int shift_j_z = __ldg(&sorted_shifts[k * 3 + 2]);
+    // Hillis-Steele inclusive scan over thread sums
+    for (int stride = 1; stride < SCAN_THREADS; stride *= 2) {
+        int val = (tid >= stride) ? scan_data[tid - stride] : 0;
+        __syncthreads();
+        scan_data[tid] += val;
+        __syncthreads();
+    }
+    // sdata[tid] = inclusive scan of per-thread sums
+    // Exclusive prefix for this thread = sdata[tid] - local_sum
 
-            int total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
-            int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
-            int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
+    int prefix = scan_data[tid] - local_sum;
 
-            bool shift_is_zero = (total_shift_x == 0 && total_shift_y == 0 && total_shift_z == 0);
-
-            if (orig_i == orig_j && shift_is_zero) {
-                continue;
-            }
-
-            // Half-list: only keep pair once (i<j, or i==j with positive shift direction)
-            if (!full_list) {
-                if (orig_i > orig_j) {
-                    continue;
-                }
-                if (orig_i == orig_j) {
-                    // For self-images, use lexicographic ordering on shift vector
-                    int shift_sum = total_shift_x + total_shift_y + total_shift_z;
-                    if (shift_sum < 0) {
-                        continue;
-                    }
-                    if (shift_sum == 0) {
-                        if (total_shift_z < 0 || (total_shift_z == 0 && total_shift_y < 0)) {
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            // Vectorized position load for particle j
-            const double3 rj = pos3[k];
-
-            // Convert integer shift to Cartesian displacement: shift @ box
-            const double3 shift_cart = make_double3(
-                total_shift_x * box_row0.x + total_shift_y * box_row1.x + total_shift_z * box_row2.x,
-                total_shift_x * box_row0.y + total_shift_y * box_row1.y + total_shift_z * box_row2.y,
-                total_shift_x * box_row0.z + total_shift_y * box_row1.z + total_shift_z * box_row2.z
-            );
-
-            // Vector from i to j (accounting for PBC)
-            const double3 vec = make_double3(
-                rj.x - ri.x + shift_cart.x,
-                rj.y - ri.y + shift_cart.y,
-                rj.z - ri.z + shift_cart.z
-            );
-
-            double dist2 = dot3(vec, vec);
-
-            if (dist2 < cutoff2 && dist2 > 0.0) {
-                buffered_j[buffered_count] = orig_j;
-                buffered_shift[buffered_count * 3 + 0] = total_shift_x;
-                buffered_shift[buffered_count * 3 + 1] = total_shift_y;
-                buffered_shift[buffered_count * 3 + 2] = total_shift_z;
-                buffered_dist[buffered_count] = sqrt(dist2);
-                buffered_vec[buffered_count * 3 + 0] = vec.x;
-                buffered_vec[buffered_count * 3 + 1] = vec.y;
-                buffered_vec[buffered_count * 3 + 2] = vec.z;
-                buffered_count++;
-
-                // Flush buffer when full
-                if (buffered_count >= MAX_BUFFERED_PAIRS) {
-                    size_t base_idx = atomicAdd_size_t(length, buffered_count);
-
-                    // Check if we are about to exceed max_pairs
-                    if (base_idx + buffered_count > max_pairs) {
-                        atomicExch(overflow_flag, 1);
-                        return;
-                    }
-
-                    for (int b = 0; b < buffered_count; b++) {
-                        pair_indices[base_idx + b][0] = orig_i;
-                        pair_indices[base_idx + b][1] = buffered_j[b];
-                        if (return_shifts) {
-                            shifts_out[base_idx + b][0] = buffered_shift[b * 3 + 0];
-                            shifts_out[base_idx + b][1] = buffered_shift[b * 3 + 1];
-                            shifts_out[base_idx + b][2] = buffered_shift[b * 3 + 2];
-                        }
-                        if (return_distances) {
-                            distances[base_idx + b] = buffered_dist[b];
-                        }
-                        if (return_vectors) {
-                            vectors[base_idx + b][0] = buffered_vec[b * 3 + 0];
-                            vectors[base_idx + b][1] = buffered_vec[b * 3 + 1];
-                            vectors[base_idx + b][2] = buffered_vec[b * 3 + 2];
-                        }
-                    }
-                    buffered_count = 0;
-                }
-            }
+    // Write out the exclusive scan for each element
+    int running = prefix;
+    for (int i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
+        auto idx = thread_base + i;
+        if (idx < n) {
+            d_out[idx] = running;
+            running += d_in[idx];
         }
     }
 
-    // Flush remaining buffered pairs
-    if (buffered_count > 0) {
-        size_t base_idx = atomicAdd_size_t(length, buffered_count);
+    // Last thread stores the block total
+    if (tid == SCAN_THREADS - 1) {
+        d_block_totals[blockIdx.x] = scan_data[SCAN_THREADS - 1];
+    }
+}
 
-        // Check if we are about to exceed max_pairs
-        if (base_idx + buffered_count > max_pairs) {
-            atomicExch(overflow_flag, 1);
-            return;
-        }
+// Phase 2: single-block exclusive scan of the block totals array.
+__global__ void exclusive_scan_phase_2(
+    int* __restrict__ d_block_totals,
+    size_t n_blocks
+) {
+    __shared__ int scan_data[SCAN_THREADS];
+    auto tid = threadIdx.x;
 
-        for (int b = 0; b < buffered_count; b++) {
-            pair_indices[base_idx + b][0] = orig_i;
-            pair_indices[base_idx + b][1] = buffered_j[b];
-            if (return_shifts) {
-                shifts_out[base_idx + b][0] = buffered_shift[b * 3 + 0];
-                shifts_out[base_idx + b][1] = buffered_shift[b * 3 + 1];
-                shifts_out[base_idx + b][2] = buffered_shift[b * 3 + 2];
-            }
+    scan_data[tid] = (tid < n_blocks) ? d_block_totals[tid] : 0;
+    __syncthreads();
 
-            if (return_distances) {
-                distances[base_idx + b] = buffered_dist[b];
-            }
+    // Hillis-Steele inclusive scan
+    for (int stride = 1; stride < SCAN_THREADS; stride *= 2) {
+        int val = (tid >= stride) ? scan_data[tid - stride] : 0;
+        __syncthreads();
+        scan_data[tid] += val;
+        __syncthreads();
+    }
 
-            if (return_vectors) {
-                vectors[base_idx + b][0] = buffered_vec[b * 3 + 0];
-                vectors[base_idx + b][1] = buffered_vec[b * 3 + 1];
-                vectors[base_idx + b][2] = buffered_vec[b * 3 + 2];
-            }
+    // Convert to exclusive and write back
+    int exclusive = scan_data[tid] - ((tid < n_blocks) ? d_block_totals[tid] : 0);
+    if (tid < n_blocks) {
+        d_block_totals[tid] = exclusive;
+    }
+}
+
+// Phase 3: add block offsets to each block's local scan results.
+__global__ void exclusive_scan_phase_3(
+    int* __restrict__ d_out,
+    const int* __restrict__ d_block_totals,
+    size_t n
+) {
+    auto tid = threadIdx.x;
+    auto chunk_base = blockIdx.x * SCAN_ELEMENTS_PER_BLOCK;
+    auto thread_base = chunk_base + tid * SCAN_ELEMENTS_PER_THREAD;
+    auto offset = d_block_totals[blockIdx.x];
+
+    for (int i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
+        auto idx = thread_base + i;
+        if (idx < n) {
+            d_out[idx] += offset;
         }
     }
 }

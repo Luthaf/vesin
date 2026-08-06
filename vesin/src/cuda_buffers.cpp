@@ -18,15 +18,25 @@ CellListBuffersCUDA::~CellListBuffersCUDA() {
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_counts));
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_starts));
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_totals));
+        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_totals2));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_points));
+        GPULITE_CUDART_CALL(cudaFree(this->d_wrapped_positions));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_indices));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_shifts));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_cell_indices));
+        GPULITE_CUDART_CALL(cudaFree(this->d_counts));
+        GPULITE_CUDART_CALL(cudaFree(this->d_write_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals2));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_cells));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_cells_total));
         GPULITE_CUDART_CALL(cudaFree(this->d_face_distances));
         GPULITE_CUDART_CALL(cudaFree(this->d_bounding_min));
+        GPULITE_CUDART_CALL(cudaFree(this->d_bbox_partials));
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
     }
@@ -62,8 +72,20 @@ CellListBuffersCUDA& CellListBuffersCUDA::operator=(CellListBuffersCUDA&& other)
         this->d_cell_offsets = other.d_cell_offsets;
         other.d_cell_offsets = nullptr;
 
+        this->d_cell_block_totals = other.d_cell_block_totals;
+        other.d_cell_block_totals = nullptr;
+
+        this->d_cell_block_offsets = other.d_cell_block_offsets;
+        other.d_cell_block_offsets = nullptr;
+
+        this->d_cell_block_totals2 = other.d_cell_block_totals2;
+        other.d_cell_block_totals2 = nullptr;
+
         this->d_sorted_points = other.d_sorted_points;
         other.d_sorted_points = nullptr;
+
+        this->d_wrapped_positions = other.d_wrapped_positions;
+        other.d_wrapped_positions = nullptr;
 
         this->d_sorted_indices = other.d_sorted_indices;
         other.d_sorted_indices = nullptr;
@@ -73,6 +95,21 @@ CellListBuffersCUDA& CellListBuffersCUDA::operator=(CellListBuffersCUDA&& other)
 
         this->d_sorted_cell_indices = other.d_sorted_cell_indices;
         other.d_sorted_cell_indices = nullptr;
+
+        this->d_counts = other.d_counts;
+        other.d_counts = nullptr;
+
+        this->d_write_offsets = other.d_write_offsets;
+        other.d_write_offsets = nullptr;
+
+        this->d_block_totals = other.d_block_totals;
+        other.d_block_totals = nullptr;
+
+        this->d_block_offsets = other.d_block_offsets;
+        other.d_block_offsets = nullptr;
+
+        this->d_block_totals2 = other.d_block_totals2;
+        other.d_block_totals2 = nullptr;
 
         this->d_n_cells = other.d_n_cells;
         other.d_n_cells = nullptr;
@@ -88,6 +125,9 @@ CellListBuffersCUDA& CellListBuffersCUDA::operator=(CellListBuffersCUDA&& other)
 
         this->d_bounding_min = other.d_bounding_min;
         other.d_bounding_min = nullptr;
+
+        this->d_bbox_partials = other.d_bbox_partials;
+        other.d_bbox_partials = nullptr;
     }
     return *this;
 }
@@ -98,6 +138,7 @@ void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_indices));
         GPULITE_CUDART_CALL(cudaFree(this->d_particle_shifts));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_points));
+        GPULITE_CUDART_CALL(cudaFree(this->d_wrapped_positions));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_indices));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_shifts));
         GPULITE_CUDART_CALL(cudaFree(this->d_sorted_cell_indices));
@@ -106,9 +147,17 @@ void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_indices, sizeof(int32_t) * n_points));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_particle_shifts, sizeof(int32_t) * n_points * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_points, sizeof(double) * n_points * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_wrapped_positions, sizeof(double) * n_points * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_indices, sizeof(int32_t) * n_points));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_shifts, sizeof(int32_t) * n_points * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_cell_indices, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_counts, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_write_offsets, sizeof(int32_t) * (n_points + 1)));
+        size_t n_scan_blocks = (n_points + 1023) / 1024;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals, sizeof(int32_t) * n_scan_blocks));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_offsets, sizeof(int32_t) * n_scan_blocks));
+        size_t n_scan_blocks2 = (n_scan_blocks + 1023) / 1024;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals2, sizeof(int32_t) * n_scan_blocks2));
         this->points_capacity = n_points;
     }
 
@@ -117,11 +166,21 @@ void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_counts));
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_starts));
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_totals));
+        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_totals2));
 
         // And allocate with the new capacity
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_counts, sizeof(int32_t) * n_cells));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_starts, sizeof(int32_t) * n_cells));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_offsets, sizeof(int32_t) * n_cells));
+
+        size_t n_cell_blocks = (n_cells + 1023) / 1024;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_block_totals, sizeof(int32_t) * n_cell_blocks));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_block_offsets, sizeof(int32_t) * n_cell_blocks));
+        size_t n_cell_blocks2 = (n_cell_blocks + 1023) / 1024;
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_block_totals2, sizeof(int32_t) * n_cell_blocks2));
+
         this->cells_capacity = n_cells;
     }
 
@@ -132,6 +191,9 @@ void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_cells_total, sizeof(int32_t)));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_face_distances, sizeof(double) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_bounding_min, sizeof(double) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc(
+            (void**)&this->d_bbox_partials, sizeof(double) * 6 * MAX_BOUNDING_BOX_BLOCKS
+        ));
     }
 }
 
@@ -196,8 +258,8 @@ void SortBuffers::allocate(size_t n_pairs, bool return_shifts, bool return_dista
 CudaNeighborListExtras::~CudaNeighborListExtras() {
     try {
         GPULITE_CUDART_CALL(cudaFree(this->d_length_ptr));
-        if (this->pinned_length_ptr != nullptr) {
-            GPULITE_CUDART_CALL(cudaFreeHost(this->pinned_length_ptr));
+        if (this->pinned != nullptr) {
+            GPULITE_CUDART_CALL(cudaFreeHost(this->pinned));
         }
         GPULITE_CUDART_CALL(cudaFree(this->d_cell_check_ptr));
         GPULITE_CUDART_CALL(cudaFree(this->d_box_diag));
@@ -217,8 +279,8 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
     if (this != &other) {
         try {
             GPULITE_CUDART_CALL(cudaFree(this->d_length_ptr));
-            if (this->pinned_length_ptr != nullptr) {
-                GPULITE_CUDART_CALL(cudaFreeHost(this->pinned_length_ptr));
+            if (this->pinned != nullptr) {
+                GPULITE_CUDART_CALL(cudaFreeHost(this->pinned));
             }
             GPULITE_CUDART_CALL(cudaFree(this->d_cell_check_ptr));
             GPULITE_CUDART_CALL(cudaFree(this->d_box_diag));
@@ -235,8 +297,8 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
         this->d_length_ptr = other.d_length_ptr;
         other.d_length_ptr = nullptr;
 
-        this->pinned_length_ptr = other.pinned_length_ptr;
-        other.pinned_length_ptr = nullptr;
+        this->pinned = other.pinned;
+        other.pinned = nullptr;
 
         this->d_cell_check_ptr = other.d_cell_check_ptr;
         other.d_cell_check_ptr = nullptr;

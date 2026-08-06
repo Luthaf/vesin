@@ -80,6 +80,7 @@ __global__ void brute_force_full_general(
 // Status flags for mic_box_check
 #define BOX_STATUS_ERROR 1
 #define BOX_STATUS_ORTHOGONAL 2
+#define BOX_STATUS_FULLY_PERIODIC 4
 
 __global__ void mic_box_check(
     const double box[3][3],

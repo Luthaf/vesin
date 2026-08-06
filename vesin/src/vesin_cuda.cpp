@@ -1,7 +1,9 @@
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #include <algorithm>
 #include <optional>
@@ -45,12 +47,59 @@ const unsigned char CUDA_SORT_PAIRS_HEX[] = {
 };
 const char* CUDA_SORT_PAIRS_CODE = reinterpret_cast<const char*>(CUDA_SORT_PAIRS_HEX);
 
-// Maximum number of cells (limited by single-block prefix sum)
-static constexpr size_t DEFAULT_MAX_CELLS = 8192;
-// Minimum particles per cell target for good GPU utilization.
-// Lower values create more cells and reduce per-cell neighbor work, which is
-// beneficial on larger systems where more coarse grids become too dense.
-static constexpr size_t MIN_PARTICLES_PER_CELL = 8;
+// Hard upper bound on the number of cells, to keep the per-cell arrays (three
+// `int32_t` each) at a sane size. This only kicks in for very large systems:
+// the per-system budget below is normally the binding constraint.
+static constexpr size_t DEFAULT_MAX_CELLS = 1 << 21;
+
+// Upper bound on the number of cells per particle. This budget only matters for
+// dilute systems, where the cell size picked by `compute_cell_grid_params`
+// would create far more cells than particles and most of them would be empty.
+// Empty cells are pure overhead: they cost a cell visit in the neighbor search
+// without contributing any candidate pair.
+static constexpr size_t MAX_CELLS_PER_PARTICLE = 2;
+
+// Block size for the two neighbor search kernels, and the number of threads
+// they put on each atom. One atom's search is a walk over (2 * n_search + 1)^3
+// cells, and splitting it across threads both multiplies the number of blocks
+// and shortens the dependent chain of gather loads within one atom.
+//
+// Both must match `CELL_LIST_BLOCK` and `THREADS_PER_PARTICLE` in
+// cuda/cell_list.cu, which uses them to size its shared memory. The block size
+// must be a multiple of 32 and the thread count must divide 32, so that a group
+// never straddles two warps.
+static constexpr size_t CELL_LIST_BLOCK = 256;
+static constexpr size_t THREADS_PER_PARTICLE = 8;
+
+// Block size for the two bounding box kernels. Must be a power of two for their
+// tree reduction, and must match `BOUNDING_BOX_BLOCK` in cuda/cell_list.cu,
+// which uses it to size its shared memory.
+static constexpr size_t BOUNDING_BOX_BLOCK = 256;
+
+// Cost of visiting one neighbor cell, relative to the cost of evaluating one
+// candidate pair. `compute_cell_grid_params` uses this to pick the cell size:
+// the smaller it is, the finer the grid we can afford.
+//
+// Fitted from timings of the diamond benchmark: a least-squares fit of
+//
+//     time = A * total_candidates + B * total_cell_visits + C
+//
+// gives B/A = 1.23. A cell visit is therefore slightly *more* expensive than a
+// candidate evaluation.
+static constexpr double CELL_VISIT_COST = 1.23;
+
+/// Compile (or fetch from cache) an NVRTC kernel. Each macro is bound to one
+/// of the three embedded CUDA sources, so call sites only need the factory and
+/// the kernel function name:
+///   auto* kernel = GET_CELL_LIST_KERNEL(factory, count_neighbors_cell_list);
+#define GET_CELL_LIST_KERNEL(factory, name) \
+    factory.create<decltype(name)>(#name, CUDA_CELL_LIST_CODE, "cell_list.cu", {"-std=c++17", "-default-device"})
+
+#define GET_BRUTEFORCE_KERNEL(factory, name) \
+    factory.create<decltype(name)>(#name, CUDA_BRUTEFORCE_CODE, "bruteforce.cu", {"-std=c++17", "-default-device"})
+
+#define GET_SORT_PAIRS_KERNEL(factory, name) \
+    factory.create<decltype(name)>(#name, CUDA_SORT_PAIRS_CODE, "sort_pairs.cu", {"-std=c++17", "-default-device"})
 
 static std::optional<cudaPointerAttributes> get_ptr_attributes(const void* ptr) {
     if (ptr == nullptr) {
@@ -182,16 +231,11 @@ void check_cuda_is_available() {
 }
 
 // Reorder the output pair list (and any optional aligned outputs) so that pairs
-// come out sorted by the first particle index. Both the stateless cell-list
-// path and the Verlet recompute path call this so `options.sorted` has the same
-// public contract on each path.
-static void sort_pairs(
+// come out sorted by the first particle index. Used by the bruteforce and
+// Verlet paths — the cell-list two-pass path produces output already sorted.
+void vesin::cuda::sort_pairs(
     VesinOptions options,
-    VesinNeighborList& neighbors,
-    size_t (*pairs)[2],
-    int32_t (*shifts)[3],
-    double* distances,
-    double (*vectors)[3]
+    VesinNeighborList& neighbors
 ) {
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
 
@@ -205,26 +249,9 @@ static void sort_pairs(
         options.return_vectors
     );
 
-    auto* fill_kernel = factory.create<decltype(sort_pairs_fill_buffers)>(
-        "sort_pairs_fill_buffers",
-        CUDA_SORT_PAIRS_CODE,
-        "sort_pairs.cu",
-        {"-std=c++17", "-default-device"}
-    );
-
-    auto* bitonic_kernel = factory.create<decltype(sort_pairs_bitonic_step)>(
-        "sort_pairs_bitonic_step",
-        CUDA_SORT_PAIRS_CODE,
-        "sort_pairs.cu",
-        {"-std=c++17", "-default-device"}
-    );
-
-    auto* copy_back_kernel = factory.create<decltype(sort_pairs_copy_back)>(
-        "sort_pairs_copy_back",
-        CUDA_SORT_PAIRS_CODE,
-        "sort_pairs.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    auto* fill_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_fill_buffers);
+    auto* bitonic_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_bitonic_step);
+    auto* copy_back_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_copy_back);
 
     const size_t sort_threads = 256;
     const size_t sort_fill_blocks = (sort_capacity + sort_threads - 1) / sort_threads;
@@ -235,10 +262,10 @@ static void sort_pairs(
 
     fill_kernel->launch(
         config,
-        pairs,
-        shifts,
-        distances,
-        vectors,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors,
         extras->sort_buffers.d_pairs_tmp,
         extras->sort_buffers.d_shifts_tmp,
         extras->sort_buffers.d_distances_tmp,
@@ -271,10 +298,10 @@ static void sort_pairs(
     size_t copy_blocks = (neighbors.length + sort_threads - 1) / sort_threads;
     copy_back_kernel->launch(
         config,
-        pairs,
-        shifts,
-        distances,
-        vectors,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors,
         extras->sort_buffers.d_pairs_tmp,
         extras->sort_buffers.d_shifts_tmp,
         extras->sort_buffers.d_distances_tmp,
@@ -285,9 +312,33 @@ static void sort_pairs(
         options.return_vectors
     );
 
-    GPULITE_CUDART_CALL(cudaDeviceSynchronize());
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
 
     NVTX_POP();
+}
+
+// Allocate the small, fixed-size scratch buffers held by `extras`. These are
+// independent of the pair capacity and are only ever allocated once.
+static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
+    if (extras->d_length_ptr == nullptr) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_length_ptr, sizeof(size_t)));
+    }
+
+    if (extras->pinned == nullptr) {
+        GPULITE_CUDART_CALL(cudaHostAlloc(
+            (void**)&extras->pinned,
+            sizeof(PinnedReadback),
+            cudaHostAllocDefault
+        ));
+    }
+
+    if (extras->d_cell_check_ptr == nullptr) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_cell_check_ptr, sizeof(int32_t)));
+    }
+
+    if (extras->d_overflow_flag == nullptr) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_overflow_flag, sizeof(int32_t)));
+    }
 }
 
 void vesin::cuda::allocate_output_buffers(
@@ -296,57 +347,43 @@ void vesin::cuda::allocate_output_buffers(
     VesinOptions options
 ) {
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+    allocate_scratch_buffers(extras);
 
     bool missing_requested_output =
         (options.return_shifts && neighbors.shifts == nullptr) ||
         (options.return_distances && neighbors.distances == nullptr) ||
         (options.return_vectors && neighbors.vectors == nullptr);
 
-    if (extras->pairs_capacity >= n_pairs && (extras->d_length_ptr != nullptr) && (extras->d_cell_check_ptr != nullptr) &&
-        (extras->d_overflow_flag != nullptr) && !missing_requested_output) {
-        GPULITE_CUDART_CALL(cudaMemset(extras->d_length_ptr, 0, sizeof(size_t)));
-        GPULITE_CUDART_CALL(cudaMemset(extras->d_cell_check_ptr, 0, sizeof(int32_t)));
-        GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
-    } else {
-        free_output_buffers(neighbors);
-
-        extras->pairs_capacity = n_pairs;
-
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * n_pairs * 2));
-
-        if (options.return_shifts) {
-            GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * n_pairs * 3));
-        }
-
-        if (options.return_distances) {
-            GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.distances, sizeof(double) * n_pairs));
-        }
-
-        if (options.return_vectors) {
-            GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.vectors, sizeof(double) * n_pairs * 3));
-        }
-
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_length_ptr, sizeof(size_t)));
-        GPULITE_CUDART_CALL(cudaMemset(extras->d_length_ptr, 0, sizeof(size_t)));
-
-        // Pinned host memory for async D2H copy
-        GPULITE_CUDART_CALL(cudaHostAlloc(
-            (void**)&extras->pinned_length_ptr,
-            sizeof(size_t),
-            cudaHostAllocDefault
-        ));
-
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_cell_check_ptr, sizeof(int32_t)));
-        GPULITE_CUDART_CALL(cudaMemset(extras->d_cell_check_ptr, 0, sizeof(int32_t)));
-
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_overflow_flag, sizeof(int32_t)));
-        GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
+    if (extras->pairs_capacity >= n_pairs && !missing_requested_output) {
+        return;
     }
+
+    free_output_buffers(neighbors);
+
+    size_t capacity = std::max(extras->pairs_capacity, n_pairs);
+    extras->pairs_capacity = 0;
+
+    GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * capacity * 2));
+
+    if (options.return_shifts) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * capacity * 3));
+    }
+
+    if (options.return_distances) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.distances, sizeof(double) * capacity));
+    }
+
+    if (options.return_vectors) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.vectors, sizeof(double) * capacity * 3));
+    }
+
+    extras->pairs_capacity = capacity;
 }
 
 struct BoxChecks {
     bool use_cell_list = false;
     bool is_orthogonal = false;
+    bool all_periodic = false;
 };
 
 static BoxChecks check_box(
@@ -369,12 +406,7 @@ static BoxChecks check_box(
         extras->d_inv_box = ptr;
     }
 
-    auto* box_check_kernel = factory.create<decltype(mic_box_check)>(
-        "mic_box_check",
-        CUDA_BRUTEFORCE_CODE,
-        "bruteforce.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    auto* box_check_kernel = GET_BRUTEFORCE_KERNEL(factory, mic_box_check);
 
     auto config = gpulite::LaunchConfig();
     config.gridDim = dim3(1);
@@ -390,19 +422,28 @@ static BoxChecks check_box(
         extras->d_inv_box
     );
 
-    int32_t h_cell_check = 1;
-    GPULITE_CUDART_CALL(cudaMemcpy(&h_cell_check, extras->d_cell_check_ptr, sizeof(int32_t), cudaMemcpyDeviceToHost));
+    auto* pinned = extras->pinned;
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &pinned->box_status, extras->d_cell_check_ptr,
+        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+    ));
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        pinned->box_diag, extras->d_box_diag,
+        sizeof(double) * 3, cudaMemcpyDeviceToHost, nullptr
+    ));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
 
-    results.is_orthogonal = (h_cell_check & 2) != 0;
+    int32_t h_cell_check = pinned->box_status;
+    results.is_orthogonal = (h_cell_check & BOX_STATUS_ORTHOGONAL) != 0;
+    results.all_periodic = (h_cell_check & BOX_STATUS_FULLY_PERIODIC) != 0;
 
-    double h_box_diag[3];
-    GPULITE_CUDART_CALL(cudaMemcpy(h_box_diag, extras->d_box_diag, sizeof(double) * 3, cudaMemcpyDeviceToHost));
+    const double* h_box_diag = pinned->box_diag;
     double min_box_dim = std::min({h_box_diag[0], h_box_diag[1], h_box_diag[2]});
     bool cutoff_requires_cell_list = options.cutoff > min_box_dim / 2.0;
 
     switch (options.algorithm) {
     case VesinBruteForce: {
-        bool box_check_error = (h_cell_check & 1) != 0;
+        bool box_check_error = (h_cell_check & BOX_STATUS_ERROR) != 0;
         if (box_check_error) {
             throw std::runtime_error("Invalid cutoff: too large for box dimensions");
         }
@@ -414,11 +455,163 @@ static BoxChecks check_box(
         break;
     case VesinAutoAlgorithm:
     default:
-        results.use_cell_list = cutoff_requires_cell_list || !results.is_orthogonal || n_points >= 5000;
+        results.use_cell_list = cutoff_requires_cell_list || !results.is_orthogonal || n_points >= 500;
         break;
     }
 
     return results;
+}
+
+// Device-side exclusive prefix sum of `d_in[n]` → `d_out[n]`.
+//
+// `d_block_totals` and `d_block_offsets` must each hold at least `ceil(n/1024)`
+// elements, and `d_block_totals2` at least `ceil(n/1024^2)`.
+//
+// This scans the whole `max_cells` range rather than just the `n_cells_total`
+// cells actually in use: the count of an unused cell is zero (`d_cell_counts`
+// is zeroed above) so it contributes nothing, and this keeps the number of
+// elements host-side, avoiding a read back of `n_cells_total`.
+static void device_exclusive_scan(
+    gpulite::KernelFactory& factory,
+    const int32_t* d_in,
+    int32_t* d_out,
+    int32_t* d_block_totals,
+    int32_t* d_block_offsets,
+    int32_t* d_block_totals2,
+    size_t n
+) {
+    // These must match the `SCAN_*` defines in cuda/cell_list.cu.
+    size_t scan_threads = 256;
+    size_t scan_elements_per_block = 1024;
+    size_t scan_max_blocks = 256;
+
+    size_t n_scan_blocks = (n + scan_elements_per_block - 1) / scan_elements_per_block;
+    size_t n_scan_blocks_2 = (n_scan_blocks + scan_elements_per_block - 1) / scan_elements_per_block;
+
+    if (n_scan_blocks_2 > scan_max_blocks) {
+        throw std::runtime_error(
+            "too many elements (" + std::to_string(n) + ") for the two-level "
+            "device prefix scan (the limit is ~68 billion). This should not happen."
+        );
+    }
+
+    auto* scan_phase_1 = GET_CELL_LIST_KERNEL(factory, exclusive_scan_phase_1);
+    auto* scan_phase_2 = GET_CELL_LIST_KERNEL(factory, exclusive_scan_phase_2);
+    auto* scan_phase_3 = GET_CELL_LIST_KERNEL(factory, exclusive_scan_phase_3);
+
+    auto config = gpulite::LaunchConfig();
+    config.blockDim = dim3(scan_threads);
+
+    // Each block of 256 threads processes 1024 elements (4 per thread):
+    //   - Each thread loads and sums its 4 elements
+    //   - Hillis-Steele inclusive scan over the 256 per-thread sums (shared mem)
+    //   - Each thread writes the exclusive scan of its 4 elements to d_out
+    //   - The last thread stores the block's total to d_block_totals[blockIdx.x]
+    //
+    // After this, d_out holds the correct exclusive scan *within* each block,
+    // but blocks don't know their offset relative to earlier blocks.
+    // d_block_totals[i] = total count of elements in blocks 0..i.
+    config.gridDim = dim3(n_scan_blocks);
+    scan_phase_1->launch(config, d_in, d_out, d_block_totals, n);
+
+    if (n_scan_blocks == 1) {
+        // A single block covers the whole input, so the local scan phase 1 just
+        // wrote is already the global one: phase 2 would only set the single
+        // block total to zero, and phase 3 would add that zero back. Skipping
+        // both saves two kernel launches, which is worth having for the small
+        // systems where the launch latency is the whole cost of the call.
+        return;
+    }
+
+    if (n_scan_blocks <= scan_max_blocks) {
+        config.gridDim = dim3(1);
+        scan_phase_2->launch(config, d_block_totals, n_scan_blocks);
+
+        config.gridDim = dim3(n_scan_blocks);
+        scan_phase_3->launch(config, d_out, d_block_totals, n);
+    } else {
+        // The level-1 block totals array has more than 256 elements, so it
+        // can't be scanned by a single phase-2 block. We apply the same 3-phase
+        // scan to d_block_totals itself, producing per-block offsets that are
+        // then added back at both levels.
+        //
+        // Level 2 phase 1: scan d_block_totals → d_block_offsets (local scan
+        //   within each level-2 block), collect level-2 block totals in
+        //   d_block_totals2. d_block_offsets now holds correct values within
+        //   each level-2 block, but not globally.
+        //
+        // Level 2 phase 2: exclusive scan of d_block_totals2 in a single block
+        //   (≤256 elements by construction). After this, d_block_totals2[i] =
+        //   the offset to add to level-2 block i's results.
+        //
+        // Level 2 phase 3: add level-2 offsets to d_block_offsets. After this,
+        //   d_block_offsets holds the correct global exclusive prefix sum of
+        //   the level-1 block totals — i.e. d_block_offsets[i] = the global
+        //   offset for level-1 block i.
+        //
+        // Level 1 phase 3: add d_block_offsets[blockIdx.x] to every element in
+        //   d_out. After this, d_out holds the correct global exclusive prefix
+        //   sum of d_in.
+
+        // Level 2 phase 1
+        config.gridDim = dim3(n_scan_blocks_2);
+        scan_phase_1->launch(config, d_block_totals, d_block_offsets, d_block_totals2, n_scan_blocks);
+
+        // Level 2 phase 2
+        config.gridDim = dim3(1);
+        scan_phase_2->launch(config, d_block_totals2, n_scan_blocks_2);
+
+        // Level 2 phase 3: add level-2 offsets to level-1 block offsets
+        config.gridDim = dim3(n_scan_blocks_2);
+        scan_phase_3->launch(config, d_block_offsets, d_block_totals2, n_scan_blocks);
+
+        // Level 1 phase 3: add level-1 block offsets to per-element scan
+        config.gridDim = dim3(n_scan_blocks);
+        scan_phase_3->launch(config, d_out, d_block_offsets, n);
+    }
+}
+
+// Exclusive prefix sum of the per-atom neighbour counts
+// `d_counts[n_points]` → `d_write_offsets[n_points]`, returning the total
+// number of pairs.
+static size_t device_exclusive_prefix_sum(
+    gpulite::KernelFactory& factory,
+    CellListBuffersCUDA& cl,
+    PinnedReadback* pinned,
+    size_t n_points
+) {
+    device_exclusive_scan(
+        factory,
+        cl.d_counts,
+        cl.d_write_offsets,
+        cl.d_block_totals,
+        cl.d_block_offsets,
+        cl.d_block_totals2,
+        n_points
+    );
+
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &pinned->last_offset, &cl.d_write_offsets[n_points - 1],
+        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+    ));
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &pinned->last_count, &cl.d_counts[n_points - 1],
+        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+    ));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+
+    int32_t h_last_offset = pinned->last_offset;
+    int32_t h_last_count = pinned->last_count;
+
+    auto total = static_cast<int64_t>(h_last_offset) + h_last_count;
+    if (h_last_offset < 0 || h_last_count < 0 || total > std::numeric_limits<int32_t>::max()) {
+        throw std::runtime_error(
+            "too many pairs for the CUDA cell list (the limit is 2^31); "
+            "please open an issue on GitHub if you need more than that"
+        );
+    }
+
+    return static_cast<size_t>(total);
 }
 
 static void run_cell_list(
@@ -427,6 +620,7 @@ static void run_cell_list(
     const double d_box[3][3],
     const bool d_periodic[3],
     VesinOptions options,
+    bool all_periodic,
     VesinNeighborList& neighbors
 ) {
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
@@ -434,47 +628,57 @@ static void run_cell_list(
     NVTX_PUSH("cell_list_total");
     auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
 
-    // Compute effective max cells based on minimum particles per cell target
-    size_t max_cells_from_particles = std::max(n_points / MIN_PARTICLES_PER_CELL, static_cast<size_t>(1));
-    size_t max_cells = std::min(DEFAULT_MAX_CELLS, max_cells_from_particles);
+    size_t max_cells = std::max(n_points * MAX_CELLS_PER_PARTICLE, static_cast<size_t>(1));
+    max_cells = std::min(DEFAULT_MAX_CELLS, max_cells);
 
     NVTX_PUSH("ensure_buffers");
     extras->cell_list.allocate(n_points, max_cells);
     NVTX_POP();
     auto& cl = extras->cell_list;
 
-    // the 256 here must match the size of shared memory allocated inside the code,
-    // if you update one please update the other.
-    size_t THREADS_PER_BLOCK = 256;
-    size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-
-    NVTX_PUSH("kernel0_bounding_box");
-    auto* bounding_kernel = factory.create<decltype(compute_bounding_box)>(
-        "compute_bounding_box",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
-    );
-
     auto config = gpulite::LaunchConfig();
-    config.gridDim = dim3(1);
-    config.blockDim = dim3(THREADS_PER_BLOCK);
-    bounding_kernel->launch(
-        config,
-        d_points,
-        n_points,
-        cl.d_face_distances,
-        cl.d_bounding_min
-    );
-    NVTX_POP();
+
+    // The bounding box is only ever read for non-periodic directions, skip the
+    // work if everything is periodic
+    if (!all_periodic) {
+        NVTX_PUSH("kernel0_bounding_box");
+        auto* bounding_kernel = GET_CELL_LIST_KERNEL(factory, compute_bounding_box);
+
+        size_t bbox_blocks = std::min(
+            std::max((n_points + BOUNDING_BOX_BLOCK - 1) / BOUNDING_BOX_BLOCK, static_cast<size_t>(1)),
+            MAX_BOUNDING_BOX_BLOCKS
+        );
+
+        config.gridDim = dim3(bbox_blocks);
+        config.blockDim = dim3(BOUNDING_BOX_BLOCK);
+        bounding_kernel->launch(
+            config,
+            d_points,
+            n_points,
+            cl.d_bbox_partials,
+            cl.d_face_distances,
+            cl.d_bounding_min
+        );
+
+        // With a single block there is nothing to combine and the kernel above
+        // already wrote the final answer.
+        if (bbox_blocks > 1) {
+            auto* reduce_kernel = GET_CELL_LIST_KERNEL(factory, reduce_bounding_box);
+
+            config.gridDim = dim3(1);
+            reduce_kernel->launch(
+                config,
+                cl.d_bbox_partials,
+                bbox_blocks,
+                cl.d_face_distances,
+                cl.d_bounding_min
+            );
+        }
+        NVTX_POP();
+    }
 
     NVTX_PUSH("kernel1_grid_params");
-    auto* grid_kernel = factory.create<decltype(compute_cell_grid_params)>(
-        "compute_cell_grid_params",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    auto* grid_kernel = GET_CELL_LIST_KERNEL(factory, compute_cell_grid_params);
 
     config.gridDim = dim3(1);
     config.blockDim = dim3(1);
@@ -483,7 +687,9 @@ static void run_cell_list(
         d_box,
         d_periodic,
         options.cutoff,
+        n_points,
         max_cells,
+        CELL_VISIT_COST,
         extras->d_inv_box,
         cl.d_n_cells,
         cl.d_n_search,
@@ -496,12 +702,10 @@ static void run_cell_list(
     GPULITE_CUDART_CALL(cudaMemset(cl.d_cell_starts, 0, sizeof(int32_t) * max_cells));
 
     NVTX_PUSH("kernel1_assign_cells");
-    auto* assign_kernel = factory.create<decltype(assign_cell_indices)>(
-        "assign_cell_indices",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    auto* assign_kernel = GET_CELL_LIST_KERNEL(factory, assign_cell_indices);
+
+    size_t THREADS_PER_BLOCK = 256;
+    size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
     config.gridDim = dim3(num_blocks_points);
     config.blockDim = dim3(THREADS_PER_BLOCK);
@@ -520,12 +724,7 @@ static void run_cell_list(
     NVTX_POP();
 
     NVTX_PUSH("kernel2_count_particles");
-    auto* count_kernel = factory.create<decltype(count_particles_per_cell)>(
-        "count_particles_per_cell",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    auto* count_kernel = GET_CELL_LIST_KERNEL(factory, count_particles_per_cell);
 
     count_kernel->launch(
         config,
@@ -535,37 +734,28 @@ static void run_cell_list(
     );
     NVTX_POP();
 
+    // Exclusive prefix sum of the per-cell counts.
     NVTX_PUSH("kernel3_prefix_sum");
-    auto* prefix_kernel = factory.create<decltype(prefix_sum_cells)>(
-        "prefix_sum_cells",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
+    device_exclusive_scan(
+        factory,
+        cl.d_cell_counts,
+        cl.d_cell_starts,
+        cl.d_cell_block_totals,
+        cl.d_cell_block_offsets,
+        cl.d_cell_block_totals2,
+        max_cells
     );
-
-    size_t prefix_threads = 256;
-    config.gridDim = dim3(1);
-    config.blockDim = dim3(prefix_threads);
-
-    config.dynamicSmemBytes = sizeof(int32_t) * prefix_threads;
-    prefix_kernel->launch(config, cl.d_cell_counts, cl.d_cell_starts, cl.d_n_cells_total);
-    config.dynamicSmemBytes = 0;
-
     NVTX_POP();
 
     NVTX_PUSH("memcpy_cell_offsets");
-    GPULITE_CUDART_CALL(cudaMemcpy(
-        cl.d_cell_offsets, cl.d_cell_starts, sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        cl.d_cell_offsets, cl.d_cell_starts,
+        sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice, nullptr
     ));
     NVTX_POP();
 
     NVTX_PUSH("kernel4_scatter");
-    auto* scatter_kernel = factory.create<decltype(scatter_particles)>(
-        "scatter_particles",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    auto* scatter_kernel = GET_CELL_LIST_KERNEL(factory, scatter_particles);
 
     config.gridDim = dim3(num_blocks_points);
     config.blockDim = dim3(THREADS_PER_BLOCK);
@@ -575,34 +765,64 @@ static void run_cell_list(
         n_points,
         cl.d_cell_indices,
         cl.d_particle_shifts,
+        d_box,
         cl.d_cell_offsets,
         cl.d_sorted_points,
+        cl.d_wrapped_positions,
         cl.d_sorted_indices,
         cl.d_sorted_shifts,
         cl.d_sorted_cell_indices
     );
     NVTX_POP();
 
-    NVTX_PUSH("kernel5_find_neighbors_cell_list");
-    auto* find_kernel = factory.create<decltype(find_neighbors_cell_list)>(
-        "find_neighbors_cell_list",
-        CUDA_CELL_LIST_CODE,
-        "cell_list.cu",
-        {"-std=c++17", "-default-device"}
-    );
+    NVTX_PUSH("kernel5_count_neighbors");
+    auto* count_neighbors_kernel = GET_CELL_LIST_KERNEL(factory, count_neighbors_cell_list);
 
-    size_t THREADS_PER_PARTICLE = 8;
-    size_t particles_per_block = THREADS_PER_BLOCK / THREADS_PER_PARTICLE;
-    size_t num_blocks_find = (n_points + particles_per_block - 1) / particles_per_block;
+    size_t particles_per_block = CELL_LIST_BLOCK / THREADS_PER_PARTICLE;
+    size_t num_blocks_search = (n_points + particles_per_block - 1) / particles_per_block;
 
-    config.gridDim = dim3(num_blocks_find);
-    config.blockDim = dim3(THREADS_PER_BLOCK);
+    config.gridDim = dim3(num_blocks_search);
+    config.blockDim = dim3(CELL_LIST_BLOCK);
 
-    size_t max_pairs = extras->pairs_capacity;
-
-    find_kernel->launch(
+    count_neighbors_kernel->launch(
         config,
-        cl.d_sorted_points,
+        cl.d_wrapped_positions,
+        n_points,
+        d_box,
+        d_periodic,
+        cl.d_n_cells,
+        cl.d_n_search,
+        cl.d_sorted_indices,
+        cl.d_sorted_shifts,
+        cl.d_sorted_cell_indices,
+        cl.d_cell_starts,
+        cl.d_cell_counts,
+        options.cutoff,
+        options.full,
+        cl.d_counts
+    );
+    NVTX_POP();
+
+    // Device-side exclusive prefix sum of d_counts → d_write_offsets.
+    NVTX_PUSH("prefix_sum_counts");
+    size_t n_pairs = device_exclusive_prefix_sum(factory, cl, extras->pinned, n_points);
+    NVTX_POP();
+
+    // Allocate the output buffers. We ask for a little more than the number of
+    // pairs we actually found, so that small step-to-step fluctuations don't
+    // re-allocate all the buffers on every call.
+    auto extra_pairs = std::min(n_pairs / 4, static_cast<size_t>(4096));
+    vesin::cuda::allocate_output_buffers(neighbors, n_pairs + extra_pairs, options);
+
+    NVTX_PUSH("kernel6_fill_neighbors");
+    auto* fill_neighbors_kernel = GET_CELL_LIST_KERNEL(factory, fill_neighbors_cell_list);
+
+    config.gridDim = dim3(num_blocks_search);
+    config.blockDim = dim3(CELL_LIST_BLOCK);
+
+    fill_neighbors_kernel->launch(
+        config,
+        cl.d_wrapped_positions,
         n_points,
         d_box,
         d_periodic,
@@ -618,15 +838,15 @@ static void run_cell_list(
         options.return_shifts,
         options.return_distances,
         options.return_vectors,
-        extras->d_length_ptr,
+        cl.d_write_offsets,
         neighbors.pairs,
         neighbors.shifts,
         neighbors.distances,
-        neighbors.vectors,
-        max_pairs,
-        extras->d_overflow_flag
+        neighbors.vectors
     );
     NVTX_POP();
+
+    neighbors.length = n_pairs;
 
     NVTX_POP(); // cell_list_total
 }
@@ -645,6 +865,9 @@ static void run_brute_force(
     NVTX_PUSH("brute_force_total");
     auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
 
+    GPULITE_CUDART_CALL(cudaMemset(extras->d_length_ptr, 0, sizeof(size_t)));
+    GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
+
     size_t THREADS_PER_BLOCK = 128;
     double cutoff2 = options.cutoff * options.cutoff;
 
@@ -660,12 +883,7 @@ static void run_brute_force(
     if (is_orthogonal) {
         if (options.full) {
             NVTX_PUSH("brute_force_full_orthogonal");
-            auto* kernel = factory.create<decltype(brute_force_full_orthogonal)>(
-                "brute_force_full_orthogonal",
-                CUDA_BRUTEFORCE_CODE,
-                "bruteforce.cu",
-                {"-std=c++17", "-default-device"}
-            );
+            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_full_orthogonal);
 
             kernel->launch(
                 config,
@@ -688,12 +906,7 @@ static void run_brute_force(
             NVTX_POP();
         } else {
             NVTX_PUSH("brute_force_half_orthogonal");
-            auto* kernel = factory.create<decltype(brute_force_half_orthogonal)>(
-                "brute_force_half_orthogonal",
-                CUDA_BRUTEFORCE_CODE,
-                "bruteforce.cu",
-                {"-std=c++17", "-default-device"}
-            );
+            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_half_orthogonal);
 
             kernel->launch(
                 config,
@@ -718,12 +931,7 @@ static void run_brute_force(
     } else {
         if (options.full) {
             NVTX_PUSH("brute_force_full_general");
-            auto* kernel = factory.create<decltype(brute_force_full_general)>(
-                "brute_force_full_general",
-                CUDA_BRUTEFORCE_CODE,
-                "bruteforce.cu",
-                {"-std=c++17", "-default-device"}
-            );
+            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_full_general);
 
             kernel->launch(
                 config,
@@ -747,12 +955,7 @@ static void run_brute_force(
             NVTX_POP();
         } else {
             NVTX_PUSH("brute_force_half_general");
-            auto* kernel = factory.create<decltype(brute_force_half_general)>(
-                "brute_force_half_general",
-                CUDA_BRUTEFORCE_CODE,
-                "bruteforce.cu",
-                {"-std=c++17", "-default-device"}
-            );
+            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_half_general);
 
             kernel->launch(
                 config,
@@ -778,41 +981,41 @@ static void run_brute_force(
     }
 
     NVTX_POP(); // brute_force_total
-}
 
-static void finalize_output(
-    size_t n_points,
-    VesinOptions options,
-    VesinNeighborList& neighbors
-) {
-    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
-
-    NVTX_PUSH("async_copy_and_sync");
-    auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
-
+    // Read back the pair count from the GPU-side atomic counter, and the
+    // overflow flag.
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
-        extras->pinned_length_ptr,
+        &extras->pinned->length,
         extras->d_length_ptr,
         sizeof(size_t),
         cudaMemcpyDeviceToHost,
         nullptr
     ));
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &extras->pinned->overflow,
+        extras->d_overflow_flag,
+        sizeof(int32_t),
+        cudaMemcpyDeviceToHost,
+        nullptr
+    ));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
 
-    GPULITE_CUDART_CALL(cudaDeviceSynchronize());
+    neighbors.length = extras->pinned->length;
 
-    neighbors.length = *extras->pinned_length_ptr;
-
-    NVTX_POP();
-
-    if (options.sorted && neighbors.length > 1) {
-        sort_pairs(
-            options,
-            neighbors,
-            neighbors.pairs,
-            neighbors.shifts,
-            neighbors.distances,
-            neighbors.vectors
+    if (extras->pinned->overflow != 0) {
+        throw std::runtime_error(
+            "The number of neighbor pairs exceeds the maximum capacity of " +
+            std::to_string(extras->pairs_capacity) + " (max_pairs_per_point=" +
+            std::to_string(extras->pairs_capacity / n_points) + "; n_points=" +
+            std::to_string(n_points) + "). " +
+            "Consider reducing the cutoff distance, or explicitly setting " +
+            "VESIN_CUDA_MAX_PAIRS_PER_POINT as an environment variable."
         );
+    }
+
+    // Bruteforce output is unsorted; sort if requested
+    if (options.sorted && neighbors.length > 1) {
+        vesin::cuda::sort_pairs(options, neighbors);
     }
 }
 
@@ -826,6 +1029,20 @@ void vesin::cuda::neighbors(
 ) {
     assert(neighbors.device.type == VesinCUDA);
     check_cuda_is_available();
+
+    if (n_points == 0) {
+        // Nothing to do, and the kernels below can not be launched with an
+        // empty grid anyway.
+        neighbors.length = 0;
+        return;
+    }
+
+    if (n_points > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        throw std::runtime_error(
+            "Too many points (" + std::to_string(n_points) + ") for the CUDA "
+            "neighbour list (limit is ~2.1 billion)."
+        );
+    }
 
     // check that all pointers are are device pointers
     if (!is_device_ptr(get_ptr_attributes(d_points), "points")) {
@@ -854,70 +1071,56 @@ void vesin::cuda::neighbors(
     }
 
     auto* extras = vesin::cuda::get_cuda_extras(neighbors);
+    allocate_scratch_buffers(extras);
+
     if (options.skin > 0.0) {
         extras->verlet_cache.run(
             d_points, n_points, d_box, d_periodic, options, neighbors
         );
-
     } else {
         // no skin, free any remaining verlet buffers from a previous call
         extras->verlet_cache = VerletCache();
 
-        size_t max_pairs_per_point = std::max(
-            static_cast<size_t>(VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT),
-            static_cast<size_t>(std::ceil(std::pow(options.cutoff, 3)))
-        );
-
-        auto* env_max_pairs = std::getenv("VESIN_CUDA_MAX_PAIRS_PER_POINT");
-        if (env_max_pairs != nullptr) {
-            auto length = std::strlen(env_max_pairs);
-            char* end = nullptr;
-            errno = 0;
-            auto parsed_max_pairs_per_point = std::strtoll(env_max_pairs, &end, 10);
-            if (errno != 0 || end != env_max_pairs + length || parsed_max_pairs_per_point <= 0) {
-                throw std::runtime_error(
-                    "Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '" +
-                    std::string(env_max_pairs) + "'"
-                );
-            }
-            max_pairs_per_point = static_cast<size_t>(parsed_max_pairs_per_point);
-        }
-
-        vesin::cuda::allocate_output_buffers(neighbors, n_points * max_pairs_per_point, options);
-
         auto box_checks = check_box(neighbors, d_box, d_periodic, n_points, options);
         if (box_checks.use_cell_list) {
             run_cell_list(
-                d_points, n_points, d_box, d_periodic, options, neighbors
+                d_points,
+                n_points,
+                d_box,
+                d_periodic,
+                options,
+                box_checks.all_periodic,
+                neighbors
             );
         } else {
+            // Brute force path needs to allocate output buffers before running
+            // the kernel, since it uses an atomic counter to track the number
+            // of pairs found.
+            size_t max_pairs_per_point = std::max(
+                static_cast<size_t>(VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT),
+                static_cast<size_t>(std::ceil(std::pow(options.cutoff, 3)))
+            );
+
+            auto* env_max_pairs = std::getenv("VESIN_CUDA_MAX_PAIRS_PER_POINT");
+            if (env_max_pairs != nullptr) {
+                auto length = std::strlen(env_max_pairs);
+                char* end = nullptr;
+                errno = 0;
+                auto parsed_max_pairs_per_point = std::strtoll(env_max_pairs, &end, 10);
+                if (errno != 0 || end != env_max_pairs + length || parsed_max_pairs_per_point <= 0) {
+                    throw std::runtime_error(
+                        "Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '" +
+                        std::string(env_max_pairs) + "'"
+                    );
+                }
+                max_pairs_per_point = static_cast<size_t>(parsed_max_pairs_per_point);
+            }
+
+            vesin::cuda::allocate_output_buffers(neighbors, n_points * max_pairs_per_point, options);
+
             run_brute_force(
                 d_points, n_points, d_box, d_periodic, options, neighbors, box_checks.is_orthogonal
             );
         }
-
-        GPULITE_CUDART_CALL(cudaDeviceSynchronize());
-
-        // Check for overflow
-        int h_overflow_flag = 0;
-        GPULITE_CUDART_CALL(cudaMemcpy(
-            &h_overflow_flag,
-            extras->d_overflow_flag,
-            sizeof(int),
-            cudaMemcpyDeviceToHost
-        ));
-
-        if (h_overflow_flag != 0) {
-            throw std::runtime_error(
-                "The number of neighbor pairs exceeds the maximum capacity of " +
-                std::to_string(extras->pairs_capacity) + " (max_pairs_per_point=" +
-                std::to_string(max_pairs_per_point) + "; n_points=" +
-                std::to_string(n_points) + "). " +
-                "Consider reducing the cutoff distance, or explicitly setting " +
-                "VESIN_CUDA_MAX_PAIRS_PER_POINT as an environment variable."
-            );
-        }
     }
-
-    finalize_output(n_points, options, neighbors);
 }

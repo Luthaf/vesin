@@ -291,28 +291,13 @@ def test_dtype(dtype):
 
 def test_max_pairs():
     """
-    With the default VESIN_CUDA_MAX_PAIRS_PER_POINT=512 and 100 points,
-    a cutoff of 4.0 generates too many pairs and should raise an error.
+    With VESIN_CUDA_MAX_PAIRS_PER_POINT=10 and 100 points, a cutoff of 9.0
+    in a 15.0 box generates too many pairs and should raise an error.
     """
     dtype = cp.float64
 
-    box = cp.eye(3, dtype=dtype) * 3.0
-    points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 3.0)
-
-    message = (
-        "The number of neighbor pairs exceeds the maximum capacity of 12800 "
-        "\\(max_pairs_per_point=128; n_points=100\\). Consider reducing the "
-        "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
-        "an environment variable."
-    )
-    calculator = NeighborList(cutoff=4, full_list=True)
-    with pytest.raises(RuntimeError, match=message):
-        _ = calculator.compute(points, box, True, "ijSDd")
-
-    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "1000"
-    # This should now work without error
-    calculator = NeighborList(cutoff=4, full_list=True)
-    _ = calculator.compute(points, box, True, "ijSDd")
+    box = cp.eye(3, dtype=dtype) * 20.0
+    points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 20.0)
 
     os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "10"
     message = (
@@ -321,15 +306,19 @@ def test_max_pairs():
         "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
         "an environment variable."
     )
-    # error message should show the new value of VESIN_CUDA_MAX_PAIRS_PER_POINT
-    calculator = NeighborList(cutoff=4, full_list=True)
+    calculator = NeighborList(cutoff=9, full_list=True, algorithm="brute_force")
     with pytest.raises(RuntimeError, match=message):
         _ = calculator.compute(points, box, True, "ijSDd")
+
+    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "1000"
+    # This should now work without error
+    calculator = NeighborList(cutoff=9, full_list=True, algorithm="brute_force")
+    _ = calculator.compute(points, box, True, "ijSDd")
 
     for invalid in ["-3", "44 ABC", "0", "-1", "1.5", ""]:
         os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = invalid
         message = f"Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '{invalid}'"
-        calculator = NeighborList(cutoff=4, full_list=True)
+        calculator = NeighborList(cutoff=9, full_list=True, algorithm="brute_force")
         with pytest.raises(RuntimeError, match=message):
             _ = calculator.compute(points, box, True, "ijSDd")
 

@@ -17,6 +17,7 @@ if (VALGRIND)
     set(TEST_COMMAND
         "${VALGRIND}" "--tool=memcheck" "--dsymutil=yes" "--error-exitcode=125"
         "--leak-check=full" "--show-leak-kinds=definite,indirect,possible" "--track-origins=yes"
+        "--suppressions=${CMAKE_CURRENT_SOURCE_DIR}/valgrind.supp"
         "--gen-suppressions=all"
     )
 else()

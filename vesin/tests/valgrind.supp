@@ -1,0 +1,46 @@
+{
+   cuda_driver_dlopen
+   Memcheck:Leak
+   fun:malloc
+   obj:*
+   obj:*
+   obj:*
+   fun:call_init
+   fun:_dl_init
+   fun:_dl_catch_exception
+   fun:dl_open_worker
+   fun:dl_open_worker
+   fun:_dl_catch_exception
+   fun:_dl_open
+   fun:dlopen_doit
+   fun:_dl_catch_exception
+   fun:_dl_catch_error
+}
+{
+   cuda_driver_calloc
+   Memcheck:Leak
+   fun:calloc
+   obj:*/libcuda.so*
+   obj:*/libcuda.so*
+}
+{
+   cuda_driver_malloc
+   Memcheck:Leak
+   fun:malloc
+   obj:*/libcuda.so*
+   obj:*/libcuda.so*
+}
+{
+   cuda_driver_realloc
+   Memcheck:Leak
+   fun:realloc
+   obj:*/libcuda.so*
+}
+{
+   cuda_driver_thread
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:pthread_create*
+   obj:*/libcuda.so*
+}

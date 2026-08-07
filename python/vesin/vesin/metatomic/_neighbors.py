@@ -13,7 +13,15 @@ try:
 except ImportError:
 
     class NeighborListTorch:
-        def __init__(self, cutoff: float, full_list: bool, skin: float = 0.0):
+        def __init__(
+            self,
+            cutoff: float,
+            full_list: bool,
+            sorted: bool = False,
+            algorithm: str = "auto",
+            skin: float = 0.0,
+            n_threads: int = 0,
+        ):
             raise ValueError("torchscript=True requires `vesin-torch` as a dependency")
 
         def compute(
@@ -42,7 +50,10 @@ class NeighborList:
         length_unit: str,
         torchscript: bool = False,
         check_consistency: bool = False,
-        skin: float = 2.0,
+        sorted: bool = False,
+        algorithm: str = "auto",
+        skin: float = -1.0,
+        n_threads: int = 0,
     ):
         """
         :param options: :py:class:`metatomic.torch.NeighborListOptions` defining the
@@ -52,7 +63,16 @@ class NeighborList:
             or not. If ``True``, this requires installing the ``vesin-torch`` package.
         :param check_consistency: whether to run additional checks on the neighbor list
             validity
-        :param skin: the skin to use for the Verlet list in the NL calculation
+        :param sorted: Ignored, the output is always sorted by ``i``.
+        :param algorithm: algorithm to use when computing the neighbor list. One of
+            ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
+        :param skin: the skin to use for the Verlet list in the NL calculation. A
+            negative value (the default) sets the skin to an unspecified fraction of the
+            cutoff that is optimal for the current implementation. Zero disables
+            caching.
+        :param n_threads: number of CPU threads to use. Must be 0 or a positive integer.
+            If set to 0, Vesin uses ``OMP_NUM_THREADS`` when set to a positive integer,
+            and otherwise the number of available CPU cores.
 
         Example
         -------
@@ -77,7 +97,7 @@ class NeighborList:
         >>>
         >>> # The returned TensorBlock can then be registered with the system
         >>> system.add_neighbor_list(options, neighbors)
-        """  # noqa: E501
+        """
 
         self.options = options
         self.length_unit = length_unit
@@ -87,13 +107,19 @@ class NeighborList:
             self._nl = NeighborListTorch(
                 cutoff=self.options.engine_cutoff(self.length_unit),
                 full_list=self.options.full_list,
+                sorted=sorted,
+                algorithm=algorithm,
                 skin=skin,
+                n_threads=n_threads,
             )
         else:
             self._nl = NeighborListNumpy(
                 cutoff=self.options.engine_cutoff(self.length_unit),
                 full_list=self.options.full_list,
+                sorted=sorted,
+                algorithm=algorithm,
                 skin=skin,
+                n_threads=n_threads,
             )
 
         # cached Labels

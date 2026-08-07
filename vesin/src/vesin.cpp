@@ -77,8 +77,9 @@ extern "C" int vesin_neighbors(
         return EXIT_FAILURE;
     }
 
-    if (!std::isfinite(options.skin) || options.skin < 0.0) {
-        *error_message = "skin must be a finite, non-negative number";
+    if (!std::isfinite(options.skin)) {
+        *error_message = "skin must be a finite number";
+        return EXIT_FAILURE;
     }
 
     if (options.n_threads < 0) {
@@ -106,6 +107,17 @@ extern "C" int vesin_neighbors(
 
     try {
         options.n_threads = static_cast<int32_t>(resolve_n_threads(options.n_threads));
+
+        if (options.skin < 0.0) {
+            if (device.type == VesinCPU) {
+                // verlet filtering is a lot slower on CPU, so we use a smaller
+                // skin. This might require more frequent neighbor list updates,
+                // but the overall performance should be better.
+                options.skin = 0.1 * options.cutoff;
+            } else {
+                options.skin = 0.25 * options.cutoff;
+            }
+        }
 
         if (device.type == VesinCPU) {
             auto matrix = vesin::Matrix{{{

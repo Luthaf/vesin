@@ -89,12 +89,14 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
-        :param skin: skin size for Verlet caching. A positive value enables
-            caching the neighbor list until any atom moves farther than
-            ``skin/2`` from its reference coordinates.
-        :param n_threads: number of CPU threads to use. Must be 0 or a positive
-            integer. If set to 0, Vesin uses ``OMP_NUM_THREADS`` when set to a
-            positive integer, and otherwise the number of available CPU cores.
+        :param skin: skin size for Verlet caching. A positive value enables caching the
+            neighbor list until any atom moves farther than ``skin/2`` from its
+            reference coordinates. A negative value sets the skin to an unspecified
+            fraction of the cutoff that is optimal for the current implementation. Zero
+            disables caching (the default).
+        :param n_threads: number of CPU threads to use. Must be 0 or a positive integer.
+            If set to 0, Vesin uses ``OMP_NUM_THREADS`` when set to a positive integer,
+            and otherwise the number of available CPU cores.
         """
         self._lib = get_library()
         self.cutoff = float(cutoff)

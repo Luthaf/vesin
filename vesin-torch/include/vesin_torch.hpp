@@ -47,7 +47,8 @@ public:
     ///        of `"auto"`, `"brute_force"`, or `"cell_list"`.
     /// @param skin skin size for Verlet caching. A positive value enables
     ///        caching the neighbor list until any atom moves farther than
-    ///        ``skin/2`` from its reference coordinates.
+    ///        ``skin/2`` from its reference coordinates. A negative value
+    ///        sets the skin to an optimal fraction of the cutoff.
     /// @param n_threads number of CPU threads to use. Must be zero or positive.
     ///        A value of 0 lets Vesin choose from `OMP_NUM_THREADS` or CPU cores.
     NeighborListHolder(

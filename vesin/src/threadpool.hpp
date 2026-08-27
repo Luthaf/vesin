@@ -38,6 +38,15 @@ struct Scheduling {
     static Scheduling dynamic(size_t chunk = 256) { return {Dynamic, chunk}; }
 };
 
+/// Decide whether running an operation on the thread pool is worth its
+/// dispatch overhead.
+///
+/// `serial_cost_us` is an estimate, in microseconds, of how long the whole
+/// operation takes on a single thread, and `n_run_calls` the number of
+/// `ThreadPool::run` calls it is split into. Returns `thread_count` when
+/// running in parallel should be faster, and 1 otherwise.
+size_t pick_n_threads(double serial_cost_us, size_t n_run_calls, size_t thread_count);
+
 /// Small reusable thread pool for CPU parallel regions.
 ///
 /// The pool always creates one worker slot per available CPU core (according to

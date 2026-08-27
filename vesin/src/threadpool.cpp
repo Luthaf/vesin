@@ -1,6 +1,7 @@
 #include "threadpool.hpp"
 
 #include <algorithm>
+#include <chrono>
 
 using namespace vesin::cpu;
 
@@ -153,6 +154,42 @@ void ThreadPool::execute_assigned_tasks(size_t thread_id, size_t active_threads)
         auto end = ((thread_id + 1) * n_tasks_) / active_threads;
         run_chunk(begin, end);
     }
+}
+
+static double measure_dispatch_cost_us() {
+    constexpr int N_ITERS = 10;
+
+    auto& pool = ThreadPool::global();
+
+    // Ensure workers exist so we measure steady-state cost, not thread creation.
+    pool.run(1, 1, Scheduling::dynamic(128), [](size_t, size_t) {});
+
+    auto n_threads = pool.max_threads();
+
+    double elapsed = 0.0;
+    for (int rep = 0; rep < N_ITERS; rep++) {
+        auto start = std::chrono::high_resolution_clock::now();
+
+        pool.run(n_threads, 2 * n_threads, Scheduling::dynamic(128), [](size_t, size_t) {});
+
+        auto stop = std::chrono::high_resolution_clock::now();
+        elapsed += std::chrono::duration<double, std::micro>(stop - start).count();
+    }
+
+    return elapsed / N_ITERS;
+}
+
+size_t vesin::cpu::pick_n_threads(double serial_cost_us, size_t n_run_calls, size_t thread_count) {
+    if (thread_count <= 1) {
+        return 1;
+    }
+
+    static const double DISPATCH_COST_US = measure_dispatch_cost_us();
+
+    auto parallel_cost = static_cast<double>(n_run_calls) * DISPATCH_COST_US
+                       + serial_cost_us / static_cast<double>(thread_count);
+
+    return parallel_cost > serial_cost_us ? 1 : thread_count;
 }
 
 

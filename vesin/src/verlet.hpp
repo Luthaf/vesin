@@ -50,6 +50,11 @@ struct VerletBuffersCPU {
     std::vector<Vector> candidates_vectors;
     /// Scratch buffer containing squared distances for all candidates
     std::vector<double> candidates_distances_sq;
+
+    /// Measured cost of filtering a single candidate on a single thread, in
+    /// microseconds. <0 until the first call to `VerletList::filter()` has
+    /// measured it.
+    double candidate_cost_us = -1.0;
 };
 
 /// On-CPU Verlet neighbor list.

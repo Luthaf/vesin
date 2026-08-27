@@ -1,4 +1,5 @@
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 
@@ -10,7 +11,9 @@
 #include "threadpool.hpp"
 #include "verlet.hpp"
 
+using namespace vesin;
 using namespace vesin::cpu;
+
 static void free_extra_data(VesinNeighborList& neighbors) {
     delete static_cast<ExtraDataCpu*>(neighbors.opaque);
     neighbors.opaque = nullptr;
@@ -30,6 +33,68 @@ static void validate_algorithm(VesinOptions options) {
     }
 }
 
+static double measure_check_cost_us() {
+    constexpr int N_ITERS = 10;
+
+    // this is roughly a diamond cubic unit cell, with 8 atoms in a 2x2x2
+    // supercell
+    double A = 2.5222;
+    auto points = std::vector<Vector>{
+        {0.0,      0.0,      0.0},
+        {0.25*A,   0.25*A,   0.25*A},
+        {0.0,      0.5*A,    0.5*A},
+        {0.25*A,   0.75*A,   0.75*A},
+        {0.5*A,    0.0,      0.5*A},
+        {0.75*A,   0.25*A,   0.75*A},
+        {0.5*A,    0.5*A,    0.0},
+        {0.75*A,   0.75*A,   0.25*A},
+    };
+
+    std::array<std::array<double, 3>, 3> matrix = {{
+        {{A, 0.0, 0.0}}, {{0.0, A, 0.0}}, {{0.0, 0.0, A}}
+    }};
+    bool pbc[3] = {true, true, true};
+    auto bounding_box = BoundingBox(matrix, pbc);
+
+    CellListBuffersCPU buffers;
+    auto cell_list = CellList(buffers, std::move(bounding_box), 3.0);
+    cell_list.build(points.data(), points.size());
+
+    auto cells_searched = static_cast<double>(
+        (2 * cell_list.n_search()[0] + 1) *
+        (2 * cell_list.n_search()[1] + 1) *
+        (2 * cell_list.n_search()[2] + 1)
+    );
+    auto n_cells_total = cell_list.n_cells()[0] * cell_list.n_cells()[1] * cell_list.n_cells()[2];
+    auto atoms_per_cell = static_cast<double>(points.size()) / static_cast<double>(n_cells_total);
+    auto total_checks = cells_searched * atoms_per_cell * static_cast<double>(points.size());
+    assert(total_checks > 0);
+
+    auto options = VesinOptions{};
+    options.cutoff = 3.0;
+    options.full = true;
+    options.return_shifts = false;
+    options.return_distances = false;
+    options.return_vectors = false;
+
+    double elapsed = 0.0;
+    volatile size_t prevent_optimizations = 0;
+    for (int rep = 0; rep < N_ITERS; rep++) {
+        auto start = std::chrono::high_resolution_clock::now();
+
+        size_t count = 0;
+        for (size_t si = 0; si < points.size(); si++) {
+            cell_list.foreach_neighbor_of(si, options, [&](size_t, CellShift, Vector, double) { count++; });
+        }
+        prevent_optimizations += count;
+
+        auto end = std::chrono::high_resolution_clock::now();
+        elapsed += std::chrono::duration<double, std::micro>(end - start).count();
+    }
+
+    return (elapsed / N_ITERS) / total_checks;
+}
+
 void vesin::cpu::cell_list_neighbors(
     const Vector* points,
     size_t n_points,
@@ -45,8 +110,34 @@ void vesin::cpu::cell_list_neighbors(
     cell_list.build(points, n_points);
 
     auto& thread_pool = ThreadPool::global();
+
+    // Determine the number of threads to use based on the number of points and
+    // the estimated cost of parallelization. For small number of points (below
+    // ~200), the overhead can be higher than just running serially.
     auto thread_count = std::max<size_t>(1, static_cast<size_t>(options.n_threads));
     thread_count = std::min(thread_count, n_points);
+
+    auto n_cells_total = cell_list.n_cells()[0] * cell_list.n_cells()[1] * cell_list.n_cells()[2];
+    if (n_cells_total > 0 && n_points > 0) {
+        auto cells_searched = static_cast<double>(
+            (2 * cell_list.n_search()[0] + 1) *
+            (2 * cell_list.n_search()[1] + 1) *
+            (2 * cell_list.n_search()[2] + 1)
+        );
+        auto mean_atoms_per_cell = static_cast<double>(n_points) / static_cast<double>(n_cells_total);
+        auto n_pairs_to_check = cells_searched * mean_atoms_per_cell * static_cast<double>(n_points);
+
+        static const double CHECK_COST_US = measure_check_cost_us();
+        thread_count = pick_n_threads(n_pairs_to_check * CHECK_COST_US, 2, thread_count);
+    }
+
+    // Try to have at least `CHUNKS_PER_THREAD` chunks per thread up to
+    // `MAX_CHUNK_SIZE` points per chunk.
+    constexpr size_t CHUNKS_PER_THREAD = 4;
+    constexpr size_t MAX_CHUNK_SIZE = 128;
+    auto chunk_size = std::clamp<size_t>(
+        n_points / (CHUNKS_PER_THREAD * std::max<size_t>(1, thread_count)), 1, MAX_CHUNK_SIZE
+    );
 
     // First count all neighbours per point.
     buffers.count.assign(n_points + 1, 0);

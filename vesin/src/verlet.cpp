@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -200,10 +201,7 @@ void cpu::VerletList::filter(
         buffers_.candidates_vectors.resize(n_candidates);
     }
 
-    auto& thread_pool = ThreadPool::global();
-    auto thread_count = std::max<size_t>(1, static_cast<size_t>(options.n_threads));
-
-    thread_pool.run(thread_count, n_blocks, Scheduling::dynamic(1), [&](size_t block, size_t) {
+    auto count_block = [&](size_t block, size_t) {
         auto begin = block * FILTER_BLOCK_SIZE;
         auto end = std::min(begin + FILTER_BLOCK_SIZE, n_candidates);
         auto* pairs = buffers_.candidates.pairs;
@@ -239,7 +237,30 @@ void cpu::VerletList::filter(
             }
         }
         buffers_.block_counts[block] = count;
-    });
+    };
+
+    auto& thread_pool = ThreadPool::global();
+    auto thread_count = std::max<size_t>(1, static_cast<size_t>(options.n_threads));
+    thread_count = std::min(thread_count, n_blocks);
+
+    // Time the first run to measure the cost of filtering a single candidate on
+    // a single thread. This means the first call to `VerletList::filter()` is
+    // always single, but subsequent calls can pick the best number of threads.
+    //
+    // Because filtering is mostly memory-bound, we can not just measure the
+    // time taken by a small system (which would fit in CPU cache) like we do in
+    // the cell list.
+    auto measuring = buffers_.candidate_cost_us <= 0.0;
+    if (measuring) {
+        thread_count = 1;
+    } else {
+        auto serial_cost = buffers_.candidate_cost_us * static_cast<double>(n_candidates);
+        thread_count = pick_n_threads(serial_cost, 2, thread_count);
+    }
+
+    auto start = std::chrono::steady_clock::now();
+
+    thread_pool.run(thread_count, n_blocks, Scheduling::dynamic(1), count_block);
 
     // Prefix sum -> write offset of each block in the output array.
     size_t offset = 0;
@@ -289,6 +310,13 @@ void cpu::VerletList::filter(
             }
         }
     });
+
+    if (measuring && n_candidates > 0) {
+        auto elapsed = std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - start
+        ).count();
+        buffers_.candidate_cost_us = elapsed / static_cast<double>(n_candidates);
+    }
 
     neighbors.length = n_filtered;
     output_capacity = growable.capacity;

@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from _utils import TEST_SYSTEMS, algorithm_is_applicable
+from _utils import (
+    TEST_SYSTEMS,
+    algorithm_is_applicable,
+    canonicalize_half_pairs,
+)
 from vesin import NeighborList
 
 
@@ -68,6 +72,11 @@ def test_gpu_matches_cpu(system, cutoff, full_list, gpu_algorithm, sorted, trans
         algorithm="cell_list",
         sorted=sorted,
     )
+    if not full_list:
+        cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = canonicalize_half_pairs(
+            cpu_i, cpu_j, cpu_S, cpu_D, cpu_d
+        )
+
     cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = sort_neighbors(
         cpu_i,
         cpu_j,
@@ -86,12 +95,21 @@ def test_gpu_matches_cpu(system, cutoff, full_list, gpu_algorithm, sorted, trans
         sorted=sorted,
     )
 
-    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = sort_neighbors(
+    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = (
         cp.asnumpy(gpu_i),
         cp.asnumpy(gpu_j),
         cp.asnumpy(gpu_S),
         cp.asnumpy(gpu_D),
         cp.asnumpy(gpu_d),
+    )
+
+    if not full_list:
+        gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = canonicalize_half_pairs(
+            gpu_i, gpu_j, gpu_S, gpu_D, gpu_d
+        )
+
+    gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = sort_neighbors(
+        gpu_i, gpu_j, gpu_S, gpu_D, gpu_d
     )
 
     message = (

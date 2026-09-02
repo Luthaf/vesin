@@ -136,9 +136,16 @@ public:
 
     /// Iterate over all neighbours of the point at `sorted_i`, calling
     /// `callback(point_j, shift, vector, distance2)` for each pair that passes
-    /// the cutoff and the half-list filter (if `options.full` is false).
+    /// the cutoff. Dispatches to `foreach_neighbor_of_half()` or
+    /// `foreach_neighbor_of_full()` depending on `options.full`.
     template <typename Function>
-    void foreach_neighbor_of(size_t sorted_i, VesinOptions options, Function callback) const;
+    void foreach_neighbor_of(size_t sorted_i, VesinOptions options, Function callback) const {
+        if (options.full) {
+            this->foreach_neighbor_of_full(sorted_i, options, callback);
+        } else {
+            this->foreach_neighbor_of_half(sorted_i, options, callback);
+        }
+    }
 
     /// Original index of the point at sorted position `sorted`.
     size_t original_index(size_t sorted) const { return buffers_.original_index[sorted]; }
@@ -163,9 +170,28 @@ private:
     /// number of cells in all directions
     std::array<size_t, 3> n_cells_;
 
+    /// Canonical half of the cell-offset cube `[-n_search, n_search]^3`: for
+    /// every nonzero offset, keeps exactly one of `{v, -v}`. Used by
+    /// `foreach_neighbor_of_half()` to build a half neighbor list by visiting
+    /// each cell-to-cell pair once (instead of visiting the full cube and
+    /// discarding half of the discovered pairs after the fact).
+    std::vector<std::array<int32_t, 3>> half_offsets_;
+
     /// Compute the linear index of the cell containing a point at `position`,
     /// together with the periodic wrap shift used to place it inside the cell.
     std::pair<size_t, CellShift> point_cell(Vector position) const;
+
+    /// Half-list implementation of `foreach_neighbor_of()`: visits each
+    /// unordered pair of points below cutoff exactly once, using a canonical
+    /// half of the cell-offset cube (see `half_offsets_`).
+    template <typename Function>
+    void foreach_neighbor_of_half(size_t sorted_i, VesinOptions options, Function callback) const;
+
+    /// Full-list implementation of `foreach_neighbor_of()`: visits every
+    /// ordered pair of points below cutoff, scanning the full cell-offset
+    /// cube `[-n_search, n_search]^3`.
+    template <typename Function>
+    void foreach_neighbor_of_full(size_t sorted_i, VesinOptions options, Function callback) const;
 };
 
 /// Wrapper around `VesinNeighborList` that manages the output buffers,

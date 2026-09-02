@@ -591,7 +591,6 @@ __device__ inline void traverse_neighbors(
 
     const auto* wrapped_positions_d3 = reinterpret_cast<const double3*>(wrapped_positions);
     auto wrapped_i = wrapped_positions_d3[sorted_i];
-    auto point_i = sorted_indices[sorted_i];
     auto shift_i_x = sorted_shifts[sorted_i * 3 + 0];
     auto shift_i_y = sorted_shifts[sorted_i * 3 + 1];
     auto shift_i_z = sorted_shifts[sorted_i * 3 + 2];
@@ -632,6 +631,33 @@ __device__ inline void traverse_neighbors(
         while (index_y >= n_search_cells_y) {
             index_y -= n_search_cells_y;
             index_z += 1;
+        }
+
+        // For a half list, visit only a canonical half of the offset box: for
+        // every nonzero offset keep exactly one of `{v, -v}`, the one whose
+        // first nonzero component is positive in (x, y, z) order. Each pair of
+        // cells is then visited once instead of twice, and no pair has to be
+        // discarded after the fact.
+        //
+        // `(0, 0, 0)` is the same-cell case, which is kept and handled by the
+        // `first_k` bound below.
+        //
+        // The test sits before the wrap arithmetic and the `cell_starts` /
+        // `cell_counts` gathers, so a skipped offset costs three comparisons
+        // rather than a whole cell visit.
+        //
+        // Must stay identical to `build_half_offsets()` in cpu_cell_list.cpp:
+        // which half is canonical is arbitrary, but it decides which way round
+        // a pair comes out, and CPU and CUDA output is compared pair by pair.
+        bool same_cell = (dx == 0 && dy == 0 && dz == 0);
+        if (!full_list && !same_cell) {
+            bool canonical = (dx > 0)
+                || (dx == 0 && dy > 0)
+                || (dx == 0 && dy == 0 && dz > 0);
+
+            if (!canonical) {
+                continue;
+            }
         }
 
         int cell_j_x = cell_i_x + dx;
@@ -694,9 +720,16 @@ __device__ inline void traverse_neighbors(
         int start_j = cell_starts[cell_j];
         int count_j = cell_counts[cell_j];
 
-        for (int k = start_j; k < start_j + count_j; k++) {
-            // Skip self in the same cell
-            if (k == (int)sorted_i && dx == 0 && dy == 0 && dz == 0) {
+        // Within its own cell a half list takes only the atoms after this one,
+        // which is what makes each within-cell pair appear exactly once. A full
+        // list takes them all, skipping only the atom itself.
+        int first_k = start_j;
+        if (!full_list && same_cell) {
+            first_k = max(start_j, static_cast<int>(sorted_i) + 1);
+        }
+
+        for (int k = first_k; k < start_j + count_j; k++) {
+            if (full_list && same_cell && k == static_cast<int>(sorted_i)) {
                 continue;
             }
 
@@ -722,24 +755,6 @@ __device__ inline void traverse_neighbors(
             int total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
             int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
             int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
-
-            // Half-list filter
-            if (!full_list) {
-                if (point_i > orig_j) {
-                    continue;
-                }
-                if (point_i == orig_j) {
-                    int shift_sum = total_shift_x + total_shift_y + total_shift_z;
-                    if (shift_sum < 0) {
-                        continue;
-                    }
-                    if (shift_sum == 0) {
-                        if (total_shift_z < 0 || (total_shift_z == 0 && total_shift_y < 0)) {
-                            continue;
-                        }
-                    }
-                }
-            }
 
             emit(orig_j, total_shift_x, total_shift_y, total_shift_z, vec, dist2);
         }

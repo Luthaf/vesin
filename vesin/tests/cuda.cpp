@@ -2,6 +2,8 @@
 
 #ifdef VESIN_TESTS_WITH_CUDA
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <thread>
 
@@ -88,40 +90,57 @@ void run_cuda_test(int device_id) {
     check_cuda(cudaMemcpy(h_vectors, neighbors.vectors, sizeof(double) * neighbors.length * 3, cudaMemcpyDeviceToHost));
 
     for (size_t i = 0; i < neighbors.length; ++i) {
-        if (h_pairs[i][0] == 0 && h_pairs[i][1] == 2) {
+        // Which point of a half-list pair ends up as `i` and which as `j` is
+        // not guaranteed: `(i, j)` with some shift and `(j, i)` with the
+        // opposite shift describe the same pair. Canonicalize to `i < j` before
+        // comparing, like `Pair::canonicalize()` in neighbors.cpp does.
+        auto pair_i = h_pairs[i][0];
+        auto pair_j = h_pairs[i][1];
+        auto shift = std::array<int32_t, 3>{h_shifts[i][0], h_shifts[i][1], h_shifts[i][2]};
+        auto vector = std::array<double, 3>{h_vectors[i][0], h_vectors[i][1], h_vectors[i][2]};
+
+        if (pair_i > pair_j) {
+            std::swap(pair_i, pair_j);
+            for (size_t d = 0; d < 3; d++) {
+                shift[d] = -shift[d];
+                vector[d] = -vector[d];
+            }
+        }
+
+        if (pair_i == 0 && pair_j == 2) {
             // we have three pairs between 0 and 2 with shifts (-1, 0, 0),
             // (0, -1, 0), and (0, 0, -1)
             CHECK(h_distances[i] == std::sqrt(6.0));
 
-            if (h_shifts[i][0] == -1 && h_shifts[i][1] == 0 && h_shifts[i][2] == 0) {
-                CHECK(h_vectors[i][0] == 2.0);
-                CHECK(h_vectors[i][1] == -1.0);
-                CHECK(h_vectors[i][2] == -1.0);
-            } else if (h_shifts[i][0] == 0 && h_shifts[i][1] == -1 && h_shifts[i][2] == 0) {
-                CHECK(h_vectors[i][0] == -1.0);
-                CHECK(h_vectors[i][1] == 2.0);
-                CHECK(h_vectors[i][2] == -1.0);
-            } else if (h_shifts[i][0] == 0 && h_shifts[i][1] == 0 && h_shifts[i][2] == -1) {
-                CHECK(h_vectors[i][0] == -1.0);
-                CHECK(h_vectors[i][1] == -1.0);
-                CHECK(h_vectors[i][2] == 2.0);
+            if (shift[0] == -1 && shift[1] == 0 && shift[2] == 0) {
+                CHECK(vector[0] == 2.0);
+                CHECK(vector[1] == -1.0);
+                CHECK(vector[2] == -1.0);
+            } else if (shift[0] == 0 && shift[1] == -1 && shift[2] == 0) {
+                CHECK(vector[0] == -1.0);
+                CHECK(vector[1] == 2.0);
+                CHECK(vector[2] == -1.0);
+            } else if (shift[0] == 0 && shift[1] == 0 && shift[2] == -1) {
+                CHECK(vector[0] == -1.0);
+                CHECK(vector[1] == -1.0);
+                CHECK(vector[2] == 2.0);
             } else {
-                FAIL("Unexpected shift for pair (0, 2): (" + std::to_string(h_shifts[i][0]) + ", " + std::to_string(h_shifts[i][1]) + ", " + std::to_string(h_shifts[i][2]) + ")");
+                FAIL("Unexpected shift for pair (0, 2): (" + std::to_string(shift[0]) + ", " + std::to_string(shift[1]) + ", " + std::to_string(shift[2]) + ")");
             }
 
-        } else if ((h_pairs[i][0] == 0 && h_pairs[i][1] == 1) || (h_pairs[i][0] == 1 && h_pairs[i][1] == 2)) {
+        } else if ((pair_i == 0 && pair_j == 1) || (pair_i == 1 && pair_j == 2)) {
             // pairs between 0-1 or 1-2 should have zero shifts, distance
             // sqrt(3), and vector (1, 1, 1)
-            CHECK(h_shifts[i][0] == 0);
-            CHECK(h_shifts[i][1] == 0);
-            CHECK(h_shifts[i][2] == 0);
+            CHECK(shift[0] == 0);
+            CHECK(shift[1] == 0);
+            CHECK(shift[2] == 0);
 
             CHECK(h_distances[i] == std::sqrt(3.0));
-            CHECK(h_vectors[i][0] == 1.0);
-            CHECK(h_vectors[i][1] == 1.0);
-            CHECK(h_vectors[i][2] == 1.0);
+            CHECK(vector[0] == 1.0);
+            CHECK(vector[1] == 1.0);
+            CHECK(vector[2] == 1.0);
         } else {
-            FAIL("Unexpected pair: (" + std::to_string(h_pairs[i][0]) + ", " + std::to_string(h_pairs[i][1]) + ")");
+            FAIL("Unexpected pair: (" + std::to_string(pair_i) + ", " + std::to_string(pair_j) + ")");
         }
     }
 

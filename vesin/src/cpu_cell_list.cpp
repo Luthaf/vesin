@@ -266,6 +266,31 @@ static std::tuple<int32_t, int32_t> divmod(int32_t a, size_t b) {
     return std::make_tuple(quotient, remainder);
 }
 
+/// Build the canonical half of the cell-offset cube `[-n_search, n_search]^3`:
+/// for every nonzero offset, keep exactly one of `{v, -v}` (the one whose
+/// first nonzero component is positive). The excluded `(0, 0, 0)` offset is
+/// handled separately, as the same-cell case.
+static std::vector<std::array<int32_t, 3>> build_half_offsets(const std::array<int32_t, 3>& n_search) {
+    std::vector<std::array<int32_t, 3>> offsets;
+    offsets.reserve(
+        (2 * n_search[0] + 1) * (2 * n_search[1] + 1) * (2 * n_search[2] + 1) / 2 + 1
+    );
+    for (int32_t dz = -n_search[2]; dz <= n_search[2]; dz++) {
+        for (int32_t dy = -n_search[1]; dy <= n_search[1]; dy++) {
+            for (int32_t dx = -n_search[0]; dx <= n_search[0]; dx++) {
+                if (dx == 0 && dy == 0 && dz == 0) {
+                    continue;
+                }
+                bool positive = (dx > 0) || (dx == 0 && dy > 0) || (dx == 0 && dy == 0 && dz > 0);
+                if (positive) {
+                    offsets.push_back({dx, dy, dz});
+                }
+            }
+        }
+    }
+    return offsets;
+}
+
 /// Apply the `divmod` function to three components at the time
 static std::tuple<std::array<int32_t, 3>, std::array<int32_t, 3>>
 divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
@@ -351,6 +376,8 @@ CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff):
             }
         }
     }
+
+    half_offsets_ = build_half_offsets(n_search_);
 }
 
 std::pair<size_t, vesin::CellShift> CellList::point_cell(Vector position) const {
@@ -411,10 +438,102 @@ void CellList::build(const Vector* points, size_t n_points) {
 }
 
 template <typename Function>
-void CellList::foreach_neighbor_of(size_t sorted_i, VesinOptions options, Function callback) const {
+void CellList::foreach_neighbor_of_half(size_t sorted_i, VesinOptions options, Function callback) const {
     auto cutoff2 = options.cutoff * options.cutoff;
 
-    auto point_i = buffers_.original_index[sorted_i];
+    // Find cell coordinates by looking up which cell contains si.
+    // Since points are sorted by cell, binary search cell_start_ for si.
+    auto it = std::upper_bound(buffers_.cell_start.begin(), buffers_.cell_start.end(), sorted_i);
+    auto cell_idx = static_cast<size_t>(it - buffers_.cell_start.begin()) - 1;
+
+    auto cell_idx_x = static_cast<int32_t>(cell_idx % n_cells_[0]);
+    auto cell_idx_y = static_cast<int32_t>((cell_idx / n_cells_[0]) % n_cells_[1]);
+    auto cell_idx_z = static_cast<int32_t>(cell_idx / (n_cells_[0] * n_cells_[1]));
+
+    auto shift_i = buffers_.sorted_shifts[sorted_i];
+    const auto& wrapped_i = buffers_.wrapped_positions[sorted_i];
+    const auto& matrix = box_.matrix();
+
+    // Same-cell pairs
+    auto end_same = buffers_.cell_start[cell_idx] + buffers_.cell_count[cell_idx];
+    for (size_t sorted_j = sorted_i + 1; sorted_j < end_same; sorted_j++) {
+        auto vector = buffers_.wrapped_positions[sorted_j] - wrapped_i;
+        auto distance2 = vector.dot(vector);
+        if (distance2 >= cutoff2) {
+            continue;
+        }
+
+        auto point_j = buffers_.original_index[sorted_j];
+        auto shift = shift_i - buffers_.sorted_shifts[sorted_j];
+        callback(point_j, shift, vector, distance2);
+    }
+
+    // Cross-cell pairs: `half_offsets_` keeps exactly one of `{v, -v}` for
+    // every nonzero cell offset, so every cell-to-cell pair of points is
+    // visited exactly once overall (from the cell reached by the canonical
+    // direction).
+    for (const auto& offset : half_offsets_) {
+        int32_t cell_shift_x = 0;
+        int32_t nx = cell_idx_x + offset[0];
+        if (box_.periodic(0)) {
+            auto [q, r] = divmod(nx, static_cast<int32_t>(n_cells_[0]));
+            cell_shift_x = q;
+            nx = r;
+        } else if (nx < 0 || nx >= static_cast<int32_t>(n_cells_[0])) {
+            continue;
+        }
+
+        int32_t cell_shift_y = 0;
+        int32_t ny = cell_idx_y + offset[1];
+        if (box_.periodic(1)) {
+            auto [q, r] = divmod(ny, static_cast<int32_t>(n_cells_[1]));
+            cell_shift_y = q;
+            ny = r;
+        } else if (ny < 0 || ny >= static_cast<int32_t>(n_cells_[1])) {
+            continue;
+        }
+
+        int32_t cell_shift_z = 0;
+        int32_t nz = cell_idx_z + offset[2];
+        if (box_.periodic(2)) {
+            auto [q, r] = divmod(nz, static_cast<int32_t>(n_cells_[2]));
+            cell_shift_z = q;
+            nz = r;
+        } else if (nz < 0 || nz >= static_cast<int32_t>(n_cells_[2])) {
+            continue;
+        }
+
+        auto cell_shift_vec = Vector{matrix[0]} * static_cast<double>(cell_shift_x)
+                             + Vector{matrix[1]} * static_cast<double>(cell_shift_y)
+                             + Vector{matrix[2]} * static_cast<double>(cell_shift_z);
+
+        size_t neighbor_cell_idx = (n_cells_[0] * n_cells_[1] * static_cast<size_t>(nz))
+                                 + (n_cells_[0] * static_cast<size_t>(ny))
+                                 + static_cast<size_t>(nx);
+
+        size_t begin_j = buffers_.cell_start[neighbor_cell_idx];
+        size_t end_j = begin_j + buffers_.cell_count[neighbor_cell_idx];
+
+        for (size_t sorted_j = begin_j; sorted_j < end_j; sorted_j++) {
+            auto vector = buffers_.wrapped_positions[sorted_j] - wrapped_i + cell_shift_vec;
+            auto distance2 = vector.dot(vector);
+
+            if (distance2 >= cutoff2) {
+                continue;
+            }
+
+            auto point_j = buffers_.original_index[sorted_j];
+            auto shift = CellShift(cell_shift_x, cell_shift_y, cell_shift_z) + shift_i - buffers_.sorted_shifts[sorted_j];
+
+            callback(point_j, shift, vector, distance2);
+        }
+    }
+}
+
+template <typename Function>
+void CellList::foreach_neighbor_of_full(size_t sorted_i, VesinOptions options, Function callback) const {
+    auto cutoff2 = options.cutoff * options.cutoff;
+
     // Find cell coordinates by looking up which cell contains si.
     // Since points are sorted by cell, binary search cell_start_ for si.
     auto it = std::upper_bound(buffers_.cell_start.begin(), buffers_.cell_start.end(), sorted_i);
@@ -486,41 +605,8 @@ void CellList::foreach_neighbor_of(size_t sorted_i, VesinOptions options, Functi
 
                     // Compute shift only for pairs that pass the cutoff.
                     auto point_j = buffers_.original_index[sorted_j];
-                    auto shift = CellShift(cell_shift_x, cell_shift_y, cell_shift_z) + shift_i - buffers_.sorted_shifts[sorted_j];
-
-                    if (!options.full) {
-                        // filter out some pairs for half neighbor lists
-                        if (point_i > point_j) {
-                            continue;
-                        }
-
-                        if (point_i == point_j) {
-                            // When creating pairs between a point and one of its periodic
-                            // images, the code generate multiple redundant pairs (e.g. with
-                            // shifts 0 1 1 and 0 -1 -1); and we want to only keep one of
-                            // these.
-                            if (shift[0] + shift[1] + shift[2] < 0) {
-                                // drop shifts on the negative half-space
-                                continue;
-                            }
-
-                            if ((shift[0] + shift[1] + shift[2] == 0) && (shift[2] < 0 || (shift[2] == 0 && shift[1] < 0))) {
-                                // drop shifts in the negative half plane or the negative
-                                // shift[1] axis. See below for a graphical representation:
-                                // we are keeping the shifts indicated with `O` and dropping
-                                // the ones indicated with `X`
-                                //
-                                //  O O O │ O O O
-                                //  O O O │ O O O
-                                //  O O O │ O O O
-                                // ─X─X─X─┼─O─O─O─
-                                //  X X X │ X X X
-                                //  X X X │ X X X
-                                //  X X X │ X X X
-                                continue;
-                            }
-                        }
-                    }
+                    auto shift = CellShift(cell_shift_x, cell_shift_y, cell_shift_z)
+                               + shift_i - buffers_.sorted_shifts[sorted_j];
 
                     callback(point_j, shift, vector, distance2);
                 }

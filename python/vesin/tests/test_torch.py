@@ -66,6 +66,15 @@ def test_large_box_small_cutoff(full_list, device):
     assert len(i) == len(S)
     assert len(i) == (8 if full_list else 4)
 
+    if not full_list:
+        # Half-list pair ordering is not guaranteed to be stable, only the
+        # underlying set of physical pairs; canonicalize (i, j) to have i < j
+        # (and correspondingly negate the shift/vector) before comparing.
+        swap = i > j
+        i, j = torch.where(swap, j, i), torch.where(swap, i, j)
+        S = torch.where(swap.unsqueeze(-1), -S, S)
+        D = torch.where(swap.unsqueeze(-1), -D, D)
+
     pairs = torch.stack((i, j), axis=1)
     sort_idx = torch.argsort(pairs[:, 0] * (i.max() + 1) + pairs[:, 1])
 

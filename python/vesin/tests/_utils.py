@@ -268,3 +268,46 @@ TEST_SYSTEMS = [
     non_periodic_points_outside_box(),
     issue_153(),
 ]
+
+# Half-list pair direction is not part of the contract: both cell lists pick
+# which atom of a pair comes out as `i` from the offset between the two cells,
+# so it depends on the grid -- and the grid depends on the cutoff (Verlet builds
+# its candidates at `cutoff + skin`) and on the backend (the CPU puts one cell
+# per cutoff, CUDA picks several). The same physical pair can therefore come out
+# as `(i, j, S)` from one call and `(j, i, -S)` from another.
+#
+# These two apply the same canonicalization, one to (i, j, shift) tuples and one
+# to whole arrays; keep them in agreement.
+
+
+def canonical_half_pair(i, j, sx, sy, sz):
+    """Canonicalize one half-list pair given as a tuple of scalars."""
+    if i > j:
+        return (j, i, -sx, -sy, -sz)
+    if i == j:
+        # `i > j` cannot separate a pair of an atom with its own periodic
+        # image, so those are canonicalized on the shift instead
+        total = sx + sy + sz
+        if total < 0 or (total == 0 and (sz < 0 or (sz == 0 and sy < 0))):
+            return (i, j, -sx, -sy, -sz)
+    return (i, j, sx, sy, sz)
+
+
+def canonicalize_half_pairs(i, j, S, D, d):
+    """Canonicalize half-list pairs given as arrays, negating `S` and `D` with
+    the swap and leaving `d` alone. The inputs are not modified."""
+    i, j, S, D = i.copy(), j.copy(), S.copy(), D.copy()
+
+    swap = i > j
+
+    total = S.sum(axis=1)
+    swap |= (i == j) & (
+        (total < 0)
+        | ((total == 0) & ((S[:, 2] < 0) | ((S[:, 2] == 0) & (S[:, 1] < 0))))
+    )
+
+    i[swap], j[swap] = j[swap], i[swap]
+    S[swap] = -S[swap]
+    D[swap] = -D[swap]
+
+    return i, j, S, D, d

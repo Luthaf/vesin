@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <vector>
 
@@ -9,6 +10,50 @@ using namespace Catch::Matchers;
 #include <vesin.h>
 
 #define CHECK_APPROX_EQUAL(a, b) CHECK_THAT(a, WithinULP(b, 4));
+
+/// A single neighbor list entry, used to compare actual and expected
+/// half-list output independently of pair ordering (see `canonicalize`).
+struct Pair {
+    size_t i = 0;
+    size_t j = 0;
+    std::array<int32_t, 3> shift = {0, 0, 0};
+    double distance = 0.0;
+    std::array<double, 3> vector = {0.0, 0.0, 0.0};
+
+    /// Canonicalize a half-list pair so that swapping which point is `i` vs `j`
+    /// (and correspondingly negating the shift/vector) does not affect comparison.
+    void canonicalize() {
+        bool negate = false;
+        if (this->i > this->j) {
+            std::swap(this->i, this->j);
+            negate = true;
+        } else if (this->i == this->j) {
+            auto total = this->shift[0] + this->shift[1] + this->shift[2];
+            if (total < 0 || (total == 0 && (this->shift[2] < 0 || (this->shift[2] == 0 && this->shift[1] < 0)))) {
+                negate = true;
+            }
+        }
+
+        if (negate) {
+            for (size_t d = 0; d < 3; d++) {
+                this->shift[d] = -this->shift[d];
+                this->vector[d] = -this->vector[d];
+            }
+        }
+    }
+};
+
+
+
+static bool by_canonical_key(const Pair& a, const Pair& b) {
+    if (a.i != b.i) {
+        return a.i < b.i;
+    }
+    if (a.j != b.j) {
+        return a.j < b.j;
+    }
+    return a.shift < b.shift;
+}
 
 static void check_neighbors(
     const double (*points)[3],
@@ -47,36 +92,119 @@ static void check_neighbors(
     REQUIRE(status == EXIT_SUCCESS);
     REQUIRE(error_message == nullptr);
 
+    auto n = neighbors.length;
     if (!expected_pairs.empty()) {
-        REQUIRE(neighbors.length == expected_pairs.size());
-        for (size_t i = 0; i < neighbors.length; i++) {
-            CHECK(neighbors.pairs[i][0] == expected_pairs[i][0]);
-            CHECK(neighbors.pairs[i][1] == expected_pairs[i][1]);
-        }
+        REQUIRE(n == expected_pairs.size());
     }
-
     if (!expected_shifts.empty()) {
-        REQUIRE(neighbors.length == expected_shifts.size());
-        for (size_t i = 0; i < neighbors.length; i++) {
-            CHECK(neighbors.shifts[i][0] == expected_shifts[i][0]);
-            CHECK(neighbors.shifts[i][1] == expected_shifts[i][1]);
-            CHECK(neighbors.shifts[i][2] == expected_shifts[i][2]);
-        }
+        REQUIRE(n == expected_shifts.size());
     }
-
     if (!expected_distances.empty()) {
-        REQUIRE(neighbors.length == expected_distances.size());
-        for (size_t i = 0; i < neighbors.length; i++) {
-            CHECK_APPROX_EQUAL(neighbors.distances[i], expected_distances[i]);
-        }
+        REQUIRE(n == expected_distances.size());
+    }
+    if (!expected_vectors.empty()) {
+        REQUIRE(n == expected_vectors.size());
     }
 
-    if (!expected_vectors.empty()) {
-        REQUIRE(neighbors.length == expected_vectors.size());
-        for (size_t i = 0; i < neighbors.length; i++) {
-            CHECK_APPROX_EQUAL(neighbors.vectors[i][0], expected_vectors[i][0]);
-            CHECK_APPROX_EQUAL(neighbors.vectors[i][1], expected_vectors[i][1]);
-            CHECK_APPROX_EQUAL(neighbors.vectors[i][2], expected_vectors[i][2]);
+    if (full_list || expected_pairs.empty()) {
+        // Full lists (and calls that don't check pairs at all) have no
+        // pair-ordering ambiguity: compare positionally, as before.
+        for (size_t i = 0; i < n; i++) {
+            if (!expected_pairs.empty()) {
+                CHECK(neighbors.pairs[i][0] == expected_pairs[i][0]);
+                CHECK(neighbors.pairs[i][1] == expected_pairs[i][1]);
+            }
+
+            if (!expected_shifts.empty()) {
+                CHECK(neighbors.shifts[i][0] == expected_shifts[i][0]);
+                CHECK(neighbors.shifts[i][1] == expected_shifts[i][1]);
+                CHECK(neighbors.shifts[i][2] == expected_shifts[i][2]);
+            }
+
+            if (!expected_distances.empty()) {
+                CHECK_APPROX_EQUAL(neighbors.distances[i], expected_distances[i]);
+            }
+
+            if (!expected_vectors.empty()) {
+                CHECK_APPROX_EQUAL(neighbors.vectors[i][0], expected_vectors[i][0]);
+                CHECK_APPROX_EQUAL(neighbors.vectors[i][1], expected_vectors[i][1]);
+                CHECK_APPROX_EQUAL(neighbors.vectors[i][2], expected_vectors[i][2]);
+            }
+        }
+    } else {
+        // Half lists: which point ends up as `i` vs `j` for a given pair is
+        // not guaranteed to be stable (see `canonicalize`), so compare the
+        // canonicalized records as an order-independent collection.
+        auto actual = std::vector<Pair>(n);
+        for (size_t i = 0; i < n; i++) {
+            actual[i].i = neighbors.pairs[i][0];
+            actual[i].j = neighbors.pairs[i][1];
+
+            if (!expected_shifts.empty()) {
+                actual[i].shift = std::array<int32_t, 3>{
+                    neighbors.shifts[i][0],
+                    neighbors.shifts[i][1],
+                    neighbors.shifts[i][2]
+                };
+            }
+
+            if (!expected_distances.empty()) {
+                actual[i].distance = neighbors.distances[i];
+            }
+
+            if (!expected_vectors.empty()) {
+                actual[i].vector = std::array<double, 3>{
+                    neighbors.vectors[i][0],
+                    neighbors.vectors[i][1],
+                    neighbors.vectors[i][2]
+                };
+            }
+
+            actual[i].canonicalize();
+        }
+
+        auto expected = std::vector<Pair>(n);
+        for (size_t i = 0; i < n; i++) {
+            expected[i].i = expected_pairs[i][0];
+            expected[i].j = expected_pairs[i][1];
+
+            if (!expected_shifts.empty()) {
+                expected[i].shift = expected_shifts[i];
+            }
+
+            if (!expected_distances.empty()) {
+                expected[i].distance = expected_distances[i];
+            }
+
+            if (!expected_vectors.empty()) {
+                expected[i].vector = expected_vectors[i];
+            }
+
+            expected[i].canonicalize();
+        }
+
+        std::sort(actual.begin(), actual.end(), by_canonical_key);
+        std::sort(expected.begin(), expected.end(), by_canonical_key);
+
+        for (size_t i = 0; i < n; i++) {
+            CHECK(actual[i].i == expected[i].i);
+            CHECK(actual[i].j == expected[i].j);
+
+            if (!expected_shifts.empty()) {
+                CHECK(actual[i].shift[0] == expected[i].shift[0]);
+                CHECK(actual[i].shift[1] == expected[i].shift[1]);
+                CHECK(actual[i].shift[2] == expected[i].shift[2]);
+            }
+
+            if (!expected_distances.empty()) {
+                CHECK_APPROX_EQUAL(actual[i].distance, expected[i].distance);
+            }
+
+            if (!expected_vectors.empty()) {
+                CHECK_APPROX_EQUAL(actual[i].vector[0], expected[i].vector[0]);
+                CHECK_APPROX_EQUAL(actual[i].vector[1], expected[i].vector[1]);
+                CHECK_APPROX_EQUAL(actual[i].vector[2], expected[i].vector[2]);
+            }
         }
     }
 
@@ -310,13 +438,20 @@ TEST_CASE("Slanted box") {
     for (const auto& missing : previously_missing) {
         bool found = false;
         for (size_t i = 0; i < neighbors.length; i++) {
-            auto* pair = neighbors.pairs[i];
-            if (pair[0] != 0 || pair[1] != 3) {
+            auto pair = Pair{
+                neighbors.pairs[i][0],
+                neighbors.pairs[i][1],
+                {neighbors.shifts[i][0], neighbors.shifts[i][1], neighbors.shifts[i][2]},
+                0.0,
+                {0.0, 0.0, 0.0},
+            };
+            pair.canonicalize();
+
+            if (pair.i != 0 || pair.j != 3) {
                 continue;
             }
 
-            auto* shift = neighbors.shifts[i];
-            if (shift[0] == missing[0] && shift[1] == missing[1] && shift[2] == missing[2]) {
+            if (pair.shift[0] == missing[0] && pair.shift[1] == missing[1] && pair.shift[2] == missing[2]) {
                 found = true;
                 break;
             }

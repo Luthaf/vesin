@@ -6,6 +6,7 @@ import ase.neighborlist
 import numpy as np
 import pytest
 
+from _utils import canonical_half_pair
 from vesin import NeighborList
 
 
@@ -377,7 +378,7 @@ def test_all_negative_coordinates():
     assert set(zip(translated_i, translated_j, strict=True)) == (expected_pairs)
 
 
-def compare_nl_results(expected, actual):
+def compare_nl_results(expected, actual, full_list=False):
     i, j, S = expected
     i = cp.asnumpy(i)
     j = cp.asnumpy(j)
@@ -404,6 +405,13 @@ def compare_nl_results(expected, actual):
         )
     )
 
+    if not full_list:
+        # Half-list pair ordering is not guaranteed to be stable, and the direct
+        # and Verlet paths build their cells at different cutoffs, so they can
+        # disagree on which way round a pair comes out
+        expected = {canonical_half_pair(*pair) for pair in expected}
+        actual = {canonical_half_pair(*pair) for pair in actual}
+
     if expected != actual:
         missing = expected - actual
         extra = actual - expected
@@ -426,7 +434,7 @@ def test_verlet_matches_direct(cutoff, full_list):
     nl = NeighborList(cutoff=cutoff, full_list=full_list, skin=1.5)
     verlet = nl.compute(points=points, box=box, periodic=True, quantities="ijS")
 
-    compare_nl_results(direct, verlet)
+    compare_nl_results(direct, verlet, full_list=full_list)
 
 
 def test_verlet_pair_gets_inside_cutoff():

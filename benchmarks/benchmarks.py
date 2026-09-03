@@ -1,4 +1,5 @@
 import argparse
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -85,6 +86,41 @@ def nvalchemi_run(positions, cutoff, cell, pbc):
     from nvalchemiops.torch.neighbors import neighbor_list as nvalchemi_neighbor_list
 
     return nvalchemi_neighbor_list(positions, cutoff, cell=cell, pbc=pbc)
+
+
+def setup_mlipops_cpu(atoms, cutoff):
+    import mlipops
+
+    calculator = mlipops.NeighborList(
+        cutoff=cutoff,
+        include_symmetric=True,
+        padding=False,
+        device="cpu",
+    )
+    positions = torch.tensor(atoms.positions)
+    box_vectors = torch.tensor(atoms.cell[:])
+    return calculator, positions, box_vectors
+
+
+def setup_mlipops_cuda(atoms, cutoff):
+    import mlipops
+
+    calculator = mlipops.NeighborList(
+        cutoff=cutoff,
+        include_symmetric=True,
+        padding=False,
+        device="cuda",
+    )
+    positions = torch.tensor(atoms.positions).to("cuda")
+    box_vectors = torch.tensor(atoms.cell[:]).to("cuda")
+    return calculator, positions, box_vectors
+
+
+def mlipops_run(calculator, positions, box_vectors):
+    # mlipops caches the result and skips the computation if it is called
+    # again with the exact same positions tensor; clone the positions here so
+    # each call triggers an actual neighbor search
+    return calculator(positions.clone(), box_vectors)
 
 
 def setup_ase_like(atoms, cutoff):
@@ -237,6 +273,8 @@ def get_version(impl):
         import NNPOps
 
         return NNPOps.__version__
+    elif impl == "mlipops_cpu" or impl == "mlipops_cuda":
+        return importlib.metadata.version("mlipops")
     else:
         raise ValueError(f"Unknown implementation: {impl}")
 
@@ -273,6 +311,18 @@ def run_benchmark(impl, atoms, cutoff):
             return float("nan")
         else:
             return benchmark(setup_nnpops_cuda, nnpops_run, atoms, cutoff)
+    elif impl == "mlipops_cpu":
+        if np.any(atoms.cell.lengths() < 2 * cutoff):
+            print("   mlipops can not run for this super cell")
+            return float("nan")
+        else:
+            return benchmark(setup_mlipops_cpu, mlipops_run, atoms, cutoff)
+    elif impl == "mlipops_cuda":
+        if np.any(atoms.cell.lengths() < 2 * cutoff):
+            print("   mlipops can not run for this super cell")
+            return float("nan")
+        else:
+            return benchmark(setup_mlipops_cuda, mlipops_run, atoms, cutoff)
     else:
         raise ValueError(f"Unknown implementation: {impl}")
 
@@ -321,12 +371,14 @@ if __name__ == "__main__":
             "vesin_cpu",
             "nvalchemi_cpu",
             "nnpops_cpu",
+            "mlipops_cpu",
         ]
 
         if torch.cuda.is_available():
             args.implementations.append("vesin_cuda")
             args.implementations.append("nvalchemi_cuda")
             args.implementations.append("nnpops_cuda")
+            args.implementations.append("mlipops_cuda")
 
     atoms = ase.build.bulk("C", "diamond", 3.567, orthorhombic=True)
     repeats = determine_super_cell(

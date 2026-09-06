@@ -11,7 +11,7 @@ The results below are for an AMD 3955WX CPU and an NVIDIA 4070 Ti SUPER GPU; if
 you want to run it on your own system, the corresponding script is in vesin's
 `GitHub repository <bench-script_>`_.
 
-.. _bench-script: https://github.com/Luthaf/vesin/blob/main/benchmarks/benchmark.py
+.. _bench-script: https://github.com/Luthaf/vesin/blob/main/benchmarks/run.py
 
 .. figure:: benchmark.png
     :align: center

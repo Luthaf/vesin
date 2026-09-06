@@ -70,8 +70,9 @@ information on how to use the code from C or C++.
 
 You can find below benchmark result computing neighbor lists for increasingly
 large diamond supercells, using an AMD EPYC 9334 CPU and an NVIDIA H100 GPU. You
-can run this benchmark on your system with the script at
-`benchmarks/benchmark.py`. Cross on points indicate that a specific code could
+can run this benchmark on your system with
+`python -m benchmarks.run` (from the repository root). Cross on points indicate
+that a specific code could
 not run the calculation after or before the cross (for example, NNPOps requires
 the cell to be twice the cutoff in size, and can't run with large cutoffs and
 small cells).

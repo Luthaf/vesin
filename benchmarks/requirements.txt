@@ -1,4 +1,5 @@
 matscipy
+mlipops
 pymatgen
 sisl
 ase

@@ -2,6 +2,7 @@ from .base import BenchmarkCase
 from .base import CaseStructure as CaseStructure
 from .base import PairOptions as PairOptions
 from .diamond import DiamondCase
+from .graphite import GraphiteCase
 from .nanodroplet import NanodropletCase
 
 
@@ -9,6 +10,7 @@ _CASES = {
     cls.name: cls()
     for cls in (
         DiamondCase,
+        GraphiteCase,
         NanodropletCase,
     )
 }

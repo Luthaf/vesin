@@ -48,10 +48,6 @@ set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_buffers.cpp
 )
 
-if (BUILD_VESIN_FOR_PYTHON)
-    list(APPEND VESIN_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/shared_libraries.cpp)
-endif()
-
 # Generate the CUDA source files for NVRTC compilation
 file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/*.cu)
 foreach(cuda_source IN LISTS CUDA_SOURCES)

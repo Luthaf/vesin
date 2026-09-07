@@ -1,5 +1,4 @@
 import ctypes
-import os
 from ctypes import POINTER
 from typing import List, Sequence, Union
 
@@ -483,69 +482,34 @@ def _torch_get_ptr(array: "torch.Tensor", dtype) -> ("torch.Tensor", POINTER):
     return array, ctypes.cast(ctypes.c_void_p(array.data_ptr()), POINTER(dtype))
 
 
-def _list_shared_libraries():
+class _CudaArrayInterface:
     """
-    Return a list of paths to shared libraries loaded by the current process.
+    Minimal ``__cuda_array_interface__`` producer, used to hand a device pointer
+    owned by vesin to another library without copying the data.
+
+    This object keeps ``owner`` alive, and a consumer that imports the interface
+    keeps this object alive in turn (``torch.as_tensor`` holds a reference to
+    the producer), so the memory stays valid for as long as the array built from
+    it -- with the same caveat as everywhere else here, that the next call to
+    ``compute()`` may reallocate the underlying buffers.
     """
-    lib = get_library()
 
-    # First call to get the number of libraries
-    # We pass a count of 0, so vesin_list_libraries returns the total count
-    # without copying anything. We still need to pass a valid pointer for
-    # libraries, so we use a small dummy array.
-    count = ctypes.c_size_t(0)
-    dummy_libs = (ctypes.c_char_p * 1)()
-    lib.vesin_list_libraries(dummy_libs, ctypes.byref(count))
+    def __init__(self, ptr, shape, dtype, owner):
+        self._owner = owner
 
-    if count.value == 0:
-        return []
+        address = ctypes.cast(ptr, ctypes.c_void_p).value
+        assert address is not None, "can not share a NULL device pointer"
 
-    # Second call to actually get the libraries
-    libraries = (ctypes.c_char_p * count.value)()
-    lib.vesin_list_libraries(libraries, ctypes.byref(count))
-
-    result = []
-    for i in range(count.value):
-        path = libraries[i]
-        if path:
-            result.append(path.decode("utf-8"))
-
-    return result
-
-
-CUDART = None
-
-
-def _get_cudart():
-    global CUDART
-    if CUDART is not None:
-        return CUDART
-
-    loaded = _list_shared_libraries()
-
-    last_err = None
-    for lib in loaded:
-        if os.path.basename(lib).find("cudart") != -1:
-            try:
-                CUDART = ctypes.CDLL(lib)
-            except Exception as e:
-                last_err = e
-                continue
-
-    if CUDART is None:
-        raise RuntimeError(
-            "Could not find cudart library, how are you running vesin on CUDA without "
-            f"it? Searched the following libraries:\n{' '.join(loaded)}"
-        ) from last_err
-
-    CUDART.cudaMemcpy.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_size_t,
-        ctypes.c_int,
-    ]
-    CUDART.cudaMemcpy.restype = ctypes.c_int
-    return CUDART
+        self.__cuda_array_interface__ = {
+            "shape": tuple(shape),
+            "typestr": np.dtype(dtype).str,
+            "data": (address, False),
+            # our output arrays are always C-contiguous
+            "strides": None,
+            # vesin launches its kernels on the legacy default stream (1)
+            "stream": 1,
+            "version": 3,
+        }
 
 
 def _ptr_to_torch(ptr, shape, dtype, owner, device):
@@ -557,26 +521,13 @@ def _ptr_to_torch(ptr, shape, dtype, owner, device):
         array = _ptr_to_numpy(ptr, shape, dtype, owner, device)
         return torch.from_numpy(array)
     elif device.type == VesinCUDA:
-        if HAS_CUPY:
-            cupy_array = _ptr_to_cupy(ptr, shape, dtype, owner, device)
-            return torch.as_tensor(cupy_array)
-        else:
-            cudart = _get_cudart()
+        # torch ignores the "stream" field in the cuda array interface, so we explicitly
+        # synchronize if the code is using a non-default stream.
+        current = torch.cuda.current_stream(device.device_id)
+        default = torch.cuda.default_stream(device.device_id)
+        if current != default:
+            current.wait_stream(default)
 
-            # TODO: we could try using from_dlpack to avoid a copy
-            device = torch.device(f"cuda:{device.device_id}")
-            tensor = torch.empty(size=shape, dtype=TORCH_DTYPES[dtype], device=device)
-            tensor_ptr = ctypes.c_void_p(tensor.data_ptr())
-            status = cudart.cudaMemcpy(
-                tensor_ptr,
-                ptr,
-                tensor.nbytes,
-                2,  # cudaMemcpyDeviceToDevice
-            )
-            if status != 0:
-                raise RuntimeError(
-                    f"cudaMemcpy failed when creating torch tensor (code {status})"
-                )
-            return tensor
+        return torch.as_tensor(_CudaArrayInterface(ptr, shape, dtype, owner))
     else:
         raise RuntimeError("Unknown device for torch tensor")

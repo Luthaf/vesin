@@ -4,6 +4,7 @@ from .base import PairOptions as PairOptions
 from .diamond import DiamondCase
 from .graphite import GraphiteCase
 from .nanodroplet import NanodropletCase
+from .protein import ProteinCase
 
 
 _CASES = {
@@ -12,6 +13,7 @@ _CASES = {
         DiamondCase,
         GraphiteCase,
         NanodropletCase,
+        ProteinCase,
     )
 }
 

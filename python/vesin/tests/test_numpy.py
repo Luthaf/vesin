@@ -211,6 +211,20 @@ def test_errors():
         nl.compute(points, box, periodic=True, quantities="ij")
 
 
+def test_unknown_quantity():
+    points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
+    box = np.eye(3, 3)
+
+    nl = NeighborList(cutoff=1.2, full_list=True)
+
+    message = "unexpected character in `quantities`: x"
+    with pytest.raises(ValueError, match=message):
+        nl.compute(points, box, periodic=True, quantities="x")
+
+    with pytest.raises(ValueError, match=message):
+        nl.compute(points, box, periodic=True, quantities="ijx")
+
+
 def test_cpu_brute_force_error():
     points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float64)
     box = np.eye(3, dtype=np.float64) * 10.0

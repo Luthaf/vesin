@@ -185,6 +185,52 @@ def naphthalene_cluster() -> SystemForTests:
     )
 
 
+def atoms_outside_box() -> SystemForTests:
+    # Triclinic system where a few atoms have been moved outside of the box by a whole
+    # number of box vectors, along both periodic and non-periodic directions.
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/carbon.xyz")
+    atoms = atoms.repeat((3, 3, 3))
+
+    positions = np.asarray(atoms.positions, dtype=np.float64).copy()
+    box = np.asarray(atoms.cell[:], dtype=np.float64)
+
+    positions[3] += box[0]
+    positions[10] -= 2 * box[1]
+    positions[20] += box[2] - box[0]
+
+    return SystemForTests(
+        name="atoms_outside_box",
+        transform_summary="nothing",
+        points=positions,
+        box=box,
+        periodic=(True, False, True),
+    )
+
+
+def non_periodic_points_outside_box() -> SystemForTests:
+    # Non-periodic system where the points are outside of the box: the box should be
+    # completely ignored when computing the neighbors.
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.1, 1.2, 1.3],
+            [9.5, 0.5, 0.5],
+            [10.1, 0.5, 0.5],
+            [-3.2, 4.7, -1.8],
+            [5.0, 2.0, 0.5],
+        ],
+        dtype=np.float64,
+    )
+
+    return SystemForTests(
+        name="non_periodic_points_outside_box",
+        transform_summary="nothing",
+        points=points,
+        box=np.diag([1.1, 1.2, 1.3]).astype(np.float64),
+        periodic=(False, False, False),
+    )
+
+
 def issue_153() -> SystemForTests:
     return SystemForTests(
         name="issue_153",
@@ -218,5 +264,7 @@ TEST_SYSTEMS = [
     polymer_chain(),
     graphene_sheet(),
     diamond_crystal(),
+    atoms_outside_box(),
+    non_periodic_points_outside_box(),
     issue_153(),
 ]

@@ -349,7 +349,7 @@ class NeighborList:
                 else:
                     data.append(pairs)
 
-            if quantity == "i":
+            elif quantity == "i":
                 if copy:
                     data.append(copy_array_fn(pairs[:, 0]))
                 else:
@@ -378,6 +378,9 @@ class NeighborList:
                     data.append(copy_array_fn(vectors))
                 else:
                     data.append(vectors)
+
+            else:
+                raise ValueError(f"unexpected character in `quantities`: {quantity}")
 
         return tuple(data)
 

@@ -104,11 +104,11 @@ struct SortBuffers {
 ///
 /// This is pinned memory, which makes `cudaMemcpyAsync` actually asynchronous.
 struct PinnedReadback {
-    double box_diag[3];
     double box[9];
     bool periodic[3];
+    bool all_periodic;
     size_t length;
-    int32_t box_status;
+    int32_t n_search[3];
     int32_t last_offset;
     int32_t last_count;
     int32_t overflow;
@@ -118,7 +118,7 @@ struct PinnedReadback {
 struct CudaNeighborListExtras {
     size_t pairs_capacity = 0;           // Capacity for the pair buffers in the VesinNeighborList
     size_t* d_length_ptr = nullptr;      // GPU-side counter
-    int32_t* d_cell_check_ptr = nullptr; // GPU-side status code for checking cell
+    bool* d_all_periodic = nullptr;      // GPU-side output of `analyze_box`
     int32_t* d_overflow_flag = nullptr;  // GPU-side flag to detect overflow of pair buffers
 
     // Pinned host staging for every device-to-host readback, see PinnedReadback
@@ -127,9 +127,9 @@ struct CudaNeighborListExtras {
     // Cell list buffers (allocated on demand for large systems)
     CellListBuffersCUDA cell_list;
 
-    // Buffers for optimized brute force kernels
-    double* d_box_diag = nullptr;     // [3] diagonal elements for orthogonal boxes
-    double (*d_inv_box)[3] = nullptr; // [3][3] inverse box matrix for general boxes
+    // Box parameters computed by `analyze_box`
+    int32_t* d_n_search = nullptr;     // [3] periodic images to walk per direction
+    double (*d_inv_box)[3] = nullptr; // [3][3] inverse box matrix
 
     // Temporary buffers for on-device sorting
     SortBuffers sort_buffers;

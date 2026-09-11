@@ -8,15 +8,18 @@ import numpy as np
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
-def _min_periodic_box_dimension(system) -> float | None:
-    periodic_lengths = [
-        float(np.linalg.norm(system.box[index]))
-        for index, is_periodic in enumerate(system.periodic)
-        if is_periodic
-    ]
-    if len(periodic_lengths) == 0:
-        return None
-    return min(periodic_lengths)
+def periodic_face_distances(system) -> np.ndarray:
+    """Distances between opposite faces of the lattice made of the *periodic*
+    box vectors, i.e. how far apart its lattice planes are along each direction.
+    Empty for a fully non-periodic system."""
+    box = np.asarray(system.box, dtype=np.float64)
+    periodic = [index for index, value in enumerate(system.periodic) if value]
+    if len(periodic) == 0:
+        return np.zeros(0)
+
+    # the columns of the pseudo-inverse are the reciprocal vectors, which works
+    # for one and two periodic directions as well as three
+    return 1.0 / np.linalg.norm(np.linalg.pinv(box[periodic]), axis=0)
 
 
 def algorithm_is_applicable(
@@ -24,14 +27,13 @@ def algorithm_is_applicable(
     cutoff: float,
     gpu_algorithm: str,
 ) -> bool:
-    if gpu_algorithm == "cell_list":
+    if gpu_algorithm == "cell_list" or gpu_algorithm == "auto":
         return True
-
-    min_periodic_dim = _min_periodic_box_dimension(system)
-    if min_periodic_dim is None:
-        return True
-
-    return cutoff <= min_periodic_dim / 2.0
+    elif gpu_algorithm == "brute_force":
+        face_distances = periodic_face_distances(system)
+        return bool(np.all(cutoff / face_distances < 40))
+    else:
+        raise ValueError(f"Invalid GPU algorithm {gpu_algorithm}")
 
 
 def _random_transform_matrix() -> tuple[np.ndarray, bool]:
@@ -231,6 +233,26 @@ def non_periodic_points_outside_box() -> SystemForTests:
     )
 
 
+def thin_film() -> SystemForTests:
+    # Periodic in all three directions, but much thinner than the cutoff along
+    # x: the search has to reach many periodic images in that one direction and
+    # only one or two in the others.
+    #
+    # The thickness must not divide any of TEST_CUTOFFS, or an atom lands
+    # exactly on the cutoff from its own periodic image and every backend gets
+    # to disagree about it in the last bit. 0.6 did exactly that: 5 * 0.6 = 3.0.
+    thickness = 0.57
+    lengths = np.array([thickness, 11.0, 11.0])
+    rng = np.random.default_rng(7)
+    return SystemForTests(
+        name="thin_film_anisotropic",
+        transform_summary="nothing",
+        points=(rng.random((6, 3)) * lengths).astype(np.float64),
+        box=np.diag(lengths).astype(np.float64),
+        periodic=(True, True, True),
+    )
+
+
 def issue_153() -> SystemForTests:
     return SystemForTests(
         name="issue_153",
@@ -252,6 +274,9 @@ def system_from_xyz(name):
     )
 
 
+# Cutoffs the test suites sweep over.
+TEST_CUTOFFS = [3.0, 5.0, 7.0, 10.0]
+
 TEST_SYSTEMS = [
     system_from_xyz("water"),
     system_from_xyz("diamond"),
@@ -266,8 +291,10 @@ TEST_SYSTEMS = [
     diamond_crystal(),
     atoms_outside_box(),
     non_periodic_points_outside_box(),
+    thin_film(),
     issue_153(),
 ]
+
 
 # Half-list pair direction is not part of the contract: both cell lists pick
 # which atom of a pair comes out as `i` from the offset between the two cells,
@@ -278,8 +305,6 @@ TEST_SYSTEMS = [
 #
 # These two apply the same canonicalization, one to (i, j, shift) tuples and one
 # to whole arrays; keep them in agreement.
-
-
 def canonical_half_pair(i, j, sx, sy, sz):
     """Canonicalize one half-list pair given as a tuple of scalars."""
     if i > j:

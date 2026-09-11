@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from _utils import (
+    TEST_CUTOFFS,
     TEST_SYSTEMS,
     algorithm_is_applicable,
     canonicalize_half_pairs,
@@ -46,7 +47,7 @@ def compute_neighbors(points, box, periodic, cutoff, full_list, algorithm, sorte
 
 @pytest.mark.parametrize("full_list", [False, True])
 @pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
-@pytest.mark.parametrize("cutoff", [3.0, 5.0, 7.0, 10.0])
+@pytest.mark.parametrize("cutoff", TEST_CUTOFFS)
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force"])
 @pytest.mark.parametrize("sorted", [False, True])
 @pytest.mark.parametrize("transform", ["none", "rotate", "rotate_and_translate"])

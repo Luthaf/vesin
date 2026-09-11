@@ -8,7 +8,12 @@ import numpy as np
 import pytest
 
 import vesin
-from _utils import TEST_SYSTEMS, canonical_half_pair
+from _utils import (
+    TEST_CUTOFFS,
+    TEST_SYSTEMS,
+    canonical_half_pair,
+    periodic_face_distances,
+)
 from vesin import NeighborList
 
 
@@ -63,7 +68,51 @@ def vesin_neighbors(system, cutoff):
 
 
 @pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
-@pytest.mark.parametrize("cutoff", [3.0, 5.0, 7.0, 10.0])
+@pytest.mark.parametrize("cutoff", TEST_CUTOFFS)
+def test_systems_avoid_the_cutoff(system, cutoff):
+    """
+    No pair in a test system may sit exactly on one of the cutoffs we sweep, so we can
+    compare different implementations that might differ only by a couple of ULP.
+    """
+    points = np.asarray(system.points, dtype=np.float64)
+    box = np.asarray(system.box, dtype=np.float64)
+
+    # enough images to cover everything the cutoff can reach along each
+    # periodic direction, with one to spare
+    face_distances = periodic_face_distances(system)
+    periodic = [dim for dim, value in enumerate(system.periodic) if value]
+
+    reach = [0, 0, 0]
+    for index, dim in enumerate(periodic):
+        reach[dim] = int(np.ceil(cutoff / face_distances[index])) + 1
+
+    shifts = np.array(
+        [
+            [x, y, z]
+            for x in range(-reach[0], reach[0] + 1)
+            for y in range(-reach[1], reach[1] + 1)
+            for z in range(-reach[2], reach[2] + 1)
+        ]
+    )
+    offsets = shifts @ box
+
+    closest = np.inf
+    for i in range(len(points)):
+        vectors = (points - points[i])[:, None, :] + offsets[None, :, :]
+        distances = np.linalg.norm(vectors, axis=2)
+        # drop the atom paired with itself at the zero shift
+        distances = distances[distances > 0.0]
+        if len(distances) > 0:
+            closest = min(closest, float(np.min(np.abs(distances - cutoff))))
+
+    assert closest > 1e-9, (
+        f"{system.name} has a pair {closest:.3e} A from the cutoff of {cutoff}, "
+        f"which is too close for the backends to agree on"
+    )
+
+
+@pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
+@pytest.mark.parametrize("cutoff", TEST_CUTOFFS)
 @pytest.mark.parametrize("transform", ["none", "rotate", "rotate_and_translate"])
 def test_against_ase(system, cutoff, transform):
     if transform == "none":

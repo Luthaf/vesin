@@ -131,12 +131,7 @@ def test_large_box_small_cutoff(full_list):
 def test_neighbors(system, algorithm):
     atoms = ase.io.read(f"{CURRENT_DIR}/../../vesin/tests/data/{system}.xyz")
 
-    # make the cell bigger for MIC
-    if not np.allclose(atoms.cell, np.zeros((3, 3))):
-        atoms = atoms.repeat((2, 2, 2))
-
     cutoff = 2.0
-
     ase_i, ase_j, ase_S, ase_D = ase.neighborlist.neighbor_list("ijSD", atoms, cutoff)
 
     calculator = NeighborList(cutoff=cutoff, full_list=True, algorithm=algorithm)
@@ -238,31 +233,18 @@ def test_no_neighbors():
 
 @pytest.mark.parametrize("algorithm", ["auto", "brute_force", "cell_list"])
 def test_sorted_output(algorithm):
-    if algorithm == "brute_force":
-        # brute force uses MIC and requires cutoff <= min(box_length) / 2
-        points = cp.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=cp.float64)
-        box = cp.array(
-            [
-                [3.0, 0.0, 0.0],
-                [0.0, 3.0, 0.0],
-                [0.0, 0.0, 3.0],
-            ],
-            dtype=cp.float64,
-        )
-        cutoff = 1.45
-    else:
-        # single atom in a small box gives multiple (i, j) with different shifts,
-        # exercising the tie-break on S
-        points = cp.array([[0.0, 0.0, 0.0]], dtype=cp.float64)
-        box = cp.array(
-            [
-                [0.5, 0.0, 0.0],
-                [0.0, 0.5, 0.0],
-                [0.0, 0.0, 0.5],
-            ],
-            dtype=cp.float64,
-        )
-        cutoff = 0.6
+    # single atom in a small box gives multiple (i, j) with different shifts,
+    # exercising the tie-break on S
+    points = cp.array([[0.0, 0.0, 0.0]], dtype=cp.float64)
+    box = cp.array(
+        [
+            [0.5, 0.0, 0.0],
+            [0.0, 0.5, 0.0],
+            [0.0, 0.0, 0.5],
+        ],
+        dtype=cp.float64,
+    )
+    cutoff = 0.6
 
     calculator = NeighborList(
         cutoff=cutoff, full_list=False, sorted=True, algorithm=algorithm
@@ -273,6 +255,27 @@ def test_sorted_output(algorithm):
 
     sorted_i = cp.asnumpy(sorted_i)
     assert np.all(sorted_i == np.sort(sorted_i))
+
+
+def test_brute_force_too_many_images():
+    # a box this much smaller than the cutoff makes the brute force kernels walk
+    # 25^3 periodic images of every pair, which they refuse to do
+    points = cp.zeros((1, 3), dtype=cp.float64)
+    box = cp.eye(3, dtype=cp.float64) * 0.5
+
+    calculator = NeighborList(cutoff=6.0, full_list=True, algorithm="brute_force")
+    message = (
+        "the cutoff \\(6\\.000000\\) is so large compared to the box that the "
+        "brute force algorithm would have to check 15625 periodic images of every "
+        "pair of points \\(the limit is 4096\\); use the cell list instead"
+    )
+    with pytest.raises(RuntimeError, match=message):
+        calculator.compute(points, box, True, "ij")
+
+    # the cell list handles it
+    calculator = NeighborList(cutoff=6.0, full_list=True, algorithm="cell_list")
+    i, _ = calculator.compute(points, box, True, "ij")
+    assert len(i) > 0
 
 
 @pytest.mark.parametrize("dtype", [cp.float32, cp.float64])

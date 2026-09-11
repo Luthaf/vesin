@@ -261,8 +261,8 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
         if (this->pinned != nullptr) {
             GPULITE_CUDART_CALL(cudaFreeHost(this->pinned));
         }
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_check_ptr));
-        GPULITE_CUDART_CALL(cudaFree(this->d_box_diag));
+        GPULITE_CUDART_CALL(cudaFree(this->d_all_periodic));
+        GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
         GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
         GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
     } catch (const std::runtime_error& e) {
@@ -282,8 +282,8 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
             if (this->pinned != nullptr) {
                 GPULITE_CUDART_CALL(cudaFreeHost(this->pinned));
             }
-            GPULITE_CUDART_CALL(cudaFree(this->d_cell_check_ptr));
-            GPULITE_CUDART_CALL(cudaFree(this->d_box_diag));
+            GPULITE_CUDART_CALL(cudaFree(this->d_all_periodic));
+            GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
             GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
             GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
         } catch (const std::runtime_error& e) {
@@ -300,11 +300,11 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
         this->pinned = other.pinned;
         other.pinned = nullptr;
 
-        this->d_cell_check_ptr = other.d_cell_check_ptr;
-        other.d_cell_check_ptr = nullptr;
+        this->d_all_periodic = other.d_all_periodic;
+        other.d_all_periodic = nullptr;
 
-        this->d_box_diag = other.d_box_diag;
-        other.d_box_diag = nullptr;
+        this->d_n_search = other.d_n_search;
+        other.d_n_search = nullptr;
 
         this->d_inv_box = other.d_inv_box;
         other.d_inv_box = nullptr;

@@ -332,8 +332,8 @@ static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
         ));
     }
 
-    if (extras->d_cell_check_ptr == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_cell_check_ptr, sizeof(int32_t)));
+    if (extras->d_all_periodic == nullptr) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_all_periodic, sizeof(bool)));
     }
 
     if (extras->d_overflow_flag == nullptr) {
@@ -382,7 +382,6 @@ void vesin::cuda::allocate_output_buffers(
 
 struct BoxChecks {
     bool use_cell_list = false;
-    bool is_orthogonal = false;
     bool all_periodic = false;
 };
 
@@ -397,8 +396,8 @@ static BoxChecks check_box(
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
     auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
 
-    if (extras->d_box_diag == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_box_diag, sizeof(double) * 3));
+    if (extras->d_n_search == nullptr) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_n_search, sizeof(int32_t) * 3));
     }
     if (extras->d_inv_box == nullptr) {
         double (*ptr)[3] = nullptr;
@@ -406,47 +405,67 @@ static BoxChecks check_box(
         extras->d_inv_box = ptr;
     }
 
-    auto* box_check_kernel = GET_BRUTEFORCE_KERNEL(factory, mic_box_check);
+    auto* box_check_kernel = GET_BRUTEFORCE_KERNEL(factory, analyze_box);
 
+    // `analyze_box` is a single-thread kernel, there are only 18 numbers to
+    // look at and everything downstream needs the answer before it can start
     auto config = gpulite::LaunchConfig();
     config.gridDim = dim3(1);
-    config.blockDim = dim3(32);
+    config.blockDim = dim3(1);
 
     box_check_kernel->launch(
         config,
         d_box,
         d_periodic,
         options.cutoff,
-        extras->d_cell_check_ptr,
-        extras->d_box_diag,
+        extras->d_all_periodic,
+        extras->d_n_search,
         extras->d_inv_box
     );
 
     auto* pinned = extras->pinned;
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
-        &pinned->box_status, extras->d_cell_check_ptr,
-        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+        &pinned->all_periodic, extras->d_all_periodic,
+        sizeof(bool), cudaMemcpyDeviceToHost, nullptr
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
-        pinned->box_diag, extras->d_box_diag,
-        sizeof(double) * 3, cudaMemcpyDeviceToHost, nullptr
+        pinned->n_search, extras->d_n_search,
+        sizeof(int32_t) * 3, cudaMemcpyDeviceToHost, nullptr
     ));
     GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
 
-    int32_t h_cell_check = pinned->box_status;
-    results.is_orthogonal = (h_cell_check & BOX_STATUS_ORTHOGONAL) != 0;
-    results.all_periodic = (h_cell_check & BOX_STATUS_FULLY_PERIODIC) != 0;
+    results.all_periodic = pinned->all_periodic;
 
-    const double* h_box_diag = pinned->box_diag;
-    double min_box_dim = std::min({h_box_diag[0], h_box_diag[1], h_box_diag[2]});
-    bool cutoff_requires_cell_list = options.cutoff > min_box_dim / 2.0;
+    // How many periodic images of each pair the brute force kernels would walk.
+    // This is 1 for a box at least twice the cutoff in every periodic
+    // direction, and grows as the box gets smaller than that.
+    const int32_t* n_search = pinned->n_search;
+    size_t n_images = 1;
+    for (size_t dim = 0; dim < 3; dim++) {
+        n_images *= 2 * static_cast<size_t>(n_search[dim]) + 1;
+    }
 
     switch (options.algorithm) {
     case VesinBruteForce: {
-        bool box_check_error = (h_cell_check & BOX_STATUS_ERROR) != 0;
-        if (box_check_error) {
-            throw std::runtime_error("Invalid cutoff: too large for box dimensions");
+        if (n_points > MAX_BRUTE_FORCE_POINTS) {
+            throw std::runtime_error(
+                "too many points (" + std::to_string(n_points) + ") for the "
+                "brute force algorithm (the limit is " + std::to_string(MAX_BRUTE_FORCE_POINTS) + "); "
+                "use the cell list instead"
+            );
         }
+
+        if (n_images > MAX_BRUTE_FORCE_IMAGES) {
+            throw std::runtime_error(
+                "the cutoff (" + std::to_string(options.cutoff) + ") is so large "
+                "compared to the box that the brute force algorithm would have "
+                "to check " + std::to_string(n_images) + " periodic images of "
+                "every pair of points (the limit is " +
+                std::to_string(MAX_BRUTE_FORCE_IMAGES) + "); use the cell list "
+                "instead"
+            );
+        }
+
         results.use_cell_list = false;
         break;
     }
@@ -455,7 +474,7 @@ static BoxChecks check_box(
         break;
     case VesinAutoAlgorithm:
     default:
-        results.use_cell_list = cutoff_requires_cell_list || !results.is_orthogonal || n_points >= 500;
+        results.use_cell_list = n_images > 1 || n_points >= 500;
         break;
     }
 
@@ -857,9 +876,10 @@ static void run_brute_force(
     const double d_box[3][3],
     const bool d_periodic[3],
     VesinOptions options,
-    VesinNeighborList& neighbors,
-    bool is_orthogonal
+    VesinNeighborList& neighbors
 ) {
+    assert(n_points <= MAX_BRUTE_FORCE_POINTS);
+
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
 
     NVTX_PUSH("brute_force_total");
@@ -869,115 +889,58 @@ static void run_brute_force(
     GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
 
     size_t THREADS_PER_BLOCK = 128;
-    double cutoff2 = options.cutoff * options.cutoff;
-
-    size_t num_half_pairs = n_points * (n_points - 1) / 2;
-
-    size_t max_pairs = extras->pairs_capacity;
-
     auto config = gpulite::LaunchConfig();
-    size_t num_blocks = (num_half_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    config.gridDim = dim3(std::max(num_blocks, static_cast<size_t>(1)));
+    config.gridDim = dim3((n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, n_points);
     config.blockDim = dim3(THREADS_PER_BLOCK);
 
-    if (is_orthogonal) {
-        if (options.full) {
-            NVTX_PUSH("brute_force_full_orthogonal");
-            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_full_orthogonal);
+    if (options.full) {
+        NVTX_PUSH("brute_force_full");
+        auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_full);
 
-            kernel->launch(
-                config,
-                d_points,
-                n_points,
-                extras->d_box_diag,
-                d_periodic,
-                cutoff2,
-                options.return_shifts,
-                options.return_distances,
-                options.return_vectors,
-                extras->d_length_ptr,
-                neighbors.pairs,
-                neighbors.shifts,
-                neighbors.distances,
-                neighbors.vectors,
-                max_pairs,
-                extras->d_overflow_flag
-            );
-            NVTX_POP();
-        } else {
-            NVTX_PUSH("brute_force_half_orthogonal");
-            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_half_orthogonal);
-
-            kernel->launch(
-                config,
-                d_points,
-                n_points,
-                extras->d_box_diag,
-                d_periodic,
-                cutoff2,
-                options.return_shifts,
-                options.return_distances,
-                options.return_vectors,
-                extras->d_length_ptr,
-                neighbors.pairs,
-                neighbors.shifts,
-                neighbors.distances,
-                neighbors.vectors,
-                max_pairs,
-                extras->d_overflow_flag
-            );
-            NVTX_POP();
-        }
+        kernel->launch(
+            config,
+            d_points,
+            d_box,
+            extras->d_inv_box,
+            d_periodic,
+            extras->d_n_search,
+            options.cutoff * options.cutoff,
+            options.return_shifts,
+            options.return_distances,
+            options.return_vectors,
+            extras->d_length_ptr,
+            neighbors.pairs,
+            neighbors.shifts,
+            neighbors.distances,
+            neighbors.vectors,
+            extras->pairs_capacity,
+            extras->d_overflow_flag
+        );
+        NVTX_POP();
     } else {
-        if (options.full) {
-            NVTX_PUSH("brute_force_full_general");
-            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_full_general);
+        NVTX_PUSH("brute_force_half");
+        auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_half);
 
-            kernel->launch(
-                config,
-                d_points,
-                n_points,
-                d_box,
-                extras->d_inv_box,
-                d_periodic,
-                cutoff2,
-                options.return_shifts,
-                options.return_distances,
-                options.return_vectors,
-                extras->d_length_ptr,
-                neighbors.pairs,
-                neighbors.shifts,
-                neighbors.distances,
-                neighbors.vectors,
-                max_pairs,
-                extras->d_overflow_flag
-            );
-            NVTX_POP();
-        } else {
-            NVTX_PUSH("brute_force_half_general");
-            auto* kernel = GET_BRUTEFORCE_KERNEL(factory, brute_force_half_general);
-
-            kernel->launch(
-                config,
-                d_points,
-                n_points,
-                d_box,
-                extras->d_inv_box,
-                d_periodic,
-                cutoff2,
-                options.return_shifts,
-                options.return_distances,
-                options.return_vectors,
-                extras->d_length_ptr,
-                neighbors.pairs,
-                neighbors.shifts,
-                neighbors.distances,
-                neighbors.vectors,
-                max_pairs,
-                extras->d_overflow_flag
-            );
-            NVTX_POP();
-        }
+        kernel->launch(
+            config,
+            d_points,
+            d_box,
+            extras->d_inv_box,
+            d_periodic,
+            extras->d_n_search,
+            options.cutoff * options.cutoff,
+            options.return_shifts,
+            options.return_distances,
+            options.return_vectors,
+            extras->d_length_ptr,
+            neighbors.pairs,
+            neighbors.shifts,
+            neighbors.distances,
+            neighbors.vectors,
+            extras->pairs_capacity,
+            extras->d_overflow_flag
+        );
+        NVTX_POP();
     }
 
     NVTX_POP(); // brute_force_total
@@ -1013,7 +976,7 @@ static void run_brute_force(
         );
     }
 
-    // Bruteforce output is unsorted; sort if requested
+    // Brute-force output is unsorted; sort if requested
     if (options.sorted && neighbors.length > 1) {
         vesin::cuda::sort_pairs(options, neighbors);
     }
@@ -1119,7 +1082,7 @@ void vesin::cuda::neighbors(
             vesin::cuda::allocate_output_buffers(neighbors, n_points * max_pairs_per_point, options);
 
             run_brute_force(
-                d_points, n_points, d_box, d_periodic, options, neighbors, box_checks.is_orthogonal
+                d_points, n_points, d_box, d_periodic, options, neighbors
             );
         }
     }

@@ -5,6 +5,7 @@ from .diamond import DiamondCase
 from .graphite import GraphiteCase
 from .nanodroplet import NanodropletCase
 from .protein import ProteinCase
+from .triclinic import TriclinicCase
 
 
 _CASES = {
@@ -14,6 +15,7 @@ _CASES = {
         GraphiteCase,
         NanodropletCase,
         ProteinCase,
+        TriclinicCase,
     )
 }
 

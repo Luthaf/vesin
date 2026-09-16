@@ -82,6 +82,7 @@ contains
         full,                               &
         sorted,                             &
         algorithm,                          &
+        skin,                               &
         n_threads,                          &
         return_shifts,                      &
         return_distances,                   &
@@ -104,6 +105,11 @@ contains
         !! `VesinCellListAlgorithm`)
         integer(c_int32_t), intent(in), optional :: algorithm
 
+        !> Skin size for Verlet caching. A positive value enables caching the
+        !! neighbor list until any atom moves farther than `skin/2` from its
+        !! reference coordinates.
+        real(c_double), intent(in), optional :: skin
+
         !> Number of CPU threads to use. Must be zero or positive. If zero,
         !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
         !! otherwise defaults to the number of available CPU cores.
@@ -125,6 +131,7 @@ contains
 
         if (present(sorted)) self%options%sorted = sorted
         if (present(algorithm)) self%options%algorithm = algorithm
+        if (present(skin)) self%options%skin = skin
         if (present(n_threads)) self%options%n_threads = n_threads
         if (present(return_shifts)) self%options%return_shifts = return_shifts
         if (present(return_distances)) self%options%return_distances = return_distances
@@ -138,6 +145,7 @@ contains
         full,                               &
         sorted,                             &
         algorithm,                          &
+        skin,                               &
         n_threads,                          &
         return_shifts,                      &
         return_distances,                   &
@@ -160,6 +168,11 @@ contains
         !! `VesinCellListAlgorithm`)
         integer(c_int32_t), intent(in), optional :: algorithm
 
+        !> Skin size for Verlet caching. A positive value enables caching the
+        !! neighbor list until any atom moves farther than `skin/2` from its
+        !! reference coordinates.
+        real(c_float), intent(in), optional :: skin
+
         !> Number of CPU threads to use. Must be zero or positive. If zero,
         !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
         !! otherwise defaults to the number of available CPU cores.
@@ -181,11 +194,15 @@ contains
             full,                               &
             sorted,                             &
             algorithm,                          &
-            n_threads,                          &
-            return_shifts,                      &
-            return_distances,                   &
-            return_vectors                      &
+            n_threads=n_threads,                &
+            return_shifts=return_shifts,        &
+            return_distances=return_distances,  &
+            return_vectors=return_vectors       &
         )
+
+        ! `real(skin, c_double)` can not be evaluated when `skin` is absent, so it can
+        ! not be forwarded through the call above
+        if (present(skin)) self%options%skin = real(skin, c_double)
     end function vesin_construct_c_float
 
     !> Compute the neighbor list for data in `c_double`/`real64` precision

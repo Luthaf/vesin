@@ -12,7 +12,11 @@ from ._nnpops import NNPOpsNeighborList
 from ._nvalchemi import NValchemiNeighborList
 from ._pymatgen import PymatgenNeighborList
 from ._sisl import SislNeighborList
-from ._vesin import VesinNeighborList
+from ._vesin import (
+    VesinNeighborList,
+    VesinSortedNeighborList,
+    VesinVerletNeighborList,
+)
 
 
 __all__ = [
@@ -24,6 +28,8 @@ __all__ = [
     "PymatgenNeighborList",
     "SislNeighborList",
     "VesinNeighborList",
+    "VesinSortedNeighborList",
+    "VesinVerletNeighborList",
     "all_implementations",
     "get_implementation",
 ]
@@ -36,6 +42,8 @@ _IMPLEMENTATIONS = {
         PymatgenNeighborList,
         SislNeighborList,
         VesinNeighborList,
+        VesinSortedNeighborList,
+        VesinVerletNeighborList,
         NValchemiNeighborList,
         NNPOpsNeighborList,
         MLipopsNeighborList,

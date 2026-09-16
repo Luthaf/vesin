@@ -348,6 +348,7 @@ TORCH_LIBRARY(vesin, m) {
                 dict.insert("full_list", self->full_list());
                 dict.insert("sorted", self->sorted());
                 dict.insert("algorithm", self->algorithm());
+                dict.insert("skin", self->skin());
                 dict.insert("n_threads", self->n_threads());
 
                 return c10::impl::toTypedDict<std::string, c10::IValue>(dict);
@@ -358,6 +359,7 @@ TORCH_LIBRARY(vesin, m) {
                     data.at("full_list").toBool(),
                     data.at("sorted").toBool(),
                     data.at("algorithm").toStringRef(),
+                    data.at("skin").toDouble(),
                     data.at("n_threads").toInt()
                 );
             }

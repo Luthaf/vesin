@@ -91,6 +91,7 @@ program vesin_test
     neighbor_list = NeighborList(           &
         cutoff=3.3,                         &
         full=.false.,                       &
+        skin=0.0,                           &
         return_distances=.false.,           &
         return_vectors=.true.,              &
         return_shifts=.true.,               &

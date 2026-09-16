@@ -99,6 +99,8 @@ public:
     bool sorted() const { return sorted_; }
     /// Get the algorithm used for neighbor list calculation
     std::string algorithm() const { return algorithm_; }
+    /// Get the skin size used for Verlet caching
+    double skin() const { return skin_; }
     /// Get the number of CPU threads requested for neighbor list calculation
     int64_t n_threads() const { return n_threads_; }
 

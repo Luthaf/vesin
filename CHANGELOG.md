@@ -17,6 +17,8 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.6.2](https://github.com/Luthaf/vesin/releases/tag/v0.6.2) - 2026-09-28
+
 ### Added
 
 - Added support for PyTorch v2.14 in the `vesin-torch` wheels on PyPI

@@ -33,31 +33,36 @@ static void validate_algorithm(VesinOptions options) {
     }
 }
 
-static double measure_check_cost_us() {
-    constexpr int N_ITERS = 10;
+/// Measured cost of the cell list search, in microseconds. Searching around a
+/// single point costs `cells_searched * (visit + points_per_cell * candidate)`.
+struct SearchCostUs {
+    /// Cost of visiting one neighbouring cell, whether that cell is empty or
+    /// not.
+    double visit = 0.0;
+    /// Cost of checking one candidate point found inside a visited cell.
+    double candidate = 0.0;
+};
 
-    // this is roughly a diamond cubic unit cell, with 8 atoms in a 2x2x2
-    // supercell
-    double A = 2.5222;
-    auto points = std::vector<Vector>{
-        {0.0,      0.0,      0.0},
-        {0.25*A,   0.25*A,   0.25*A},
-        {0.0,      0.5*A,    0.5*A},
-        {0.25*A,   0.75*A,   0.75*A},
-        {0.5*A,    0.0,      0.5*A},
-        {0.75*A,   0.25*A,   0.75*A},
-        {0.5*A,    0.5*A,    0.0},
-        {0.75*A,   0.75*A,   0.25*A},
-    };
+/// Time one serial pass of `foreach_neighbor_of` over all of `points`, and
+/// return the elapsed time per `point * cells_searched` together with the
+/// number of points per cell on that grid.
+static std::pair<double, double> time_search(
+    const std::vector<Vector>& points,
+    double box_length,
+    double cutoff
+) {
+    constexpr int N_ITERS = 5;
 
     std::array<std::array<double, 3>, 3> matrix = {{
-        {{A, 0.0, 0.0}}, {{0.0, A, 0.0}}, {{0.0, 0.0, A}}
+        {{box_length, 0.0, 0.0}},
+        {{0.0, box_length, 0.0}},
+        {{0.0, 0.0, box_length}},
     }};
     bool pbc[3] = {true, true, true};
     auto bounding_box = BoundingBox(matrix, pbc);
 
     CellListBuffersCPU buffers;
-    auto cell_list = CellList(buffers, std::move(bounding_box), 3.0);
+    auto cell_list = CellList(buffers, std::move(bounding_box), cutoff, points.size());
     cell_list.build(points.data(), points.size());
 
     auto cells_searched = static_cast<double>(
@@ -66,12 +71,10 @@ static double measure_check_cost_us() {
         (2 * cell_list.n_search()[2] + 1)
     );
     auto n_cells_total = cell_list.n_cells()[0] * cell_list.n_cells()[1] * cell_list.n_cells()[2];
-    auto atoms_per_cell = static_cast<double>(points.size()) / static_cast<double>(n_cells_total);
-    auto total_checks = cells_searched * atoms_per_cell * static_cast<double>(points.size());
-    assert(total_checks > 0);
+    auto points_per_cell = static_cast<double>(points.size()) / static_cast<double>(n_cells_total);
 
     auto options = VesinOptions{};
-    options.cutoff = 3.0;
+    options.cutoff = cutoff;
     options.full = true;
     options.return_shifts = false;
     options.return_distances = false;
@@ -92,7 +95,71 @@ static double measure_check_cost_us() {
         elapsed += std::chrono::duration<double, std::micro>(end - start).count();
     }
 
-    return (elapsed / N_ITERS) / total_checks;
+    auto per_cell = (elapsed / N_ITERS) / (static_cast<double>(points.size()) * cells_searched);
+    return std::make_pair(per_cell, points_per_cell);
+}
+
+static SearchCostUs measure_search_cost_us() {
+    constexpr double CUTOFF = 3.0;
+    constexpr size_t REPLICAS = 3;
+
+    // a 3x3x3 supercell of diamond
+    double A = 2.5222;
+    auto unit_cell = std::vector<Vector>{
+        {0.0,      0.0,      0.0},
+        {0.25*A,   0.25*A,   0.25*A},
+        {0.0,      0.5*A,    0.5*A},
+        {0.25*A,   0.75*A,   0.75*A},
+        {0.5*A,    0.0,      0.5*A},
+        {0.75*A,   0.25*A,   0.75*A},
+        {0.5*A,    0.5*A,    0.0},
+        {0.75*A,   0.75*A,   0.25*A},
+    };
+
+    auto points = std::vector<Vector>();
+    points.reserve(unit_cell.size() * REPLICAS * REPLICAS * REPLICAS);
+    for (size_t x = 0; x < REPLICAS; x++) {
+        for (size_t y = 0; y < REPLICAS; y++) {
+            for (size_t z = 0; z < REPLICAS; z++) {
+                for (const auto& point: unit_cell) {
+                    points.push_back(Vector{
+                        point[0] + A * static_cast<double>(x),
+                        point[1] + A * static_cast<double>(y),
+                        point[2] + A * static_cast<double>(z),
+                    });
+                }
+            }
+        }
+    }
+    auto box_length = A * static_cast<double>(REPLICAS);
+
+    // Time the same points twice: once as is, where checking candidates
+    // dominates, and once dilated so that almost every cell is empty and
+    // visiting cells dominates.
+    constexpr double DILATION = 4.0;
+    auto dilated = points;
+    for (auto& point: dilated) {
+        point[0] *= DILATION;
+        point[1] *= DILATION;
+        point[2] *= DILATION;
+    }
+
+    auto [dense_cost, dense_points_per_cell] = time_search(points, box_length, CUTOFF);
+    auto [sparse_cost, sparse_points_per_cell] = time_search(
+        dilated, box_length * DILATION, CUTOFF
+    );
+
+    assert(dense_points_per_cell > sparse_points_per_cell);
+
+    auto costs = SearchCostUs{};
+    costs.candidate = (dense_cost - sparse_cost) / (dense_points_per_cell - sparse_points_per_cell);
+    costs.visit = sparse_cost - sparse_points_per_cell * costs.candidate;
+
+    // protect against very noisy measurements
+    costs.candidate = std::max(costs.candidate, 0.0);
+    costs.visit = std::max(costs.visit, 0.0);
+
+    return costs;
 }
 
 void vesin::cpu::cell_list_neighbors(
@@ -106,7 +173,7 @@ void vesin::cpu::cell_list_neighbors(
 ) {
     validate_algorithm(options);
 
-    auto cell_list = CellList(buffers, std::move(box), options.cutoff);
+    auto cell_list = CellList(buffers, std::move(box), options.cutoff, n_points);
     cell_list.build(points, n_points);
 
     auto& thread_pool = ThreadPool::global();
@@ -124,11 +191,19 @@ void vesin::cpu::cell_list_neighbors(
             (2 * cell_list.n_search()[1] + 1) *
             (2 * cell_list.n_search()[2] + 1)
         );
-        auto mean_atoms_per_cell = static_cast<double>(n_points) / static_cast<double>(n_cells_total);
-        auto n_pairs_to_check = cells_searched * mean_atoms_per_cell * static_cast<double>(n_points);
+        auto mean_points_per_cell = static_cast<double>(n_points) / static_cast<double>(n_cells_total);
 
-        static const double CHECK_COST_US = measure_check_cost_us();
-        thread_count = pick_n_threads(n_pairs_to_check * CHECK_COST_US, 2, thread_count);
+        static const auto SEARCH_COST_US = measure_search_cost_us();
+        auto pass_cost = static_cast<double>(n_points)
+                       * cells_searched
+                       * (SEARCH_COST_US.visit + mean_points_per_cell * SEARCH_COST_US.candidate);
+
+        // we do two passes: one to count the neighbors of each point, then one
+        // more to write them out.
+        constexpr size_t N_PASSES = 2;
+        auto serial_cost = static_cast<double>(N_PASSES) * pass_cost;
+
+        thread_count = pick_n_threads(serial_cost, N_PASSES, thread_count);
     }
 
     // Try to have at least `CHUNKS_PER_THREAD` chunks per thread up to
@@ -247,9 +322,47 @@ void vesin::cpu::neighbors(
 
 /* ========================================================================== */
 
-/// Maximal number of cells, we need to use this to prevent having too many
-/// cells with a small bounding box and a large cutoff
-#define MAX_NUMBER_OF_CELLS 1e5
+/// Hard upper bound on the number of cells (2^21), to keep memory consumption
+/// under control when the bounding box is much larger than the cutoff.
+static constexpr double MAX_NUMBER_OF_CELLS = 1 << 21;
+
+/// Also limit the number of cells to `2 x n_points`. This only matters when the
+/// bounding box is mostly empty to prevent creating too many cells.
+static constexpr double MAX_CELLS_PER_POINT = 2.0;
+
+/// Shrink `n_cells` until the three dimensions multiply to `max_cells` or less.
+static void fit_cells_in_budget(Vector& n_cells, double max_cells) {
+    auto total = n_cells[0] * n_cells[1] * n_cells[2];
+    if (total <= max_cells) {
+        return;
+    }
+
+    // Scale all three at once to get close in one step, keeping roughly the
+    // ratio of cells in each direction,
+    auto ratio = std::cbrt(max_cells / total);
+    for (size_t d = 0; d < 3; d++) {
+        n_cells[d] = std::max(1.0, std::trunc(n_cells[d] * ratio));
+    }
+
+    // then walk the largest dimension down, since rounding each dimension
+    // separately can leave the product just above the budget.
+    total = n_cells[0] * n_cells[1] * n_cells[2];
+    while (total > max_cells) {
+        size_t largest = 0;
+        for (size_t d = 1; d < 3; d++) {
+            if (n_cells[d] > n_cells[largest]) {
+                largest = d;
+            }
+        }
+
+        if (n_cells[largest] <= 1.0) {
+            break;
+        }
+
+        n_cells[largest] -= 1.0;
+        total = n_cells[0] * n_cells[1] * n_cells[2];
+    }
+}
 
 /// Function to compute both quotient and remainder of the division of a by b.
 /// This function follows Python convention, making sure the remainder have the
@@ -303,34 +416,84 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
     );
 }
 
-CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff):
+CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, size_t n_points):
     buffers_(buffers),
     n_search_({0, 0, 0}),
     n_cells_({0, 0, 0}),
     box_(std::move(box)) {
     auto distances_between_faces = box_.distances_between_faces();
 
-    auto n_cells = Vector{
-        std::clamp(std::trunc(distances_between_faces[0] / cutoff), 1.0, HUGE_VAL),
-        std::clamp(std::trunc(distances_between_faces[1] / cutoff), 1.0, HUGE_VAL),
-        std::clamp(std::trunc(distances_between_faces[2] / cutoff), 1.0, HUGE_VAL),
-    };
+    // limit memory consumption, and the `O(n_cells)` part of `build()`
+    auto max_cells = std::min(
+        MAX_NUMBER_OF_CELLS,
+        std::max(1.0, static_cast<double>(n_points) * MAX_CELLS_PER_POINT)
+    );
+
+    size_t n_periodic = 0;
+    for (size_t d = 0; d < 3; d++) {
+        if (box_.periodic(d)) {
+            n_periodic += 1;
+        }
+    }
+
+    // Pick how many cells to put across one cutoff.
+    //
+    // Cells one cutoff wide is the textbook choice, but then the search sweeps
+    // a 3x3x3 block of them, i.e. (3 * cutoff)^3 of volume, where the cutoff
+    // sphere only occupies (4 pi / 3) * cutoff^3 -- a factor of 6.4 more
+    // candidate pairs than there are neighbors to find. Splitting each cutoff
+    // into `k` cells brings the swept span per dimension down from 3 * cutoff
+    // towards the (2 + 1/k) * cutoff floor, at the price of (2k+1)^3 cell
+    // visits instead of 27.
+    //
+    // That trade only pays off when the cells hold enough atoms for the
+    // candidates to dominate the cell visits. Minimising
+    //
+    //     cost(k) = atoms_per_cell * (2 + 1/k)^3 + cell_visit_cost * (2k+1)^3
+    //
+    // over k gives k = (atoms_per_cell / (2 * cell_visit_cost))^(1/4), where
+    // `atoms_per_cell` is measured on the one-cell-per-cutoff grid.
+
+
+    // Cost estimate of visiting one extra cell, in units of the cost of
+    // checking one extra candidate pair.
+    constexpr double CELL_VISIT_COST = 8.0;
+    // Limit the number of cells we use when the box is a lot smaller than the
+    // cutoff
+    constexpr int MAX_CELLS_PER_CUTOFF = 6;
+
+    auto points_per_cell = static_cast<double>(n_points);
+    for (size_t d = 0; d < 3; d++) {
+        points_per_cell /= std::clamp(
+            std::trunc(distances_between_faces[d] / cutoff), 1.0, max_cells
+        );
+    }
+
+    auto k = std::pow(points_per_cell / (2.0 * CELL_VISIT_COST), 0.25);
+    auto cells_per_cutoff = std::clamp(
+        static_cast<int>(std::lround(k)), 1, MAX_CELLS_PER_CUTOFF
+    );
+
+    auto n_cells = Vector{0.0, 0.0, 0.0};
+    for (size_t d = 0; d < 3; d++) {
+        // Refining a non-periodic direction under mixed periodicity buys
+        // nothing: `n_search` there is widened below to cover the whole extent
+        // regardless, so a finer grid sweeps the same points in more cells.
+        auto dim_cells_per_cutoff = cells_per_cutoff;
+        if (n_periodic > 0 && n_periodic < 3 && !box_.periodic(d)) {
+            dim_cells_per_cutoff = 1;
+        }
+
+        n_cells[d] = std::clamp(
+            std::trunc(dim_cells_per_cutoff * distances_between_faces[d] / cutoff),
+            1.0,
+            max_cells
+        );
+    }
 
     assert(std::isfinite(n_cells[0]) && std::isfinite(n_cells[1]) && std::isfinite(n_cells[2]));
 
-    // limit memory consumption by ensuring we have less than `MAX_N_CELLS`
-    // cells to look though
-    auto n_cells_total = n_cells[0] * n_cells[1] * n_cells[2];
-    if (n_cells_total > MAX_NUMBER_OF_CELLS) {
-        // set the total number of cells close to MAX_N_CELLS, while keeping
-        // roughly the ratio of cells in each direction
-        auto ratio_x_y = n_cells[0] / n_cells[1];
-        auto ratio_y_z = n_cells[1] / n_cells[2];
-
-        n_cells[2] = std::trunc(std::cbrt(MAX_NUMBER_OF_CELLS / (ratio_x_y * ratio_y_z * ratio_y_z)));
-        n_cells[1] = std::trunc(ratio_y_z * n_cells[2]);
-        n_cells[0] = std::trunc(ratio_x_y * n_cells[1]);
-    }
+    fit_cells_in_budget(n_cells, max_cells);
 
     // number of cells to search in each direction to make sure all possible
     // pairs below the cutoff are accounted for.

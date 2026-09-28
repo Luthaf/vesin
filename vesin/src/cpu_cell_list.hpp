@@ -124,9 +124,10 @@ void neighbors(
 class CellList {
 public:
     /// Create a new `CellList` for the given bounding box and cutoff,
-    /// determining all required parameters. All data arrays are stored in
+    /// determining all required parameters. `n_points` is the number of points
+    /// that will be given to `build()`. All data arrays are stored in
     /// `buffers`, which must outlive this object.
-    CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff);
+    CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, size_t n_points);
 
     /// Build the cell list for the given points: bin the points into cells,
     /// then produce the CSR layout and the wrapped positions (see the class

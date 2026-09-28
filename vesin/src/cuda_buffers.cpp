@@ -36,6 +36,7 @@ CellListBuffersCUDA::~CellListBuffersCUDA() {
         GPULITE_CUDART_CALL(cudaFree(this->d_n_cells_total));
         GPULITE_CUDART_CALL(cudaFree(this->d_face_distances));
         GPULITE_CUDART_CALL(cudaFree(this->d_bounding_min));
+    GPULITE_CUDART_CALL(cudaFree(this->d_cell_out_of_reach));
         GPULITE_CUDART_CALL(cudaFree(this->d_bbox_partials));
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
@@ -126,6 +127,9 @@ CellListBuffersCUDA& CellListBuffersCUDA::operator=(CellListBuffersCUDA&& other)
         this->d_bounding_min = other.d_bounding_min;
         other.d_bounding_min = nullptr;
 
+        this->d_cell_out_of_reach = other.d_cell_out_of_reach;
+        other.d_cell_out_of_reach = nullptr;
+
         this->d_bbox_partials = other.d_bbox_partials;
         other.d_bbox_partials = nullptr;
     }
@@ -191,6 +195,9 @@ void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_cells_total, sizeof(int32_t)));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_face_distances, sizeof(double) * 3));
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_bounding_min, sizeof(double) * 3));
+        GPULITE_CUDART_CALL(cudaMalloc(
+            (void**)&this->d_cell_out_of_reach, sizeof(bool) * MAX_OUT_OF_REACH_MASK
+        ));
         GPULITE_CUDART_CALL(cudaMalloc(
             (void**)&this->d_bbox_partials, sizeof(double) * 6 * MAX_BOUNDING_BOX_BLOCKS
         ));

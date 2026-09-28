@@ -76,6 +76,10 @@ static constexpr size_t THREADS_PER_PARTICLE = 8;
 // which uses it to size its shared memory.
 static constexpr size_t BOUNDING_BOX_BLOCK = 256;
 
+// Block size for `compute_cell_grid_params`. Must match `GRID_PARAMS_BLOCK` in
+// cuda/cell_list.cu.
+static constexpr size_t GRID_PARAMS_BLOCK = 256;
+
 // Cost of visiting one neighbor cell, relative to the cost of evaluating one
 // candidate pair. `compute_cell_grid_params` uses this to pick the cell size:
 // the smaller it is, the finer the grid we can afford.
@@ -700,7 +704,7 @@ static void run_cell_list(
     auto* grid_kernel = GET_CELL_LIST_KERNEL(factory, compute_cell_grid_params);
 
     config.gridDim = dim3(1);
-    config.blockDim = dim3(1);
+    config.blockDim = dim3(GRID_PARAMS_BLOCK);
     grid_kernel->launch(
         config,
         d_box,
@@ -713,7 +717,8 @@ static void run_cell_list(
         cl.d_n_cells,
         cl.d_n_search,
         cl.d_n_cells_total,
-        cl.d_face_distances
+        cl.d_face_distances,
+        cl.d_cell_out_of_reach
     );
     NVTX_POP();
 
@@ -808,6 +813,7 @@ static void run_cell_list(
         cl.d_wrapped_positions,
         n_points,
         d_box,
+        cl.d_cell_out_of_reach,
         d_periodic,
         cl.d_n_cells,
         cl.d_n_search,
@@ -844,6 +850,7 @@ static void run_cell_list(
         cl.d_wrapped_positions,
         n_points,
         d_box,
+        cl.d_cell_out_of_reach,
         d_periodic,
         cl.d_n_cells,
         cl.d_n_search,

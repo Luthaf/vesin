@@ -515,32 +515,61 @@ CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, 
         }
     }
 
-    // When there is mixed periodicity (some dimensions periodic, some not),
-    // periodic shifts can bring points together across multiple cells in
-    // non-periodic dimensions. Increase the search range in non-periodic
-    // dimensions to cover the full cell extent in those dimensions.
-    bool has_periodic = false;
-    bool has_non_periodic = false;
-    for (size_t d = 0; d < 3; d++) {
-        if (box_.periodic(d)) {
-            has_periodic = true;
-        } else {
-            has_non_periodic = true;
+    for (size_t spatial = 0; spatial < 3; spatial++) {
+        if (box_.periodic(spatial)) {
+            continue;
         }
+
+        // A non-periodic direction never searches past its own extent, so we
+        // can reduce the search size.
+        auto extent = static_cast<int32_t>(n_cells_[spatial]) - 1;
+        n_search_[spatial] = n_periodic > 0 ? extent : std::min(n_search_[spatial], extent);
     }
 
-    if (has_periodic && has_non_periodic) {
-        for (size_t spatial = 0; spatial < 3; spatial++) {
-            if (!box_.periodic(spatial)) {
-                n_search_[spatial] = std::max(
-                    n_search_[spatial],
-                    static_cast<int32_t>(n_cells_[spatial]) - 1
-                );
-            }
+    // Cells are only all the same parallelepiped when every direction wraps the
+    // same way; under mixed periodicity the non-periodic directions are
+    // searched to their full extent instead.
+    can_prune_offsets_ = (n_periodic == 3 || n_periodic == 0);
+    if (n_periodic == 3) {
+        const auto& matrix = box_.matrix();
+        for (size_t d = 0; d < 3; d++) {
+            cell_vectors_[d] = Vector{matrix[d]} * (1.0 / n_cells[d]);
+        }
+    } else if (n_periodic == 0) {
+        for (size_t d = 0; d < 3; d++) {
+            cell_vectors_[d] = Vector{0.0, 0.0, 0.0};
+            cell_vectors_[d][d] = distances_between_faces[d] / n_cells[d];
         }
     }
 
     half_offsets_ = build_half_offsets(n_search_);
+
+    if (can_prune_offsets_) {
+        auto cutoff2 = cutoff * cutoff;
+        auto end = std::remove_if(
+            half_offsets_.begin(),
+            half_offsets_.end(),
+            [&](const std::array<int32_t, 3>& offset) {
+                return this->offset_out_of_reach(offset[0], offset[1], offset[2], cutoff2);
+            }
+        );
+        half_offsets_.erase(end, half_offsets_.end());
+
+        auto n_offsets = static_cast<size_t>(2 * n_search_[0] + 1)
+                       * static_cast<size_t>(2 * n_search_[1] + 1)
+                       * static_cast<size_t>(2 * n_search_[2] + 1);
+        cell_out_of_reach_.assign(n_offsets, 0);
+
+        for (int32_t dz = -n_search_[2]; dz <= n_search_[2]; dz++) {
+            for (int32_t dy = -n_search_[1]; dy <= n_search_[1]; dy++) {
+                for (int32_t dx = -n_search_[0]; dx <= n_search_[0]; dx++) {
+                    if (this->offset_out_of_reach(dx, dy, dz, cutoff2)) {
+                        cell_out_of_reach_[this->offset_index(dx, dy, dz)] = 1;
+                    }
+                }
+            }
+        }
+    }
 }
 
 std::pair<size_t, vesin::CellShift> CellList::point_cell(Vector position) const {
@@ -735,6 +764,10 @@ void CellList::foreach_neighbor_of_full(size_t sorted_i, VesinOptions options, F
             auto partial_shift_yz = partial_shift_z + Vector{matrix[1]} * static_cast<double>(cell_shift_y);
 
             for (int32_t dx = -n_search_[0]; dx <= n_search_[0]; dx++) {
+                if (can_prune_offsets_ && cell_out_of_reach_[this->offset_index(dx, dy, dz)]) {
+                    continue;
+                }
+
                 int32_t cell_shift_x = 0;
                 int32_t nx = cell_idx_x + dx;
                 if (box_.periodic(0)) {

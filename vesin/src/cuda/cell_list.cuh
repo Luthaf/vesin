@@ -32,7 +32,8 @@ __global__ void compute_cell_grid_params(
     int* n_cells,
     int* n_search,
     int* n_cells_total,
-    double* face_distances
+    double* face_distances,
+    bool* cell_out_of_reach
 );
 
 // Map particles to cells via fractional coords, record periodic wrap shifts
@@ -77,6 +78,7 @@ __global__ void count_neighbors_cell_list(
     const double* wrapped_positions,
     size_t n_points,
     const double box[3][3],
+    const bool* cell_out_of_reach,
     const bool periodic[3],
     const int* n_cells,
     const int* n_search,
@@ -96,6 +98,7 @@ __global__ void fill_neighbors_cell_list(
     const double* wrapped_positions,
     size_t n_points,
     const double box[3][3],
+    const bool* cell_out_of_reach,
     const bool periodic[3],
     const int* n_cells,
     const int* n_search,

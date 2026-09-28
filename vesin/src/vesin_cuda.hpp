@@ -25,6 +25,10 @@ struct CudaNeighborListExtras;
 /// buffer holding them is allocated once at this size (48 kB).
 static constexpr size_t MAX_BOUNDING_BOX_BLOCKS = 1024;
 
+/// Number of entries in `CellListBuffersCUDA::d_cell_out_of_reach`. Must match
+/// `MAX_OUT_OF_REACH_MASK` in cuda/cell_list.cu, which fills and reads it.
+static constexpr size_t MAX_OUT_OF_REACH_MASK = 32768;
+
 /// @brief Buffers for cell list-based neighbor search
 struct CellListBuffersCUDA {
     size_t points_capacity = 0; // Capacity for point-related arrays
@@ -65,6 +69,12 @@ struct CellListBuffersCUDA {
 
     double* d_face_distances = nullptr; // [3] distances between faces of the box
     double* d_bounding_min = nullptr;   // [3] bottom of the bounding box
+
+    /// Per cell-offset reachability mask: `d_cell_out_of_reach[i]` is true when
+    /// no point of the cell at offset `i` can be within the cutoff of any point
+    /// of the cell at the origin. `MAX_OUT_OF_REACH_MASK` entries, filled by
+    /// `compute_cell_grid_params`
+    bool* d_cell_out_of_reach = nullptr;
 
     // [MAX_BOUNDING_BOX_BLOCKS * 6] per-block partial bounding boxes
     double* d_bbox_partials = nullptr;

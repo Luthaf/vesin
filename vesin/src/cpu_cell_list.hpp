@@ -178,6 +178,56 @@ private:
     /// discarding half of the discovered pairs after the fact).
     std::vector<std::array<int32_t, 3>> half_offsets_;
 
+    /// Whether `offset_out_of_reach()` can be used. It needs every direction to
+    /// wrap the same way, so that the cell at a given offset is always the
+    /// parallelepiped `cell_vectors_` describes.
+    bool can_prune_offsets_ = false;
+
+    /// Edge vectors of a single cell: `box.matrix()[d] / n_cells[d]` when every
+    /// direction is periodic, and the axis-aligned cell of the bounding box
+    /// grid when none of them is. Only meaningful when `can_prune_offsets_` is
+    /// true.
+    std::array<Vector, 3> cell_vectors_;
+
+    /// For the full list, `offset_out_of_reach()` evaluated once per offset of
+    /// `[-n_search, n_search]^3`, indexed by `offset_index()`. Held as bytes
+    /// rather than `bool` to avoid the `std::vector<bool>` specialization.
+    std::vector<uint8_t> cell_out_of_reach_;
+
+    /// Index into `cell_out_of_reach_` for a cell offset.
+    size_t offset_index(int32_t dx, int32_t dy, int32_t dz) const {
+        auto ix = static_cast<size_t>(dx) + static_cast<size_t>(n_search_[0]);
+        auto iy = static_cast<size_t>(dy) + static_cast<size_t>(n_search_[1]);
+        auto iz = static_cast<size_t>(dz) + static_cast<size_t>(n_search_[2]);
+        auto nx = 2 * static_cast<size_t>(n_search_[0]) + 1;
+        auto ny = 2 * static_cast<size_t>(n_search_[1]) + 1;
+        return (iz * ny + iy) * nx + ix;
+    }
+
+    /// True when no point of the cell at `(dx, dy, dz)` cells from the current
+    /// one can be within the cutoff of any point of the current cell, so the
+    /// whole cell can be skipped without looking at its contents.
+    ///
+    /// Two points in cells `delta` apart are separated by `(delta + w) . cell`
+    /// for some `w` in `[-1, 1]^3`. Projecting on `v = delta . cell` bounds
+    /// their distance below by `|v| - sum_d |cell_d . v| / |v|`, which is
+    /// rearranged here into `gap = |v|^2 - sum_d |cell_d . v|` to avoid a
+    /// square root and a division.
+    bool offset_out_of_reach(int32_t dx, int32_t dy, int32_t dz, double cutoff2) const {
+        assert(can_prune_offsets_);
+        auto v = cell_vectors_[0] * static_cast<double>(dx)
+               + cell_vectors_[1] * static_cast<double>(dy)
+               + cell_vectors_[2] * static_cast<double>(dz);
+
+        auto v2 = v.dot(v);
+        auto reach = std::abs(cell_vectors_[0].dot(v))
+                   + std::abs(cell_vectors_[1].dot(v))
+                   + std::abs(cell_vectors_[2].dot(v));
+
+        auto gap = v2 - reach;
+        return gap > 0.0 && gap * gap >= cutoff2 * v2;
+    }
+
     /// Compute the linear index of the cell containing a point at `position`,
     /// together with the periodic wrap shift used to place it inside the cell.
     std::pair<size_t, CellShift> point_cell(Vector position) const;

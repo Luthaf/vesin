@@ -962,6 +962,8 @@ __global__ void count_neighbors_cell_list(
     const int32* __restrict__ cell_counts,
     double cutoff,
     bool full_list,
+    int32 padded_to,
+    int32* __restrict__ padding_overflow,
     int32* __restrict__ counts  // [n_points] output
 ) {
     __shared__ int32 shared_counts[PARTICLES_PER_BLOCK];
@@ -1000,7 +1002,15 @@ __global__ void count_neighbors_cell_list(
     __syncthreads();
 
     if (group.thread_in_group == 0 && group.sorted_i < n_points) {
-        counts[sorted_indices[group.sorted_i]] = shared_counts[group.slot];
+        int32 point_i = sorted_indices[group.sorted_i];
+        int32 point_count = shared_counts[group.slot];
+        counts[point_i] = point_count;
+
+        // Record the first point with too many neighbors, so the error message
+        // does not depend on scheduling
+        if (padded_to > 0 && point_count > padded_to) {
+            atomicMin(padding_overflow, point_i);
+        }
     }
 }
 
@@ -1023,7 +1033,8 @@ __global__ void fill_neighbors_cell_list(
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
-    const int32* __restrict__ write_offsets,  // [n_points] prefix sum
+    int32 padded_to,
+    const int32* __restrict__ write_offsets,
     size_t (*pair_indices)[2],
     int32 (*shifts_out)[3],
     double* distances,
@@ -1036,49 +1047,86 @@ __global__ void fill_neighbors_cell_list(
 
     auto group = particle_group();
 
+    int32 point_i = -1;
+    if (group.sorted_i < n_points) {
+        point_i = sorted_indices[group.sorted_i];
+    }
+
     if (group.thread_in_group == 0 && group.sorted_i < n_points) {
-        shared_cursors[group.slot] = write_offsets[sorted_indices[group.sorted_i]];
+        if (padded_to > 0) {
+            // With padding, each atom owns exactly `padded_to` slots
+            shared_cursors[group.slot] = point_i * padded_to;
+        } else {
+            shared_cursors[group.slot] = write_offsets[point_i];
+        }
     }
     load_cell_grid(grid, box, periodic, n_cells, n_search);
     __syncthreads();
 
-    if (group.sorted_i >= n_points) {
-        return;
+    // Threads past the end of the system can not return early, since they
+    // still need to reach the barrier below when padding.
+    if (group.sorted_i < n_points) {
+        traverse_neighbors(
+            group.sorted_i,
+            group.thread_in_group,
+            wrapped_positions,
+            grid,
+            cell_out_of_reach,
+            sorted_indices,
+            sorted_shifts,
+            sorted_cell_indices,
+            cell_starts,
+            cell_counts,
+            cutoff * cutoff,
+            full_list,
+            [&](int32 point_j, int32 sx, int32 sy, int32 sz, double3 vec, double dist2) {
+                int32 offset = atomicAdd(&shared_cursors[group.slot], 1);
+
+                pair_indices[offset][0] = point_i;
+                pair_indices[offset][1] = point_j;
+                if (return_shifts) {
+                    shifts_out[offset][0] = sx;
+                    shifts_out[offset][1] = sy;
+                    shifts_out[offset][2] = sz;
+                }
+                if (return_distances) {
+                    distances[offset] = sqrt(dist2);
+                }
+                if (return_vectors) {
+                    vectors[offset][0] = vec.x;
+                    vectors[offset][1] = vec.y;
+                    vectors[offset][2] = vec.z;
+                }
+            }
+        );
     }
 
-    int32 point_i = sorted_indices[group.sorted_i];
+    if (padded_to > 0) {
+        // `padded_to` is the same for the whole block, so all threads reach
+        // this barrier. After it, the cursor of each group points just after
+        // the last actual neighbor of its atom.
+        __syncthreads();
 
-    traverse_neighbors(
-        group.sorted_i,
-        group.thread_in_group,
-        wrapped_positions,
-        grid,
-        cell_out_of_reach,
-        sorted_indices,
-        sorted_shifts,
-        sorted_cell_indices,
-        cell_starts,
-        cell_counts,
-        cutoff * cutoff,
-        full_list,
-        [&](int32 point_j, int32 sx, int32 sy, int32 sz, double3 vec, double dist2) {
-            int32 offset = atomicAdd(&shared_cursors[group.slot], 1);
-
-            pair_indices[offset][0] = point_i;
-            pair_indices[offset][1] = point_j;
-            if (return_shifts) {
-                shifts_out[offset][0] = sx;
-                shifts_out[offset][1] = sy;
-                shifts_out[offset][2] = sz;
-            }
-            if (return_distances) {
-                distances[offset] = sqrt(dist2);
-            }
-            if (return_vectors) {
-                vectors[offset][0] = vec.x;
-                vectors[offset][1] = vec.y;
-                vectors[offset][2] = vec.z;
+        if (group.sorted_i < n_points) {
+            int32 end = (point_i + 1) * padded_to;
+            int32 start = shared_cursors[group.slot] + group.thread_in_group;
+            for (int32 offset = start; offset < end; offset += THREADS_PER_PARTICLE) {
+                pair_indices[offset][0] = point_i;
+                pair_indices[offset][1] = static_cast<size_t>(-1);
+                if (return_shifts) {
+                    shifts_out[offset][0] = 0;
+                    shifts_out[offset][1] = 0;
+                    shifts_out[offset][2] = 0;
+                }
+                if (return_distances) {
+                    distances[offset] = 0.0;
+                }
+                if (return_vectors) {
+                    vectors[offset][0] = 0.0;
+                    vectors[offset][1] = 0.0;
+                    vectors[offset][2] = 0.0;
+                }
             }
         }
-    );
+    }
 }

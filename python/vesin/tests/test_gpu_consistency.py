@@ -123,3 +123,51 @@ def test_gpu_matches_cpu(system, cutoff, full_list, gpu_algorithm, sorted, trans
     assert np.array_equal(cpu_S, gpu_S), message
     assert np.allclose(cpu_D, gpu_D), message
     assert np.allclose(cpu_d, gpu_d), message
+
+
+@pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
+@pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force", "verlet"])
+def test_gpu_padded_matches_cpu(system, gpu_algorithm):
+    cutoff = 5.0
+    if gpu_algorithm == "verlet":
+        algorithm, skin = "cell_list", 0.5
+    else:
+        algorithm, skin = gpu_algorithm, 0.0
+
+    if not algorithm_is_applicable(system, cutoff, algorithm):
+        return
+
+    cpu = NeighborList(cutoff=cutoff, full_list=True, padded_to=256)
+    cpu_i, cpu_j, cpu_S, cpu_D, cpu_d = sort_neighbors(
+        *cpu.compute(system.points, system.box, system.periodic, "ijSDd")
+    )
+
+    gpu = NeighborList(
+        cutoff=cutoff,
+        full_list=True,
+        padded_to=256,
+        algorithm=algorithm,
+        skin=skin,
+    )
+    # run twice to also go through the cached Verlet candidates
+    for _ in range(2):
+        outputs = gpu.compute(
+            points=cp.asarray(system.points, dtype=cp.float64),
+            box=cp.asarray(system.box, dtype=cp.float64),
+            periodic=cp.asarray(system.periodic),
+            quantities="ijSDd",
+        )
+        outputs = [cp.asnumpy(output) for output in outputs]
+
+        # each point gets exactly `padded_to` consecutive entries
+        n_points = len(system.points)
+        assert np.array_equal(outputs[0], np.repeat(np.arange(n_points), 256))
+
+        gpu_i, gpu_j, gpu_S, gpu_D, gpu_d = sort_neighbors(*outputs)
+
+        message = f"padded neighbors do not match between CPU and GPU for {system.name}"
+        assert np.array_equal(cpu_i, gpu_i), message
+        assert np.array_equal(cpu_j, gpu_j), message
+        assert np.array_equal(cpu_S, gpu_S), message
+        assert np.allclose(cpu_D, gpu_D), message
+        assert np.allclose(cpu_d, gpu_d), message

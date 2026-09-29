@@ -131,6 +131,7 @@ struct PinnedReadback {
     int32_t last_count;
     int32_t overflow;
     int32_t rebuild;
+    int32_t padding_overflow;
 };
 
 struct CudaNeighborListExtras {
@@ -138,6 +139,12 @@ struct CudaNeighborListExtras {
     size_t* d_length_ptr = nullptr;      // GPU-side counter
     bool* d_all_periodic = nullptr;      // GPU-side output of `analyze_box`
     int32_t* d_overflow_flag = nullptr;  // GPU-side flag to detect overflow of pair buffers
+    int32_t* d_padding_overflow = nullptr; // GPU-side first point with more than `padded_to` neighbors
+
+    // Per-point number of pairs written so far, used with `padded_to` by the
+    // paths writing pairs with atomics (brute force and Verlet)
+    int32_t* d_pairs_per_point = nullptr;
+    size_t pairs_per_point_capacity = 0;
 
     // Pinned host staging for every device-to-host readback, see PinnedReadback
     PinnedReadback* pinned = nullptr;
@@ -211,6 +218,18 @@ inline CudaNeighborListExtras* get_cuda_extras(VesinNeighborList& neighbors) {
 /// is a no-op. Otherwise, existing buffers are freed and new ones are allocated
 /// with the requested capacity.
 void allocate_output_buffers(VesinNeighborList& neighbors, size_t n_pairs, VesinOptions options);
+
+/// Prepare `neighbors` for a calculation with `options.padded_to > 0` on one
+/// of the paths writing pairs with atomics: allocate the output for exactly
+/// `n_points * padded_to` pairs, and reset the per-point counters and the
+/// overflow detection.
+void prepare_padding(VesinNeighborList& neighbors, size_t n_points, VesinOptions options);
+
+/// Finish a calculation with `options.padded_to > 0` started with
+/// `prepare_padding`: fill the unused slots with padding pairs, set the length
+/// of `neighbors`, and throw an error if any point had more than `padded_to`
+/// neighbors.
+void finish_padding(VesinNeighborList& neighbors, size_t n_points, VesinOptions options);
 
 /// Sort the pairs in `neighbors` by the first particle index, using a counting
 /// sort on the GPU over the `n_points` possible values of that index.

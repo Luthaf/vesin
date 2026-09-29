@@ -56,6 +56,16 @@ struct VesinOptions {
     /// be sorted by the first point index (`i`). The order of the second point
     /// index (`j`) and shifts in the list of pairs is unspecified.
     bool sorted;
+    /// Number of outgoing pairs to pad each point to in full lists.
+    ///
+    /// If this is set to zero (default), no padding is applied.
+    ///
+    /// If this is non-zero, `full` must be `true`. The neighbor list will
+    /// contain exactly `n_points * padded_to` pairs. Missing pairs are padded
+    /// with pseudo-pairs `(i, SIZE_MAX)` with zero shifts/distances/vectors. If
+    /// any point has more neighbors than `padded_to`, the calculation will
+    /// fail.
+    size_t padded_to;
     /// Which algorithm to use for the calculation
     VesinAlgorithm algorithm;
     /// Skin size for Verlet caching. A positive value enables caching: vesin

@@ -1,3 +1,4 @@
+import re
 from typing import List
 
 import pytest
@@ -152,3 +153,62 @@ def test_dtype(dtype, device):
     assert s.dtype == torch.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
+
+
+def test_pad_neighbors():
+    points = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=torch.float64,
+        device="cpu",
+    )
+    box = torch.diag(
+        torch.tensor([54.0, 54.0, 54.0], dtype=torch.float64, device="cpu")
+    )
+
+    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert len(i) == 18
+    assert len(j) == 18
+
+    counts = torch.bincount(i.to(torch.int64), minlength=6)
+    assert torch.all(counts == 3)
+
+    padding = j == -1
+    assert int(torch.sum(padding).item()) == 10
+    assert torch.all(S[padding] == 0)
+    assert torch.all(D[padding] == 0)
+    assert torch.all(d[padding] == 0)
+
+
+def test_pad_neighbors_errors():
+    message = "`padded_to != None` requires `full_list = true`"
+    with pytest.raises(ValueError, match=message):
+        _ = NeighborList(cutoff=2.0, full_list=False, padded_to=1)
+
+    message = "`padded_to` must be positive or None, got -1"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, padded_to=-1)
+
+    points = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        dtype=torch.float64,
+        device="cpu",
+    )
+    box = torch.eye(3, dtype=torch.float64, device="cpu")
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=1)
+    message = "point 0 has more neighbors than the requested `padded_to` (1)"
+    with pytest.raises(RuntimeError, match=re.escape(message)):
+        nl.compute(points, box, periodic=False)

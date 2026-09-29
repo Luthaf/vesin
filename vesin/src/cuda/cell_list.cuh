@@ -91,6 +91,8 @@ __global__ void count_neighbors_cell_list(
     const int32* cell_counts,
     double cutoff,
     bool full_list,
+    int32 padded_to,
+    int32* padding_overflow,
     int32* counts
 );
 
@@ -114,6 +116,7 @@ __global__ void fill_neighbors_cell_list(
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    int32 padded_to,
     const int32* write_offsets,
     size_t (*pair_indices)[2],
     int32 (*shifts_out)[3],

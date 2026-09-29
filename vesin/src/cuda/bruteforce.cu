@@ -222,6 +222,39 @@ __global__ void brute_force_half(
     );
 }
 
+// Write a single pair `(i, j)` at position `idx` in the outputs
+__device__ inline void write_pair(
+    size_t idx,
+    size_t i,
+    size_t j,
+    int3 shift,
+    double3 vector,
+    double dist2,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors,
+    size_t (*pair_indices)[2],
+    int32 (*shifts)[3],
+    double* distances,
+    double (*vectors)[3]
+) {
+    pair_indices[idx][0] = i;
+    pair_indices[idx][1] = j;
+    if (return_shifts) {
+        shifts[idx][0] = shift.x;
+        shifts[idx][1] = shift.y;
+        shifts[idx][2] = shift.z;
+    }
+    if (return_vectors) {
+        vectors[idx][0] = vector.x;
+        vectors[idx][1] = vector.y;
+        vectors[idx][2] = vector.z;
+    }
+    if (return_distances) {
+        distances[idx] = sqrt(dist2);
+    }
+}
+
 __global__ void brute_force_full(
     const double (*__restrict__ points)[3],
     const double (*__restrict__ box)[3],
@@ -238,7 +271,9 @@ __global__ void brute_force_full(
     double* distances,
     double (*vectors)[3],
     size_t max_pairs,
-    int32* overflow_flag
+    int32* overflow_flag,
+    int32 padded_to,
+    int32* pairs_per_point
 ) {
     // One thread per unordered pair, writing out both (i, j) and (j, i)
     brute_force_images(
@@ -249,6 +284,26 @@ __global__ void brute_force_full(
         n_search,
         cutoff2,
         [&](size_t i, size_t j, int3 shift, double3 vector, double dist2) {
+            if (padded_to > 0) {
+                // Each point owns `padded_to` slots in the output. We keep
+                // counting past the end to detect overflow in `pad_neighbors`,
+                // but only write inside the slots of the point.
+                int32 index_i = atomicAdd(&pairs_per_point[i], 1);
+                if (index_i < padded_to) {
+                    size_t idx = i * padded_to + index_i;
+                    write_pair(idx, i, j, shift, vector, dist2, return_shifts, return_distances, return_vectors, pair_indices, shifts, distances, vectors);
+                }
+
+                int32 index_j = atomicAdd(&pairs_per_point[j], 1);
+                if (index_j < padded_to) {
+                    size_t idx = j * padded_to + index_j;
+                    auto minus_shift = make_int3(-shift.x, -shift.y, -shift.z);
+                    auto minus_vector = make_double3(-vector.x, -vector.y, -vector.z);
+                    write_pair(idx, j, i, minus_shift, minus_vector, dist2, return_shifts, return_distances, return_vectors, pair_indices, shifts, distances, vectors);
+                }
+                return;
+            }
+
             size_t idx = atomicAdd_size_t(length, 2UL);
 
             // Check if we are about to exceed max_pairs

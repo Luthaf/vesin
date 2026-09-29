@@ -242,9 +242,26 @@ void vesin::cpu::cell_list_neighbors(
         }
     }
 
-    // Get the write offset for each point in the output array by prefix sum.
-    for (size_t i = 0; i < n_points; i++) {
-        buffers.count[i + 1] += buffers.count[i];
+    if (options.padded_to > 0) {
+        assert(options.full);
+
+        // Each point gets exactly `padded_to` slots in the output array, the
+        // ones not used by actual neighbors are filled with padding in the
+        // second pass.
+        for (size_t i = 0; i < n_points; i++) {
+            if (buffers.count[i + 1] > options.padded_to) {
+                throw too_many_neighbors_error(i, options.padded_to);
+            }
+        }
+
+        for (size_t i = 0; i <= n_points; i++) {
+            buffers.count[i] = i * options.padded_to;
+        }
+    } else {
+        // Get the write offset for each point in the output array by prefix sum.
+        for (size_t i = 0; i < n_points; i++) {
+            buffers.count[i + 1] += buffers.count[i];
+        }
     }
     auto n_pairs = buffers.count[n_points];
 
@@ -283,6 +300,14 @@ void vesin::cpu::cell_list_neighbors(
                 offset++;
             }
         );
+
+        // Without padding, the neighbors fill the whole range of this point
+        // and this loop does nothing.
+        auto end = write_offset[point_i + 1];
+        assert(options.padded_to > 0 || offset == end);
+        for (; offset < end; offset++) {
+            set_padding_pair(raw_neighbors, offset, point_i, options);
+        }
     });
 
     neighbors.neighbors.length = n_pairs;

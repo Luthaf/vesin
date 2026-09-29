@@ -7,8 +7,9 @@
 #include <string>
 #include <thread>
 
-#include "cpu_cell_list.hpp"
 #include "vesin.h"
+
+#include "cpu_cell_list.hpp"
 #include "vesin_cuda.hpp"
 
 // used to store dynamically allocated error messages before giving a pointer
@@ -84,6 +85,11 @@ extern "C" int32_t vesin_neighbors(
 
     if (options.n_threads < 0) {
         *error_message = "n_threads must be zero or a positive integer";
+        return EXIT_FAILURE;
+    }
+
+    if (options.padded_to > 0 && !options.full) {
+        *error_message = "`padded_to` requires `full=true`";
         return EXIT_FAILURE;
     }
 

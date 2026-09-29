@@ -52,6 +52,12 @@ const uint8_t CUDA_SCAN_HEX[] = {
 };
 const char* CUDA_SCAN_CODE = reinterpret_cast<const char*>(CUDA_SCAN_HEX);
 
+#include "cuda/padding.cuh"
+const uint8_t CUDA_PADDING_HEX[] = {
+#include "generated/cuda/padding.cu.inc"
+};
+const char* CUDA_PADDING_CODE = reinterpret_cast<const char*>(CUDA_PADDING_HEX);
+
 // Hard upper bound on the number of cells, to keep the per-cell arrays (three
 // `int32_t` each) at a sane size. This only kicks in for very large systems:
 // the per-system budget below is normally the binding constraint.
@@ -113,6 +119,9 @@ static constexpr double CELL_VISIT_COST = 1.23;
 
 #define GET_SCAN_KERNEL(factory, name) \
     factory.create<decltype(name)>(#name, CUDA_SCAN_CODE, "scan.cu", {"-std=c++17", "-default-device"})
+
+#define GET_PADDING_KERNEL(factory, name) \
+    factory.create<decltype(name)>(#name, CUDA_PADDING_CODE, "padding.cu", {"-std=c++17", "-default-device"})
 
 static std::optional<cudaPointerAttributes> get_ptr_attributes(const void* ptr) {
     if (ptr == nullptr) {
@@ -252,6 +261,41 @@ static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
     if (extras->d_overflow_flag == nullptr) {
         GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_overflow_flag, sizeof(int32_t)));
     }
+
+    if (extras->d_padding_overflow == nullptr) {
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_padding_overflow, sizeof(int32_t)));
+    }
+}
+
+// Reset the device-side "first point with too many neighbors" to "no point",
+// before launching the kernels that update it with `atomicMin`.
+static void reset_padding_overflow(CudaNeighborListExtras* extras) {
+    // The copy only reads from the pinned memory when it executes, but nothing
+    // else touches this field until `check_padding_overflow` synchronizes.
+    extras->pinned->padding_overflow = std::numeric_limits<int32_t>::max();
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        extras->d_padding_overflow, &extras->pinned->padding_overflow,
+        sizeof(int32_t), cudaMemcpyHostToDevice, nullptr
+    ));
+}
+
+// Throw an error if any point had more than `padded_to` neighbors. This
+// synchronizes the stream.
+static void check_padding_overflow(CudaNeighborListExtras* extras, VesinOptions options) {
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &extras->pinned->padding_overflow, extras->d_padding_overflow,
+        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+    ));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+
+    auto point = extras->pinned->padding_overflow;
+    if (point != std::numeric_limits<int32_t>::max()) {
+        throw std::runtime_error(
+            "point " + std::to_string(point) +
+            " has more neighbors than the requested `padded_to` (" +
+            std::to_string(options.padded_to) + ")"
+        );
+    }
 }
 
 void vesin::cuda::allocate_output_buffers(
@@ -291,6 +335,67 @@ void vesin::cuda::allocate_output_buffers(
     }
 
     extras->pairs_capacity = capacity;
+}
+
+void vesin::cuda::prepare_padding(
+    VesinNeighborList& neighbors,
+    size_t n_points,
+    VesinOptions options
+) {
+    assert(options.padded_to > 0);
+    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+
+    vesin::cuda::allocate_output_buffers(neighbors, n_points * options.padded_to, options);
+
+    if (extras->pairs_per_point_capacity < n_points) {
+        GPULITE_CUDART_CALL(cudaFree(extras->d_pairs_per_point));
+        extras->d_pairs_per_point = nullptr;
+        extras->pairs_per_point_capacity = 0;
+
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_pairs_per_point, sizeof(int32_t) * n_points));
+        extras->pairs_per_point_capacity = n_points;
+    }
+
+    GPULITE_CUDART_CALL(cudaMemset(extras->d_pairs_per_point, 0, sizeof(int32_t) * n_points));
+    reset_padding_overflow(extras);
+}
+
+void vesin::cuda::finish_padding(
+    VesinNeighborList& neighbors,
+    size_t n_points,
+    VesinOptions options
+) {
+    assert(options.padded_to > 0);
+    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+    auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
+
+    NVTX_PUSH("pad_neighbors");
+    auto* kernel = GET_PADDING_KERNEL(factory, pad_neighbors);
+
+    auto n_slots = n_points * options.padded_to;
+    size_t threads = 256;
+    auto config = gpulite::LaunchConfig();
+    config.gridDim = dim3((n_slots + threads - 1) / threads);
+    config.blockDim = dim3(threads);
+
+    kernel->launch(
+        config,
+        extras->d_pairs_per_point,
+        n_points,
+        static_cast<int32_t>(options.padded_to),
+        extras->d_padding_overflow,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors
+    );
+    NVTX_POP();
+
+    check_padding_overflow(extras, options);
+    neighbors.length = n_slots;
 }
 
 struct BoxChecks {
@@ -811,6 +916,10 @@ static void run_cell_list(
     config.gridDim = dim3(num_blocks_search);
     config.blockDim = dim3(CELL_LIST_BLOCK);
 
+    if (options.padded_to > 0) {
+        reset_padding_overflow(extras);
+    }
+
     count_neighbors_kernel->launch(
         config,
         cl.d_wrapped_positions,
@@ -827,14 +936,25 @@ static void run_cell_list(
         cl.d_cell_counts,
         options.cutoff,
         options.full,
+        static_cast<int32_t>(options.padded_to),
+        extras->d_padding_overflow,
         cl.d_counts
     );
     NVTX_POP();
 
-    // Device-side exclusive prefix sum of d_counts → d_write_offsets.
-    NVTX_PUSH("prefix_sum_counts");
-    size_t n_pairs = device_exclusive_prefix_sum(factory, cl, extras->pinned, n_points);
-    NVTX_POP();
+    size_t n_pairs = 0;
+    if (options.padded_to > 0) {
+        // Each atom gets exactly `padded_to` slots in the output, there is no
+        // need for the prefix sum. The slots not used by actual neighbors are
+        // filled with padding in the second pass.
+        check_padding_overflow(extras, options);
+        n_pairs = n_points * options.padded_to;
+    } else {
+        // Device-side exclusive prefix sum of d_counts → d_write_offsets.
+        NVTX_PUSH("prefix_sum_counts");
+        n_pairs = device_exclusive_prefix_sum(factory, cl, extras->pinned, n_points);
+        NVTX_POP();
+    }
 
     // Allocate the output buffers. We ask for a little more than the number of
     // pairs we actually found, so that small step-to-step fluctuations don't
@@ -867,6 +987,7 @@ static void run_cell_list(
         options.return_shifts,
         options.return_distances,
         options.return_vectors,
+        static_cast<int32_t>(options.padded_to),
         cl.d_write_offsets,
         neighbors.pairs,
         neighbors.shifts,
@@ -928,7 +1049,9 @@ static bool run_brute_force(
             neighbors.distances,
             neighbors.vectors,
             extras->pairs_capacity,
-            extras->d_overflow_flag
+            extras->d_overflow_flag,
+            static_cast<int32_t>(options.padded_to),
+            extras->d_pairs_per_point
         );
         NVTX_POP();
     } else {
@@ -958,6 +1081,14 @@ static bool run_brute_force(
     }
 
     NVTX_POP(); // brute_force_total
+
+    if (options.padded_to > 0) {
+        // The output is sorted by construction when padding, and always has
+        // room for exactly `padded_to` pairs per point: points with more
+        // neighbors make `finish_padding` throw instead.
+        vesin::cuda::finish_padding(neighbors, n_points, options);
+        return true;
+    }
 
     // Read back the pair count from the GPU-side atomic counter, and the
     // overflow flag.
@@ -1016,6 +1147,21 @@ void vesin::cuda::neighbors(
         );
     }
 
+    if (options.padded_to > 0) {
+        // should already be checked
+        assert(options.full);
+
+        // The kernels use `int32_t` offsets in the output arrays
+        auto max_padded_to = static_cast<size_t>(std::numeric_limits<int32_t>::max()) / n_points;
+        if (options.padded_to > max_padded_to) {
+            throw std::runtime_error(
+                "`padded_to` (" + std::to_string(options.padded_to) + ") is too large "
+                "for the CUDA neighbour list with " + std::to_string(n_points) +
+                " points (the limit is 2^31 pairs in total)"
+            );
+        }
+    }
+
     // check that all pointers are are device pointers
     if (!is_device_ptr(get_ptr_attributes(d_points), "points")) {
         throw std::runtime_error("`points` pointer is not allocated on a CUDA device");
@@ -1064,6 +1210,12 @@ void vesin::cuda::neighbors(
                 box_checks.all_periodic,
                 neighbors
             );
+        } else if (options.padded_to > 0) {
+            // With padding, the output size is known in advance
+            vesin::cuda::prepare_padding(neighbors, n_points, options);
+            auto buffer_large_enough = run_brute_force(d_points, n_points, d_box, d_periodic, options, neighbors);
+            assert(buffer_large_enough);
+            (void)buffer_large_enough;
         } else {
             // Brute force writes its pairs through an atomic counter, and needs
             // a pre-allocated output. We guess a starting size here, and will

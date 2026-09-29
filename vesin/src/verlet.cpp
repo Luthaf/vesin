@@ -5,11 +5,16 @@
 #include <cstdint>
 #include <cstring>
 
+#include <limits>
+
 #include "cpu_cell_list.hpp"
 #include "threadpool.hpp"
 #include "verlet.hpp"
 
 using namespace vesin;
+
+/// Target number of candidates in a single block when filtering
+static constexpr size_t FILTER_BLOCK_SIZE = 2048;
 
 // Sum of the two largest box-corner displacements, used to shrink the Verlet
 // rebuild threshold when the box deforms (e.g. NPT).
@@ -51,6 +56,8 @@ void cpu::VerletList::clear_candidates() {
     buffers_.candidates = VesinNeighborList();
     buffers_.has_cache = false;
     buffers_.ref_points.clear();
+    buffers_.candidate_offsets.clear();
+    buffers_.block_points.clear();
 }
 
 void cpu::VerletList::set_options(VesinOptions options) {
@@ -144,6 +151,24 @@ void cpu::VerletList::rebuild(
         candidate_capacity
     );
 
+    // The candidates of each point are contiguous, starting at the offset
+    // computed by `cell_list_neighbors`. Group whole points in blocks of
+    // around `FILTER_BLOCK_SIZE` candidates, so each point is filtered by a
+    // single block and we know how many neighbors it has at the end of the
+    // first filter pass.
+    buffers_.candidate_offsets = cell_buffers.count;
+    assert(buffers_.candidate_offsets.size() == n_points + 1);
+
+    buffers_.block_points.clear();
+    buffers_.block_points.push_back(0);
+    auto block_start = size_t(0);
+    for (size_t i = 0; i < n_points; i++) {
+        if (buffers_.candidate_offsets[i + 1] - block_start >= FILTER_BLOCK_SIZE || i + 1 == n_points) {
+            buffers_.block_points.push_back(i + 1);
+            block_start = buffers_.candidate_offsets[i + 1];
+        }
+    }
+
     buffers_.ref_points.resize(n_points);
     std::memcpy(buffers_.ref_points.data(), points, n_points * sizeof(Vector));
     buffers_.ref_matrix = box.matrix();
@@ -190,12 +215,12 @@ void cpu::VerletList::filter(
         }
     }
 
-    // Split the candidates into blocks, count how many pass the cutoff per
-    // block in parallel.
-    constexpr size_t FILTER_BLOCK_SIZE = 2048;
-    auto n_blocks = (n_candidates + FILTER_BLOCK_SIZE - 1) / FILTER_BLOCK_SIZE;
+    // Count how many candidates pass the cutoff per block in parallel.
+    auto n_points = buffers_.candidate_offsets.size() - 1;
+    auto n_blocks = buffers_.block_points.size() - 1;
     buffers_.block_counts.resize(n_blocks);
     buffers_.block_offsets.resize(n_blocks + 1);
+    buffers_.block_overflow.resize(n_blocks);
 
     buffers_.candidates_distances_sq.resize(n_candidates);
     if (options.return_vectors) {
@@ -203,39 +228,50 @@ void cpu::VerletList::filter(
     }
 
     auto count_block = [&](size_t block, size_t) {
-        auto begin = block * FILTER_BLOCK_SIZE;
-        auto end = std::min(begin + FILTER_BLOCK_SIZE, n_candidates);
         auto* pairs = buffers_.candidates.pairs;
         auto* shifts = buffers_.candidates.shifts;
 
+        buffers_.block_overflow[block] = std::numeric_limits<size_t>::max();
+
         size_t count = 0;
-        for (size_t k = begin; k < end; k++) {
-            size_t i = pairs[k][0];
-            size_t j = pairs[k][1];
+        for (size_t point = buffers_.block_points[block]; point < buffers_.block_points[block + 1]; point++) {
+            size_t point_count = 0;
+            for (size_t k = buffers_.candidate_offsets[point]; k < buffers_.candidate_offsets[point + 1]; k++) {
+                size_t i = pairs[k][0];
+                size_t j = pairs[k][1];
+                assert(i == point);
 
-            auto* shift = shifts[k];
-            Vector shift_vec;
-            if (shift[0] >= -SHIFT_MAX && shift[0] <= SHIFT_MAX &&
-                shift[1] >= -SHIFT_MAX && shift[1] <= SHIFT_MAX &&
-                shift[2] >= -SHIFT_MAX && shift[2] <= SHIFT_MAX)
-            {
-                shift_vec = shift_lookup[shift[0] + SHIFT_MAX][shift[1] + SHIFT_MAX][shift[2] + SHIFT_MAX];
-            } else {
-                shift_vec = CellShift(shift).cartesian(box);
-            }
+                auto* shift = shifts[k];
+                Vector shift_vec;
+                if (shift[0] >= -SHIFT_MAX && shift[0] <= SHIFT_MAX &&
+                    shift[1] >= -SHIFT_MAX && shift[1] <= SHIFT_MAX &&
+                    shift[2] >= -SHIFT_MAX && shift[2] <= SHIFT_MAX)
+                {
+                    shift_vec = shift_lookup[shift[0] + SHIFT_MAX][shift[1] + SHIFT_MAX][shift[2] + SHIFT_MAX];
+                } else {
+                    shift_vec = CellShift(shift).cartesian(box);
+                }
 
-            auto vector = points[j] - points[i] + shift_vec;
-            double distance_sq = vector.dot(vector);
-            buffers_.candidates_distances_sq[k] = distance_sq;
+                auto vector = points[j] - points[i] + shift_vec;
+                double distance_sq = vector.dot(vector);
+                buffers_.candidates_distances_sq[k] = distance_sq;
 
-            if (distance_sq < cutoff_sq) {
-                count++;
-                if (options.return_vectors) {
-                    buffers_.candidates_vectors[k][0] = vector[0];
-                    buffers_.candidates_vectors[k][1] = vector[1];
-                    buffers_.candidates_vectors[k][2] = vector[2];
+                if (distance_sq < cutoff_sq) {
+                    point_count++;
+                    if (options.return_vectors) {
+                        buffers_.candidates_vectors[k][0] = vector[0];
+                        buffers_.candidates_vectors[k][1] = vector[1];
+                        buffers_.candidates_vectors[k][2] = vector[2];
+                    }
                 }
             }
+
+            if (options.padded_to > 0 && point_count > options.padded_to &&
+                buffers_.block_overflow[block] == std::numeric_limits<size_t>::max()) {
+                buffers_.block_overflow[block] = point;
+            }
+
+            count += point_count;
         }
         buffers_.block_counts[block] = count;
     };
@@ -263,14 +299,33 @@ void cpu::VerletList::filter(
 
     thread_pool.run(thread_count, n_blocks, Scheduling::dynamic(1), count_block);
 
-    // Prefix sum -> write offset of each block in the output array.
-    size_t offset = 0;
-    buffers_.block_offsets[0] = 0;
-    for (size_t block = 0; block < n_blocks; block++) {
-        offset += buffers_.block_counts[block];
-        buffers_.block_offsets[block + 1] = offset;
+    if (options.padded_to > 0) {
+        // should already be checked
+        assert(options.full);
+
+        for (size_t block = 0; block < n_blocks; block++) {
+            if (buffers_.block_overflow[block] != std::numeric_limits<size_t>::max()) {
+                throw too_many_neighbors_error(buffers_.block_overflow[block], options.padded_to);
+            }
+        }
+
+        // Each point gets exactly `padded_to` slots in the output array, the
+        // ones not used by actual neighbors are filled with padding in the
+        // second pass.
+        for (size_t block = 0; block <= n_blocks; block++) {
+            buffers_.block_offsets[block] = buffers_.block_points[block] * options.padded_to;
+        }
+    } else {
+        // Prefix sum -> write offset of each block in the output array.
+        size_t offset = 0;
+        buffers_.block_offsets[0] = 0;
+        for (size_t block = 0; block < n_blocks; block++) {
+            offset += buffers_.block_counts[block];
+            buffers_.block_offsets[block + 1] = offset;
+        }
     }
-    auto n_filtered = offset;
+    auto n_filtered = buffers_.block_offsets[n_blocks];
+    assert(options.padded_to == 0 || n_filtered == n_points * options.padded_to);
 
     // Allocate output buffers at least as large as the retained capacity,
     // growing to `n_filtered` when needed.
@@ -281,35 +336,44 @@ void cpu::VerletList::filter(
     // Actually fill the output buffers with the passing candidates. Each block
     // writes to its own pre-computed offset, so no locks are needed.
     thread_pool.run(thread_count, n_blocks, Scheduling::dynamic(1), [&](size_t block, size_t) {
-        auto begin = block * FILTER_BLOCK_SIZE;
-        auto end = std::min(begin + FILTER_BLOCK_SIZE, n_candidates);
         auto out = buffers_.block_offsets[block];
 
-        for (size_t k = begin; k < end; k++) {
-            auto distance_sq = buffers_.candidates_distances_sq[k];
+        for (size_t point = buffers_.block_points[block]; point < buffers_.block_points[block + 1]; point++) {
+            for (size_t k = buffers_.candidate_offsets[point]; k < buffers_.candidate_offsets[point + 1]; k++) {
+                auto distance_sq = buffers_.candidates_distances_sq[k];
 
-            if (distance_sq < cutoff_sq) {
-                assert(out < growable.capacity);
-                neighbors.pairs[out][0] = buffers_.candidates.pairs[k][0];
-                neighbors.pairs[out][1] = buffers_.candidates.pairs[k][1];
-                if (options.return_shifts) {
-                    neighbors.shifts[out][0] = buffers_.candidates.shifts[k][0];
-                    neighbors.shifts[out][1] = buffers_.candidates.shifts[k][1];
-                    neighbors.shifts[out][2] = buffers_.candidates.shifts[k][2];
-                }
+                if (distance_sq < cutoff_sq) {
+                    assert(out < growable.capacity);
+                    neighbors.pairs[out][0] = buffers_.candidates.pairs[k][0];
+                    neighbors.pairs[out][1] = buffers_.candidates.pairs[k][1];
+                    if (options.return_shifts) {
+                        neighbors.shifts[out][0] = buffers_.candidates.shifts[k][0];
+                        neighbors.shifts[out][1] = buffers_.candidates.shifts[k][1];
+                        neighbors.shifts[out][2] = buffers_.candidates.shifts[k][2];
+                    }
 
-                if (options.return_distances) {
-                    neighbors.distances[out] = std::sqrt(distance_sq);
-                }
+                    if (options.return_distances) {
+                        neighbors.distances[out] = std::sqrt(distance_sq);
+                    }
 
-                if (options.return_vectors) {
-                    neighbors.vectors[out][0] = buffers_.candidates_vectors[k][0];
-                    neighbors.vectors[out][1] = buffers_.candidates_vectors[k][1];
-                    neighbors.vectors[out][2] = buffers_.candidates_vectors[k][2];
+                    if (options.return_vectors) {
+                        neighbors.vectors[out][0] = buffers_.candidates_vectors[k][0];
+                        neighbors.vectors[out][1] = buffers_.candidates_vectors[k][1];
+                        neighbors.vectors[out][2] = buffers_.candidates_vectors[k][2];
+                    }
+                    out++;
                 }
-                out++;
+            }
+
+            if (options.padded_to > 0) {
+                auto end = (point + 1) * options.padded_to;
+                for (; out < end; out++) {
+                    cpu::set_padding_pair(neighbors, out, point, options);
+                }
             }
         }
+
+        assert(out == buffers_.block_offsets[block + 1]);
     });
 
     if (measuring && n_candidates > 0) {

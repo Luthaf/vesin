@@ -1,6 +1,6 @@
 import ctypes
 from ctypes import POINTER
-from typing import List, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -75,8 +75,9 @@ class NeighborList:
         cutoff: float,
         full_list: bool,
         sorted: bool = False,
-        algorithm: str = "auto",
+        padded_to: Optional[int] = None,
         skin: float = 0.0,
+        algorithm: str = "auto",
         n_threads: int = 0,
     ):
         """
@@ -88,6 +89,10 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
+        :param padded_to: pad full lists so every point has exactly this many outgoing
+            pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
+            Computing the list fails if a point has more neighbors than this. If set to
+            ``None``, no padding is applied.
         :param skin: skin size for Verlet caching. A positive value enables caching the
             neighbor list until any atom moves farther than ``skin/2`` from its
             reference coordinates. A negative value sets the skin to an unspecified
@@ -102,6 +107,17 @@ class NeighborList:
         self.full_list = bool(full_list)
         self.sorted = bool(sorted)
         self.skin = float(skin)
+        self.padded_to = padded_to
+
+        if self.padded_to is not None:
+            self.padded_to = int(self.padded_to)
+            if self.padded_to <= 0:
+                raise ValueError(
+                    f"`padded_to` must be positive or None, got {self.padded_to}"
+                )
+
+            if not self.full_list:
+                raise ValueError("`padded_to != None` requires `full_list = true`")
 
         self.algorithm = algorithm
         self.n_threads = int(n_threads)
@@ -214,6 +230,7 @@ class NeighborList:
         options.algorithm = self._c_algorithm
         options.skin = self.skin
         options.n_threads = self.n_threads
+        options.padded_to = self.padded_to if self.padded_to is not None else 0
 
         if isinstance(periodic, (bool, np.bool_)):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)

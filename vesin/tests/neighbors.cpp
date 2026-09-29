@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <array>
+#include <limits>
+#include <string>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -75,6 +77,7 @@ static void check_neighbors(
     options.return_shifts = !expected_shifts.empty();
     options.return_distances = !expected_distances.empty();
     options.return_vectors = !expected_vectors.empty();
+    options.padded_to = 0;
 
     VesinNeighborList neighbors;
 
@@ -207,6 +210,97 @@ static void check_neighbors(
             }
         }
     }
+
+    vesin_free(&neighbors);
+}
+
+TEST_CASE("padded_to") {
+    double points[][3] = {
+        {0.0, 0.0, 0.0},
+        {0.0, 2.0, 0.0},
+        {0.0, 0.0, 2.0},
+        {-6.0, 0.0, 0.0},
+        {-6.0, -2.0, 0.0},
+        {-6.0, 0.0, -2.0},
+    };
+
+    double box[3][3] = {
+        {54.0, 0.0, 0.0},
+        {0.0, 54.0, 0.0},
+        {0.0, 0.0, 54.0},
+    };
+    bool periodic[3] = {true, true, true};
+
+    auto options = VesinOptions();
+    options.cutoff = 2.1;
+    options.full = true;
+    options.sorted = false;
+    options.algorithm = VesinAutoAlgorithm;
+    options.return_shifts = true;
+    options.return_distances = true;
+    options.return_vectors = true;
+    options.padded_to = 3;
+
+    VesinNeighborList neighbors;
+    const char* error_message = nullptr;
+
+
+    auto status = vesin_neighbors(
+        points,
+        /*n_points=*/6,
+        box,
+        periodic,
+        {VesinDeviceKind::VesinCPU, 0},
+        options,
+        &neighbors,
+        &error_message
+    );
+
+    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(error_message == nullptr);
+    REQUIRE(neighbors.length == 18);
+
+    auto counts = std::array<size_t, 6>{0, 0, 0, 0, 0, 0};
+    auto n_padding = size_t(0);
+    for (size_t i = 0; i < neighbors.length; i++) {
+        auto first = neighbors.pairs[i][0];
+        auto second = neighbors.pairs[i][1];
+        REQUIRE(first < 6);
+        counts[first] += 1;
+
+        if (second == std::numeric_limits<size_t>::max()) {
+            n_padding += 1;
+            CHECK(neighbors.shifts[i][0] == 0);
+            CHECK(neighbors.shifts[i][1] == 0);
+            CHECK(neighbors.shifts[i][2] == 0);
+            CHECK(neighbors.distances[i] == 0.0);
+            CHECK(neighbors.vectors[i][0] == 0.0);
+            CHECK(neighbors.vectors[i][1] == 0.0);
+            CHECK(neighbors.vectors[i][2] == 0.0);
+        }
+    }
+
+    for (auto count : counts) {
+        CHECK(count == 3);
+    }
+    CHECK(n_padding == 10);
+
+    // error when padded_to is smaller than the number of neighbors for a point
+    options.padded_to = 1;
+    status = vesin_neighbors(
+        points,
+        /*n_points=*/6,
+        box,
+        periodic,
+        {VesinDeviceKind::VesinCPU, 0},
+        options,
+        &neighbors,
+        &error_message
+    );
+    REQUIRE(status == EXIT_FAILURE);
+    REQUIRE(error_message != nullptr);
+    std::string expected = "point 0 has more neighbors than the requested `padded_to` (1)";
+    CHECK(std::string(error_message) == expected);
 
     vesin_free(&neighbors);
 }

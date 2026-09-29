@@ -2,6 +2,9 @@
 #define VESIN_CPU_CELL_LIST_HPP
 
 #include <cstddef>
+#include <limits>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -32,7 +35,10 @@ struct CellListBuffersCPU {
     /// `s` wrapped back into the unit cell.
     std::vector<Vector> wrapped_positions;
 
-    /// Scratch: per-point neighbor count before the prefix sum (first pass).
+    /// Per-point neighbor count before the prefix sum (first pass). After
+    /// `cell_list_neighbors()` returns, `count[i]` is the offset of the first
+    /// pair of point `i` in the output, and `count[n_points]` is the total
+    /// number of pairs.
     std::vector<size_t> count;
     /// Scratch: per-thread partial counts merged into `count` (first pass).
     std::vector<std::vector<size_t>> local_counts;
@@ -244,6 +250,35 @@ private:
     template <typename Function>
     void foreach_neighbor_of_full(size_t sorted_i, VesinOptions options, Function callback) const;
 };
+
+/// Write a padding pseudo-pair `(point, SIZE_MAX)` with zero shift, distance
+/// and vector at `index` in `neighbors`, used for `options.padded_to`.
+inline void set_padding_pair(VesinNeighborList& neighbors, size_t index, size_t point, const VesinOptions& options) {
+    neighbors.pairs[index][0] = point;
+    neighbors.pairs[index][1] = std::numeric_limits<size_t>::max();
+    if (options.return_shifts) {
+        neighbors.shifts[index][0] = 0;
+        neighbors.shifts[index][1] = 0;
+        neighbors.shifts[index][2] = 0;
+    }
+    if (options.return_distances) {
+        neighbors.distances[index] = 0.0;
+    }
+    if (options.return_vectors) {
+        neighbors.vectors[index][0] = 0.0;
+        neighbors.vectors[index][1] = 0.0;
+        neighbors.vectors[index][2] = 0.0;
+    }
+}
+
+/// Error thrown when `point` has more than `options.padded_to` neighbors
+inline std::runtime_error too_many_neighbors_error(size_t point, size_t padded_to) {
+    return std::runtime_error(
+        "point " + std::to_string(point) +
+        " has more neighbors than the requested `padded_to` (" +
+        std::to_string(padded_to) + ")"
+    );
+}
 
 /// Wrapper around `VesinNeighborList` that manages the output buffers,
 /// keeping them allocated to at least `capacity` entries across calls.

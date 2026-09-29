@@ -237,6 +237,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
     double cutoff,
     bool full_list,
     bool sorted,
+    int64_t padded_to,
     std::string algorithm,
     double skin,
     int64_t n_threads,
@@ -253,6 +254,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
         /*cutoff=*/cutoff,
         /*full=*/full_list,
         /*sorted=*/sorted,
+        /*padded_to=*/static_cast<size_t>(padded_to),
         /*algorithm=*/algorithm_from_string(algorithm),
         /*skin=*/skin,
         /*n_threads=*/static_cast<int32_t>(n_threads),
@@ -298,7 +300,7 @@ TORCH_LIBRARY(vesin, m) {
     m.def(
         "neighbors("
             "__torch__.torch.classes.vesin.State state, Tensor points, Tensor box, Tensor periodic, "
-            "float cutoff, bool full_list, bool sorted, str algorithm, float skin, int n_threads, "
+            "float cutoff, bool full_list, bool sorted, int padded_to, str algorithm, float skin, int n_threads, "
             "bool return_shifts, bool return_distances, bool return_vectors, bool copy"
         ") -> (Tensor pairs, Tensor shifts, Tensor distances, Tensor vectors)"
     );

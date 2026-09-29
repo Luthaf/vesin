@@ -81,6 +81,7 @@ contains
         cutoff,                             &
         full,                               &
         sorted,                             &
+        padded_to,                          &
         algorithm,                          &
         skin,                               &
         n_threads,                          &
@@ -100,10 +101,16 @@ contains
         !! index (`j`) and shifts in the list of pairs is unspecified.
         logical, intent(in), optional :: sorted
 
+        !> Pad full lists so every point has exactly this many outgoing
+        !! pairs, using `(i, -1)` pseudo-pairs with zero shift, distance and
+        !! vector. `compute` fails if a point has more neighbors than this.
+        !! If zero (the default), no padding is applied.
+        integer, intent(in), optional :: padded_to
+
         !> Algorithm to use for the neighbor list calculation (one of
-        !! `VesinAutoAlgorithm`, ! `VesinBruteForceAlgorithm`, or
+        !! `VesinAutoAlgorithm`, `VesinBruteForceAlgorithm`, or
         !! `VesinCellListAlgorithm`)
-        integer(c_int32_t), intent(in), optional :: algorithm
+        integer, intent(in), optional :: algorithm
 
         !> Skin size for Verlet caching. A positive value enables caching the
         !! neighbor list until any atom moves farther than `skin/2` from its
@@ -113,7 +120,7 @@ contains
         !> Number of CPU threads to use. Must be zero or positive. If zero,
         !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
         !! otherwise defaults to the number of available CPU cores.
-        integer(c_int32_t), intent(in), optional :: n_threads
+        integer, intent(in), optional :: n_threads
 
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
@@ -130,6 +137,7 @@ contains
         self%options%full = full
 
         if (present(sorted)) self%options%sorted = sorted
+        if (present(padded_to)) self%options%padded_to = padded_to
         if (present(algorithm)) self%options%algorithm = algorithm
         if (present(skin)) self%options%skin = skin
         if (present(n_threads)) self%options%n_threads = n_threads
@@ -144,6 +152,7 @@ contains
         cutoff,                             &
         full,                               &
         sorted,                             &
+        padded_to,                          &
         algorithm,                          &
         skin,                               &
         n_threads,                          &
@@ -163,10 +172,16 @@ contains
         !! point index (`j`) and shifts in the list of pairs is unspecified.
         logical, intent(in), optional :: sorted
 
+        !> Pad full lists so every point has exactly this many outgoing
+        !! pairs, using `(i, -1)` pseudo-pairs with zero shift, distance and
+        !! vector. `compute` fails if a point has more neighbors than this.
+        !! If zero (the default), no padding is applied.
+        integer, intent(in), optional :: padded_to
+
         !> Algorithm to use for the neighbor list calculation (one of
-        !! `VesinAutoAlgorithm`, ! `VesinBruteForceAlgorithm`, or
+        !! `VesinAutoAlgorithm`, `VesinBruteForceAlgorithm`, or
         !! `VesinCellListAlgorithm`)
-        integer(c_int32_t), intent(in), optional :: algorithm
+        integer, intent(in), optional :: algorithm
 
         !> Skin size for Verlet caching. A positive value enables caching the
         !! neighbor list until any atom moves farther than `skin/2` from its
@@ -176,7 +191,7 @@ contains
         !> Number of CPU threads to use. Must be zero or positive. If zero,
         !! Vesin uses `OMP_NUM_THREADS` when set to a positive integer, and
         !! otherwise defaults to the number of available CPU cores.
-        integer(c_int32_t), intent(in), optional :: n_threads
+        integer, intent(in), optional :: n_threads
 
         !> Should the returned `VesinNeighborList` contain `shifts`?
         logical, intent(in), optional :: return_shifts
@@ -192,8 +207,9 @@ contains
         self = vesin_construct_c_double(        &
             real(cutoff, c_double),             &
             full,                               &
-            sorted,                             &
-            algorithm,                          &
+            sorted=sorted,                      &
+            padded_to=padded_to,                &
+            algorithm=algorithm,                &
             n_threads=n_threads,                &
             return_shifts=return_shifts,        &
             return_distances=return_distances,  &

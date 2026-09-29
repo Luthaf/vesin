@@ -1,5 +1,6 @@
 import itertools
 import os
+import re
 import time
 
 import ase.io
@@ -627,3 +628,88 @@ def test_verlet_trajectory_changing_box_mixed_pbc():
         verlet = nl.compute(points, box, periodic=periodic, quantities="ijS")
 
         compare_nl_results(direct, verlet)
+
+
+def test_pad_neighbors():
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ]
+    )
+    box = np.diag([54.0, 54.0, 54.0])
+
+    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert len(i) == 18
+    assert len(j) == 18
+    assert np.all(np.bincount(i, minlength=6) == 3)
+
+    padding = j == np.iinfo(np.uint64).max
+    assert np.sum(padding) == 10
+    assert np.all(S[padding] == 0)
+    assert np.all(D[padding] == 0.0)
+    assert np.all(d[padding] == 0.0)
+
+
+def test_pad_neighbors_errors():
+    message = "`padded_to != None` requires `full_list = true`"
+    with pytest.raises(ValueError, match=message):
+        _ = NeighborList(cutoff=2.0, full_list=False, padded_to=1)
+
+    message = "`padded_to` must be positive or None, got -1"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, padded_to=-1)
+
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ]
+    )
+    box = np.eye(3)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=1)
+    message = "point 0 has more neighbors than the requested `padded_to` (1)"
+    with pytest.raises(RuntimeError, match=re.escape(message)):
+        nl.compute(points, box, periodic=False)
+
+
+@pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
+@pytest.mark.parametrize("skin", [0.0, 0.5])
+def test_padded_matches_unpadded(system, skin):
+    cutoff = 5.0
+    kwargs = {"points": system.points, "box": system.box, "periodic": system.periodic}
+
+    unpadded = NeighborList(cutoff=cutoff, full_list=True, skin=skin)
+    i, j, S, D, d = unpadded.compute(**kwargs, quantities="ijSDd")
+    counts = np.bincount(i, minlength=len(system.points))
+
+    padded_to = int(counts.max()) + 3
+    padded = NeighborList(cutoff=cutoff, full_list=True, skin=skin, padded_to=padded_to)
+    # run twice to also go through the cached Verlet candidates
+    for _ in range(2):
+        pi, pj, pS, pD, pd = padded.compute(**kwargs, quantities="ijSDd")
+
+        assert len(pi) == len(system.points) * padded_to
+        assert np.all(pi == np.repeat(np.arange(len(system.points)), padded_to))
+
+        padding = pj == np.iinfo(np.uint64).max
+        assert np.all(
+            np.bincount(pi[padding], minlength=len(counts)) == padded_to - counts
+        )
+        assert np.all(pS[padding] == 0)
+        assert np.all(pD[padding] == 0.0)
+        assert np.all(pd[padding] == 0.0)
+
+        real = ~padding
+        expected = sort_neighbors(i, j, S, D, d)
+        actual = sort_neighbors(pi[real], pj[real], pS[real], pD[real], pd[real])
+        for e, a in zip(expected, actual, strict=True):
+            np.testing.assert_array_equal(e, a)

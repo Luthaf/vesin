@@ -54,7 +54,9 @@ __global__ void brute_force_full(
     double* distances,
     double (*vectors)[3],
     size_t max_pairs,
-    int32* overflow_flag
+    int32* overflow_flag,
+    int32 padded_to,
+    int32* pairs_per_point
 );
 
 __global__ void analyze_box(

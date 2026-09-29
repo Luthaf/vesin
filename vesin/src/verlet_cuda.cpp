@@ -282,7 +282,11 @@ void VerletCache::filter_neighbors(
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
     auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
 
-    vesin::cuda::allocate_output_buffers(neighbors, this->candidates_.length, options);
+    if (options.padded_to > 0) {
+        vesin::cuda::prepare_padding(neighbors, n_points, options);
+    } else {
+        vesin::cuda::allocate_output_buffers(neighbors, this->candidates_.length, options);
+    }
 
     // The kernel below accumulates the number of pairs it kept with atomics, so
     // the counter has to start from zero on every call.
@@ -316,7 +320,9 @@ void VerletCache::filter_neighbors(
         neighbors.pairs,
         neighbors.shifts,
         neighbors.distances,
-        neighbors.vectors
+        neighbors.vectors,
+        static_cast<int32_t>(options.padded_to),
+        extras->d_pairs_per_point
     );
 }
 
@@ -334,6 +340,12 @@ void VerletCache::run(
 
     this->rebuild_cache(d_points, n_points, d_box, d_periodic, options, neighbors);
     this->filter_neighbors(d_points, n_points, d_box, options, neighbors);
+
+    if (options.padded_to > 0) {
+        // the output is sorted by construction when padding
+        vesin::cuda::finish_padding(neighbors, n_points, options);
+        return;
+    }
 
     // Read back the pair count from the GPU-side atomic counter.
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);

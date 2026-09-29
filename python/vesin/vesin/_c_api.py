@@ -25,6 +25,7 @@ class VesinOptions(ctypes.Structure):
         ("cutoff", ctypes.c_double),
         ("full", ctypes.c_bool),
         ("sorted", ctypes.c_bool),
+        ("padded_to", ctypes.c_size_t),
         ("algorithm", VesinAlgorithm),
         ("skin", ctypes.c_double),
         ("n_threads", ctypes.c_int32),

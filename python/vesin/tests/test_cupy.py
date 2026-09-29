@@ -576,3 +576,26 @@ def test_verlet_trajectory_changing_box_mixed_pbc():
         verlet = nl.compute(points, box, periodic=periodic, quantities="ijS")
 
         compare_nl_results(direct, verlet)
+
+
+@pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force", "verlet"])
+def test_gpu_padded_errors(gpu_algorithm):
+    if gpu_algorithm == "verlet":
+        algorithm, skin = "cell_list", 0.5
+    else:
+        algorithm, skin = gpu_algorithm, 0.0
+
+    points = cp.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    box = cp.eye(3, dtype=cp.float64)
+    periodic = cp.asarray([False, False, False])
+
+    nl = NeighborList(
+        cutoff=1.5,
+        full_list=True,
+        padded_to=1,
+        algorithm=algorithm,
+        skin=skin,
+    )
+    message = "point 0 has more neighbors than the requested `padded_to` \\(1\\)"
+    with pytest.raises(RuntimeError, match=message):
+        nl.compute(points, box, periodic, "ij")

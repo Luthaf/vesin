@@ -41,11 +41,21 @@ struct VerletBuffersCPU {
     /// Periodicity flags for the cached box.
     std::array<bool, 3> ref_periodic;
 
+    /// `candidate_offsets[i]` is the index of the first candidate of point
+    /// `i`, and `candidate_offsets[n_points]` the total number of candidates.
+    std::vector<size_t> candidate_offsets;
+    /// Filter blocks are ranges of whole points: block `b` contains points
+    /// `block_points[b]` to `block_points[b + 1]` (excluded).
+    std::vector<size_t> block_points;
+
     /// Scratch buffer containing per-block match count (filter pass 1).
     std::vector<size_t> block_counts;
     /// Scratch buffer containing per-block output offset (prefix sum of
     /// `block_counts`).
     std::vector<size_t> block_offsets;
+    /// Scratch buffer containing, for each block, the first point with more
+    /// than `padded_to` neighbors, or `SIZE_MAX` if there are none.
+    std::vector<size_t> block_overflow;
     /// Scratch buffer containing pair vectors for matching candidates
     std::vector<Vector> candidates_vectors;
     /// Scratch buffer containing squared distances for all candidates

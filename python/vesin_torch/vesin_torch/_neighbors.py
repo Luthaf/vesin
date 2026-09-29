@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 
@@ -11,6 +11,7 @@ class NeighborList:
         cutoff: float,
         full_list: bool,
         sorted: bool = False,
+        padded_to: Optional[int] = None,
         algorithm: str = "auto",
         skin: float = 0.0,
         n_threads: int = 0,
@@ -22,6 +23,10 @@ class NeighborList:
         :param sorted: Should the neighbor list be sorted? If ``True``, the returned
             pairs will be sorted by the first point index (``i``). The order of the
             second point index (``j``) and shifts in the list of pairs is unspecified.
+        :param padded_to: pad full lists so every point has exactly this many outgoing
+            pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
+            Computing the list fails if a point has more neighbors than this. If set to
+            ``None``, no padding is applied.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
@@ -44,6 +49,17 @@ class NeighborList:
         self._skin = float(skin)
         self._n_threads = n_threads
 
+        self._padded_to = 0
+        if padded_to is not None:
+            if padded_to <= 0:
+                raise ValueError(
+                    f"`padded_to` must be positive or None, got {padded_to}"
+                )
+
+            self._padded_to = padded_to
+            if not self._full_list:
+                raise ValueError("`padded_to != None` requires `full_list = true`")
+
         self._state = torch.classes.vesin.State()
 
     @property
@@ -60,6 +76,13 @@ class NeighborList:
     def sorted(self) -> bool:
         """Whether this neighbor list is sorted by the first index ``i``."""
         return self._sorted
+
+    @property
+    def padded_to(self) -> Optional[int]:
+        """Number of outgoing pairs each point is padded to, or ``None``."""
+        if self._padded_to == 0:
+            return None
+        return self._padded_to
 
     @property
     def algorithm(self) -> str:
@@ -83,6 +106,7 @@ class NeighborList:
             "cutoff": self._cutoff,
             "full_list": self._full_list,
             "sorted": self._sorted,
+            "padded_to": self._padded_to,
             "algorithm": self._algorithm,
             "skin": self._skin,
             "n_threads": self._n_threads,
@@ -101,6 +125,10 @@ class NeighborList:
         sorted = state["sorted"]
         assert isinstance(sorted, bool)
         self._sorted = sorted
+
+        padded_to = state["padded_to"]
+        assert isinstance(padded_to, int)
+        self._padded_to = padded_to
 
         algorithm = state["algorithm"]
         assert isinstance(algorithm, str)
@@ -203,6 +231,7 @@ class NeighborList:
                 self._cutoff,
                 self._full_list,
                 self._sorted,
+                self._padded_to,
                 self._algorithm,
                 self._skin,
                 self._n_threads,
@@ -227,6 +256,7 @@ class NeighborList:
                 self._cutoff,
                 self._full_list,
                 self._sorted,
+                self._padded_to,
                 self._algorithm,
                 self._skin,
                 self._n_threads,

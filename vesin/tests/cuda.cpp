@@ -240,9 +240,9 @@ TEST_CASE("Test CUDA Verlet skin cache") {
     REQUIRE(status == EXIT_SUCCESS);
 
     vesin_free(&neighbors);
-    cudaFree(d_points);
-    cudaFree(d_box);
-    cudaFree(d_periodic);
+    check_cuda(cudaFree(d_points));
+    check_cuda(cudaFree(d_box));
+    check_cuda(cudaFree(d_periodic));
 }
 
 #else

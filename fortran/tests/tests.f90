@@ -14,11 +14,10 @@ program vesin_test
     real(c_double) :: expected_vectors(3, 10)
     real(c_double) :: expected_distances(10)
 
-    integer(c_int32_t) :: zero_shifts(3, 10) = 0
-    real(c_double) :: zero_vectors(3, 10) = 0.0
-    real(c_double) :: zero_distances(10) = 0.0
+    integer :: k
+    integer :: padding_count
 
-    integer :: i
+    integer(c_size_t) :: i
 
 
     points(:, 1) = [0.0, 0.0, 0.0]
@@ -89,10 +88,12 @@ program vesin_test
     ! ends up as `i` vs `j` for a given pair can depend on which cell it
     ! falls into -- so compare the canonicalized entries as an
     ! order-independent collection instead of relying on exact positions.
-    call check_half_list(                                    &
-        neighbor_list%pairs, zero_shifts, neighbor_list%distances, zero_vectors, &
-        expected_pairs, zero_shifts, expected_distances, zero_vectors,           &
-        10_c_size_t, .false., .true., .false.                 &
+    call check_half_list(                                  &
+        n_pairs=10,                                        &
+        actual_pairs=neighbor_list%pairs,                  &
+        expected_pairs=expected_pairs,                     &
+        actual_distances=neighbor_list%distances,          &
+        expected_distances=expected_distances              &
     )
 
     if (associated(neighbor_list%shifts)) call print_and_exit("shifts should not be there")
@@ -126,13 +127,52 @@ program vesin_test
 
     if (neighbor_list%length /= 10) call print_and_exit("wrong number of pairs")
 
-    call check_half_list(                                                     &
-        neighbor_list%pairs, neighbor_list%shifts, zero_distances, neighbor_list%vectors, &
-        expected_pairs, expected_shifts, zero_distances, expected_vectors,     &
-        10_c_size_t, .true., .false., .true.                                  &
+    call check_half_list(                                  &
+        n_pairs=10,                                        &
+        actual_pairs=neighbor_list%pairs,                  &
+        expected_pairs=expected_pairs,                     &
+        actual_shifts=neighbor_list%shifts,                &
+        expected_shifts=expected_shifts,                   &
+        actual_vectors=neighbor_list%vectors,              &
+        expected_vectors=expected_vectors                  &
     )
 
     if (associated(neighbor_list%distances)) call print_and_exit("distances should not be there")
+
+    call neighbor_list%free()
+
+    neighbor_list = NeighborList(           &
+        cutoff=2.5,                         &
+        full=.true.,                        &
+        return_distances=.true.,            &
+        return_vectors=.true.,              &
+        return_shifts=.true.,               &
+        padded_to=4                         &
+    )
+
+    call neighbor_list%compute(points, box, periodic=[.true., .true., .true.], status=ierr)
+    if (ierr /= 0) call print_and_exit(neighbor_list%errmsg)
+    if (neighbor_list%length /= 8) call print_and_exit("wrong number of pairs with padded_to")
+
+    if (.not. associated(neighbor_list%pairs)) call print_and_exit("pairs should be present")
+    if (.not. associated(neighbor_list%shifts)) call print_and_exit("shifts should be present")
+    if (.not. associated(neighbor_list%vectors)) call print_and_exit("vectors should be present")
+    if (.not. associated(neighbor_list%distances)) call print_and_exit("distances should be present")
+
+    padding_count = 0
+    do k = 1, int(neighbor_list%length)
+        if (neighbor_list%pairs(1, k) == -1 .or. neighbor_list%pairs(2, k) == -1) then
+            padding_count = padding_count + 1
+
+            if (any(neighbor_list%shifts(:, k) /= 0)) call print_and_exit("padding shifts should be zero")
+            if (any(abs(neighbor_list%vectors(:, k)) /= 0.0)) call print_and_exit("padding vectors should be zero")
+            if (abs(neighbor_list%distances(k)) /= 0.0) call print_and_exit("padding distances should be zero")
+        end if
+    end do
+
+    if (padding_count /= 2) then
+        call print_and_exit("wrong number of padding pairs")
+    end if
 
     call neighbor_list%free()
 
@@ -167,59 +207,75 @@ contains
 
     !> Compare `actual` against `expected` as order-independent collections
     !! of half-list entries: for each expected entry, find a not-yet-matched
-    !! actual entry whose canonicalized `(i, j)` (and, when requested,
-    !! shift/distance/vector) match, exiting with an error if none is found.
+    !! actual entry whose canonicalized `(i, j)` (and shift/distance/vector,
+    !! when the corresponding `expected_*` is given) match, exiting with an
+    !! error if none is found. Each `actual_*` must be given together with the
+    !! matching `expected_*`.
     subroutine check_half_list(                                                &
-        actual_pairs, actual_shifts, actual_distances, actual_vectors,         &
-        expected_pairs, expected_shifts, expected_distances, expected_vectors, &
-        n, check_shifts, check_distances, check_vectors                        &
+        n_pairs,                                                               &
+        actual_pairs,                                                          &
+        expected_pairs,                                                        &
+        actual_shifts,                                                         &
+        expected_shifts,                                                       &
+        actual_distances,                                                      &
+        expected_distances,                                                    &
+        actual_vectors,                                                        &
+        expected_vectors                                                       &
     )
         implicit none
-        integer(c_size_t), intent(in) :: n
-        integer(c_size_t), intent(in) :: actual_pairs(2, n), expected_pairs(2, n)
-        integer(c_int32_t), intent(in) :: actual_shifts(3, n), expected_shifts(3, n)
-        real(c_double), intent(in) :: actual_distances(n), expected_distances(n)
-        real(c_double), intent(in) :: actual_vectors(3, n), expected_vectors(3, n)
-        logical, intent(in) :: check_shifts, check_distances, check_vectors
+        integer, intent(in) :: n_pairs
+        integer(c_size_t), intent(in) :: actual_pairs(2, n_pairs)
+        integer(c_size_t), intent(in) :: expected_pairs(2, n_pairs)
+        integer(c_int32_t), intent(in), optional :: actual_shifts(3, n_pairs)
+        integer(c_int32_t), intent(in), optional :: expected_shifts(3, n_pairs)
+        real(c_double), intent(in), optional :: actual_distances(n_pairs)
+        real(c_double), intent(in), optional :: expected_distances(n_pairs)
+        real(c_double), intent(in), optional :: actual_vectors(3, n_pairs)
+        real(c_double), intent(in), optional :: expected_vectors(3, n_pairs)
 
         integer(c_size_t) :: ai, aj, ei, ej
-        integer(c_int32_t) :: a_sign, e_sign
         integer(c_int32_t) :: ashift(3), eshift(3)
         real(c_double) :: avector(3), evector(3)
-        logical :: used(n)
+        logical :: used(n_pairs)
         logical :: found
         integer(c_size_t) :: e, a
         real(c_double), parameter :: tol = 1e-5
 
         used = .false.
 
-        do e = 1, n
-            e_sign = canonical_sign(expected_pairs(1, e), expected_pairs(2, e), expected_shifts(:, e))
-            if (e_sign == 1) then
-                ei = expected_pairs(1, e); ej = expected_pairs(2, e)
-                eshift = expected_shifts(:, e); evector = expected_vectors(:, e)
-            else
+        do e = 1, n_pairs
+            ei = expected_pairs(1, e); ej = expected_pairs(2, e)
+            eshift = 0; evector = 0.0
+            if (present(expected_shifts)) eshift = expected_shifts(:, e)
+            if (present(expected_vectors)) evector = expected_vectors(:, e)
+            if (canonical_sign(ei, ej, eshift) == -1) then
                 ei = expected_pairs(2, e); ej = expected_pairs(1, e)
-                eshift = -expected_shifts(:, e); evector = -expected_vectors(:, e)
+                eshift = -eshift; evector = -evector
             end if
 
             found = .false.
-            do a = 1, n
+            do a = 1, n_pairs
                 if (used(a)) cycle
 
-                a_sign = canonical_sign(actual_pairs(1, a), actual_pairs(2, a), actual_shifts(:, a))
-                if (a_sign == 1) then
-                    ai = actual_pairs(1, a); aj = actual_pairs(2, a)
-                    ashift = actual_shifts(:, a); avector = actual_vectors(:, a)
-                else
+                ai = actual_pairs(1, a); aj = actual_pairs(2, a)
+                ashift = 0; avector = 0.0
+                if (present(actual_shifts)) ashift = actual_shifts(:, a)
+                if (present(actual_vectors)) avector = actual_vectors(:, a)
+                if (canonical_sign(ai, aj, ashift) == -1) then
                     ai = actual_pairs(2, a); aj = actual_pairs(1, a)
-                    ashift = -actual_shifts(:, a); avector = -actual_vectors(:, a)
+                    ashift = -ashift; avector = -avector
                 end if
 
                 if (ai /= ei .or. aj /= ej) cycle
-                if (check_shifts .and. any(ashift /= eshift)) cycle
-                if (check_distances .and. abs(actual_distances(a) - expected_distances(e)) > tol) cycle
-                if (check_vectors .and. any(abs(avector - evector) > tol)) cycle
+                if (present(expected_shifts)) then
+                    if (any(ashift /= eshift)) cycle
+                end if
+                if (present(expected_distances)) then
+                    if (abs(actual_distances(a) - expected_distances(e)) > tol) cycle
+                end if
+                if (present(expected_vectors)) then
+                    if (any(abs(avector - evector) > tol)) cycle
+                end if
 
                 used(a) = .true.
                 found = .true.

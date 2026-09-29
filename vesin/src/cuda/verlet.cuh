@@ -31,7 +31,9 @@ __global__ void filter_verlet_candidates(
     size_t (*pair_indices)[2],
     int32 (*shifts_out)[3],
     double* distances,
-    double (*vectors)[3]
+    double (*vectors)[3],
+    int32 padded_to,
+    int32* pairs_per_point
 );
 
 #endif // VESIN_CUDA_VERLET_CUH

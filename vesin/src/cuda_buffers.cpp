@@ -342,6 +342,8 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
         GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
         GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
         GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
+        GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
+        GPULITE_CUDART_CALL(cudaFree(this->d_pairs_per_point));
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
     }
@@ -363,6 +365,8 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
             GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
             GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
             GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
+            GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
+            GPULITE_CUDART_CALL(cudaFree(this->d_pairs_per_point));
         } catch (const std::runtime_error& e) {
             std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
         }
@@ -388,6 +392,15 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
 
         this->d_overflow_flag = other.d_overflow_flag;
         other.d_overflow_flag = nullptr;
+
+        this->d_padding_overflow = other.d_padding_overflow;
+        other.d_padding_overflow = nullptr;
+
+        this->d_pairs_per_point = other.d_pairs_per_point;
+        other.d_pairs_per_point = nullptr;
+
+        this->pairs_per_point_capacity = other.pairs_per_point_capacity;
+        other.pairs_per_point_capacity = 0;
 
         this->pairs_capacity = other.pairs_capacity;
         other.pairs_capacity = 0;

@@ -60,6 +60,13 @@ module vesin_c
         !! point index (`j`) and shifts in the list of pairs is unspecified.
         logical(c_bool) :: sorted = .false.
 
+        !> Number of outgoing pairs to pad each point to. If zero, no padding
+        !! is applied. If non-zero, the returned pair list contains exactly
+        !! `n_points * padded_to` pairs, and the pairs for points with less
+        !! than `padded_to` neighbors are padded with invalid pairs
+        !! (`i, -1`). Points with more neighbors than this are an error.
+        integer(c_size_t) :: padded_to = 0_c_size_t
+
         !> Which algorithm to use for the calculation
         integer(c_int) :: algorithm = VesinAutoAlgorithm
 

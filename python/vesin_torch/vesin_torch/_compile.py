@@ -23,6 +23,7 @@ def _neighbors_fake(
     cutoff: float,
     full_list: bool,
     sorted: bool,
+    padded_to: int,
     algorithm: str,
     skin: float,
     n_threads: int,
@@ -35,7 +36,11 @@ def _neighbors_fake(
     Fake implementation of ``vesin::neighbors``, used by ``torch.compile`` to get the
     shape, dtype and device of the outputs. This must match the C++ implementation.
     """
-    n_pairs = torch.library.get_ctx().new_dynamic_size()
+    if padded_to <= 0:
+        n_pairs = torch.library.get_ctx().new_dynamic_size()
+    else:
+        n_pairs = points.shape[0] * padded_to
+
     device = points.device
 
     pairs = torch.empty((n_pairs, 2), dtype=torch.int64, device=device)

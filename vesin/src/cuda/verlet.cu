@@ -41,7 +41,9 @@ __global__ void filter_verlet_candidates(
     size_t (*pair_indices)[2],
     int32 (*shifts_out)[3],
     double* distances,
-    double (*vectors)[3]
+    double (*vectors)[3],
+    int32 padded_to,
+    int32* pairs_per_point
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= candidate_length) {
@@ -68,7 +70,20 @@ __global__ void filter_verlet_candidates(
     double dist_sq = vx * vx + vy * vy + vz * vz;
 
     if (dist_sq < cutoff2) {
-        size_t out = atomicAdd_size_t(length, 1);
+        size_t out = 0;
+        if (padded_to > 0) {
+            // Each point owns `padded_to` slots in the output. We keep counting
+            // past the end to detect overflow in `pad_neighbors`, but only
+            // write inside the slots of the point.
+            int32 index_in_point = atomicAdd(&pairs_per_point[i], 1);
+            if (index_in_point >= padded_to) {
+                return;
+            }
+            out = i * padded_to + index_in_point;
+        } else {
+            out = atomicAdd_size_t(length, 1);
+        }
+
         pair_indices[out][0] = i;
         pair_indices[out][1] = j;
 

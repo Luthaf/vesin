@@ -21,11 +21,18 @@ class NNPOpsNeighborList(NeighborList):
             raise NotImplementedError(
                 "NNPOps only supports half lists (full_list=False)"
             )
-        if np.any(atoms.cell.lengths() < 2 * cutoff):
-            raise ValueError(f"{self.name} can not run for this super cell")
+
+        if np.any(atoms.pbc) and not np.all(atoms.pbc):
+            raise NotImplementedError(
+                "NNPOps only supports fully periodic or fully non-periodic structures"
+            )
 
         self.positions = torch.tensor(atoms.positions, device=device)
         if np.all(atoms.pbc):
+            face_distances = 1.0 / np.linalg.norm(atoms.cell.reciprocal(), axis=1)
+            if np.any(face_distances < 2 * cutoff):
+                raise ValueError("NNPOps can not run for this super cell")
+
             self.box_vectors = torch.tensor(atoms.cell[:], device=device)
         else:
             self.box_vectors = None

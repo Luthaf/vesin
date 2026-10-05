@@ -15,11 +15,9 @@ class MLipopsNeighborList(NeighborList):
         return importlib.metadata.version("mlipops")
 
     def __init__(self, atoms, cutoff, full_list, device="cpu"):
-        super().__init__(atoms, cutoff, full_list, device)
-        if np.any(atoms.cell.lengths() < 2 * cutoff):
-            raise ValueError(f"{self.name} can not run for this super cell")
-
         import mlipops
+
+        super().__init__(atoms, cutoff, full_list, device)
 
         self.calculator = mlipops.NeighborList(
             cutoff=cutoff,
@@ -27,8 +25,19 @@ class MLipopsNeighborList(NeighborList):
             padding=False,
             device=device,
         )
+
         self.positions = torch.tensor(atoms.positions, device=device)
+
+        if np.any(atoms.pbc) and not np.all(atoms.pbc):
+            raise NotImplementedError(
+                "mlipops only supports fully periodic or fully non-periodic structures"
+            )
+
         if np.all(atoms.pbc):
+            face_distances = 1.0 / np.linalg.norm(atoms.cell.reciprocal(), axis=1)
+            if np.any(face_distances < 2 * cutoff):
+                raise ValueError("mlipops can not run for this super cell")
+
             self.box_vectors = torch.tensor(atoms.cell[:], device=device)
         else:
             self.box_vectors = None

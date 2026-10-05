@@ -11,6 +11,10 @@ class NeighborList:
     devices = ("cpu",)
     full_list = (True, False)
 
+    # Set this to False to keep the implementation out of ``all``, so that it only runs
+    # when named explicitly on the command line.
+    run_by_default = True
+
     def __init__(self, atoms, cutoff, full_list, device="cpu"):
         if device not in self.devices:
             raise ValueError(

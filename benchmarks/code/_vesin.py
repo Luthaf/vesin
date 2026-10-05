@@ -47,6 +47,7 @@ class VesinNeighborList(VesinNeighborListBase):
 
 class VesinVerletNeighborList(VesinNeighborListBase):
     name = "vesin/verlet"
+    run_by_default = False
 
     def __init__(self, atoms, cutoff, full_list, device="cpu"):
         super().__init__(
@@ -56,6 +57,17 @@ class VesinVerletNeighborList(VesinNeighborListBase):
 
 class VesinSortedNeighborList(VesinNeighborListBase):
     name = "vesin/sorted"
+    run_by_default = False
 
     def __init__(self, atoms, cutoff, full_list, device="cpu"):
         super().__init__(atoms, cutoff, full_list, device, sorted=True, skin=0.0)
+
+
+class VesinVerletSortedNeighborList(VesinNeighborListBase):
+    name = "vesin/verlet-sorted"
+    run_by_default = False
+
+    def __init__(self, atoms, cutoff, full_list, device="cpu"):
+        super().__init__(
+            atoms, cutoff, full_list, device, sorted=True, skin=0.2 * cutoff
+        )

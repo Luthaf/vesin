@@ -3,9 +3,10 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
 
 from .cases import all_cases, get_case
-from .code import all_implementations, get_implementation
+from .code import all_implementations, default_implementations, get_implementation
 from .utils import run_benchmark
 
 
@@ -17,11 +18,33 @@ except ImportError:
     CUDA_AVAILABLE = False
 
 
+class HelpFormatter(argparse.HelpFormatter):
+    """Keep the line breaks written in a help text, and wrap what is between them."""
+
+    def _split_lines(self, text, width):
+        return [
+            wrapped
+            for line in text.splitlines()
+            for wrapped in (textwrap.wrap(line, width) or [""])
+        ]
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Benchmark neighbor list implementations"
+        description="Benchmark neighbor list implementations",
+        formatter_class=HelpFormatter,
     )
-    available = ", ".join(all_implementations())
+    available = ", ".join(default_implementations())
+    opt_in = [
+        f"'{name}'"
+        for name in all_implementations()
+        if name not in default_implementations()
+    ]
+    opt_in_help = ""
+    if opt_in:
+        opt_in_help = (
+            f"{', '.join(opt_in)} are also available but excluded from the default."
+        )
     parser.add_argument(
         "--output",
         type=str,
@@ -44,8 +67,8 @@ def parse_args(argv):
         nargs="*",
         default=["all"],
         help=(
-            f"List of implementations to benchmark (default: all). The available "
-            f"implementations are: {available}"
+            f"List of implementations to benchmark. The default is to "
+            f"run the following: {available}.\n{opt_in_help}"
         ),
     )
     parser.add_argument(
@@ -61,7 +84,7 @@ def select_tasks(arguments, devices):
     """Expand the requested implementations into (implementation, device) tasks."""
     algorithms = list(arguments)
     if algorithms == ["all"]:
-        algorithms = all_implementations()
+        algorithms = default_implementations()
 
     explicit = not (not devices or devices == ["all"])
     if not devices or devices == ["all"]:

@@ -349,6 +349,6 @@ void VerletCache::run(
 
     // Verlet output is unsorted; sort if requested
     if (options.sorted && neighbors.length > 1) {
-        vesin::cuda::sort_pairs(options, neighbors);
+        vesin::cuda::sort_pairs(n_points, options, neighbors);
     }
 }

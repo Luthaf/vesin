@@ -47,6 +47,12 @@ const unsigned char CUDA_SORT_PAIRS_HEX[] = {
 };
 const char* CUDA_SORT_PAIRS_CODE = reinterpret_cast<const char*>(CUDA_SORT_PAIRS_HEX);
 
+#include "cuda/scan.cuh"
+const unsigned char CUDA_SCAN_HEX[] = {
+#include "generated/cuda/scan.cu.inc"
+};
+const char* CUDA_SCAN_CODE = reinterpret_cast<const char*>(CUDA_SCAN_HEX);
+
 // Hard upper bound on the number of cells, to keep the per-cell arrays (three
 // `int32_t` each) at a sane size. This only kicks in for very large systems:
 // the per-system budget below is normally the binding constraint.
@@ -92,9 +98,10 @@ static constexpr size_t GRID_PARAMS_BLOCK = 256;
 // candidate evaluation.
 static constexpr double CELL_VISIT_COST = 1.23;
 
-/// Compile (or fetch from cache) an NVRTC kernel. Each macro is bound to one
-/// of the three embedded CUDA sources, so call sites only need the factory and
-/// the kernel function name:
+/// Compile (or fetch from cache) an NVRTC kernel. Each macro is bound to one of
+/// the embedded CUDA sources, so call sites only need the factory and the
+/// kernel function name:
+///
 ///   auto* kernel = GET_CELL_LIST_KERNEL(factory, count_neighbors_cell_list);
 #define GET_CELL_LIST_KERNEL(factory, name) \
     factory.create<decltype(name)>(#name, CUDA_CELL_LIST_CODE, "cell_list.cu", {"-std=c++17", "-default-device"})
@@ -104,6 +111,9 @@ static constexpr double CELL_VISIT_COST = 1.23;
 
 #define GET_SORT_PAIRS_KERNEL(factory, name) \
     factory.create<decltype(name)>(#name, CUDA_SORT_PAIRS_CODE, "sort_pairs.cu", {"-std=c++17", "-default-device"})
+
+#define GET_SCAN_KERNEL(factory, name) \
+    factory.create<decltype(name)>(#name, CUDA_SCAN_CODE, "scan.cu", {"-std=c++17", "-default-device"})
 
 static std::optional<cudaPointerAttributes> get_ptr_attributes(const void* ptr) {
     if (ptr == nullptr) {
@@ -144,19 +154,6 @@ static int32_t get_device_id(const void* ptr) {
         return attr.device;
     }
     return -1;
-}
-
-static size_t next_power_of_two(size_t value) {
-    if (value <= 1) {
-        return 1;
-    }
-
-    size_t power = 1;
-    while (power < value) {
-        power <<= 1;
-    }
-
-    return power;
 }
 
 static void free_output_buffers(VesinNeighborList& neighbors) {
@@ -232,93 +229,6 @@ void check_cuda_is_available() {
             "Failed to load " + nvrtc_libname + ". " + suggestion
         );
     }
-}
-
-// Reorder the output pair list (and any optional aligned outputs) so that pairs
-// come out sorted by the first particle index. Used by the bruteforce and
-// Verlet paths — the cell-list two-pass path produces output already sorted.
-void vesin::cuda::sort_pairs(
-    VesinOptions options,
-    VesinNeighborList& neighbors
-) {
-    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
-
-    NVTX_PUSH("sort_pairs");
-    auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
-    size_t sort_capacity = next_power_of_two(neighbors.length);
-    extras->sort_buffers.allocate(
-        sort_capacity,
-        options.return_shifts,
-        options.return_distances,
-        options.return_vectors
-    );
-
-    auto* fill_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_fill_buffers);
-    auto* bitonic_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_bitonic_step);
-    auto* copy_back_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_copy_back);
-
-    const size_t sort_threads = 256;
-    const size_t sort_fill_blocks = (sort_capacity + sort_threads - 1) / sort_threads;
-
-    auto config = gpulite::LaunchConfig();
-    config.gridDim = dim3(std::max(sort_fill_blocks, static_cast<size_t>(1)));
-    config.blockDim = dim3(sort_threads);
-
-    fill_kernel->launch(
-        config,
-        neighbors.pairs,
-        neighbors.shifts,
-        neighbors.distances,
-        neighbors.vectors,
-        extras->sort_buffers.d_pairs_tmp,
-        extras->sort_buffers.d_shifts_tmp,
-        extras->sort_buffers.d_distances_tmp,
-        extras->sort_buffers.d_vectors_tmp,
-        neighbors.length,
-        sort_capacity,
-        options.return_shifts,
-        options.return_distances,
-        options.return_vectors
-    );
-
-    for (size_t k = 2; k <= sort_capacity; k <<= 1) {
-        for (size_t j = k >> 1; j > 0; j >>= 1) {
-            bitonic_kernel->launch(
-                config,
-                extras->sort_buffers.d_pairs_tmp,
-                extras->sort_buffers.d_shifts_tmp,
-                extras->sort_buffers.d_distances_tmp,
-                extras->sort_buffers.d_vectors_tmp,
-                sort_capacity,
-                j,
-                k,
-                options.return_shifts,
-                options.return_distances,
-                options.return_vectors
-            );
-        }
-    }
-
-    size_t copy_blocks = (neighbors.length + sort_threads - 1) / sort_threads;
-    copy_back_kernel->launch(
-        config,
-        neighbors.pairs,
-        neighbors.shifts,
-        neighbors.distances,
-        neighbors.vectors,
-        extras->sort_buffers.d_pairs_tmp,
-        extras->sort_buffers.d_shifts_tmp,
-        extras->sort_buffers.d_distances_tmp,
-        extras->sort_buffers.d_vectors_tmp,
-        neighbors.length,
-        options.return_shifts,
-        options.return_distances,
-        options.return_vectors
-    );
-
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
-
-    NVTX_POP();
 }
 
 // Allocate the small, fixed-size scratch buffers held by `extras`. These are
@@ -503,7 +413,7 @@ static void device_exclusive_scan(
     int32_t* d_block_totals2,
     size_t n
 ) {
-    // These must match the `SCAN_*` defines in cuda/cell_list.cu.
+    // These must match the `SCAN_*` defines in cuda/scan.cu.
     size_t scan_threads = 256;
     size_t scan_elements_per_block = 1024;
     size_t scan_max_blocks = 256;
@@ -518,9 +428,9 @@ static void device_exclusive_scan(
         );
     }
 
-    auto* scan_phase_1 = GET_CELL_LIST_KERNEL(factory, exclusive_scan_phase_1);
-    auto* scan_phase_2 = GET_CELL_LIST_KERNEL(factory, exclusive_scan_phase_2);
-    auto* scan_phase_3 = GET_CELL_LIST_KERNEL(factory, exclusive_scan_phase_3);
+    auto* scan_phase_1 = GET_SCAN_KERNEL(factory, exclusive_scan_phase_1);
+    auto* scan_phase_2 = GET_SCAN_KERNEL(factory, exclusive_scan_phase_2);
+    auto* scan_phase_3 = GET_SCAN_KERNEL(factory, exclusive_scan_phase_3);
 
     auto config = gpulite::LaunchConfig();
     config.blockDim = dim3(scan_threads);
@@ -635,6 +545,94 @@ static size_t device_exclusive_prefix_sum(
     }
 
     return static_cast<size_t>(total);
+}
+
+// Reorder the output pair list (and any optional aligned outputs) so that pairs
+// come out sorted by the first particle index. Used by the bruteforce and
+// Verlet paths — the cell-list path produces output already sorted.
+void vesin::cuda::sort_pairs(
+    size_t n_points,
+    VesinOptions options,
+    VesinNeighborList& neighbors
+) {
+    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+
+    if (neighbors.length > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        throw std::runtime_error(
+            "too many pairs to sort on the GPU (the limit is 2^31); "
+            "please open an issue on GitHub if you need more than that"
+        );
+    }
+
+    NVTX_PUSH("sort_pairs");
+    auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
+
+    auto& sort = extras->sort_buffers;
+    sort.allocate(
+        neighbors.length,
+        n_points,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors
+    );
+
+    auto* copy_and_count_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_copy_and_count);
+    auto* scatter_kernel = GET_SORT_PAIRS_KERNEL(factory, sort_pairs_scatter);
+
+    const size_t sort_threads = 256;
+    auto config = gpulite::LaunchConfig();
+    config.gridDim = dim3((neighbors.length + sort_threads - 1) / sort_threads);
+    config.blockDim = dim3(sort_threads);
+
+    // The pass below accumulates into `d_counts` with atomics, so it has to
+    // start from zero on every call.
+    GPULITE_CUDART_CALL(cudaMemset(sort.d_counts, 0, sizeof(int32_t) * n_points));
+
+    copy_and_count_kernel->launch(
+        config,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors,
+        sort.d_pairs_tmp,
+        sort.d_shifts_tmp,
+        sort.d_distances_tmp,
+        sort.d_vectors_tmp,
+        sort.d_counts,
+        neighbors.length,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors
+    );
+
+    device_exclusive_scan(
+        factory,
+        sort.d_counts,
+        sort.d_offsets,
+        sort.d_block_totals,
+        sort.d_block_offsets,
+        sort.d_block_totals2,
+        n_points
+    );
+
+    scatter_kernel->launch(
+        config,
+        sort.d_pairs_tmp,
+        sort.d_shifts_tmp,
+        sort.d_distances_tmp,
+        sort.d_vectors_tmp,
+        neighbors.pairs,
+        neighbors.shifts,
+        neighbors.distances,
+        neighbors.vectors,
+        sort.d_offsets,
+        neighbors.length,
+        options.return_shifts,
+        options.return_distances,
+        options.return_vectors
+    );
+
+    NVTX_POP();
 }
 
 static void run_cell_list(
@@ -985,7 +983,7 @@ static void run_brute_force(
 
     // Brute-force output is unsorted; sort if requested
     if (options.sorted && neighbors.length > 1) {
-        vesin::cuda::sort_pairs(options, neighbors);
+        vesin::cuda::sort_pairs(n_points, options, neighbors);
     }
 }
 

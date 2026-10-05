@@ -119,24 +119,4 @@ __global__ void fill_neighbors_cell_list(
     double (*vectors)[3]
 );
 
-// Device-side exclusive prefix sum (3-phase multi-block scan).
-// Replaces the host D2H → scan → H2D round-trip.
-__global__ void exclusive_scan_phase_1(
-    const int* __restrict__ d_in,
-    int* __restrict__ d_out,
-    int* __restrict__ d_block_totals,
-    size_t n
-);
-
-__global__ void exclusive_scan_phase_2(
-    int* __restrict__ d_block_totals,
-    size_t n_blocks
-);
-
-__global__ void exclusive_scan_phase_3(
-    int* __restrict__ d_out,
-    const int* __restrict__ d_block_totals,
-    size_t n
-);
-
 #endif // VESIN_CUDA_CELL_LIST_CUH

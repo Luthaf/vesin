@@ -6,7 +6,7 @@ import ase.neighborlist
 import numpy as np
 import pytest
 
-from _utils import canonical_half_pair
+from _utils import TEST_CUTOFFS, TEST_SYSTEMS, canonical_half_pair
 from vesin import NeighborList
 
 
@@ -255,6 +255,51 @@ def test_sorted_output(algorithm):
 
     sorted_i = cp.asnumpy(sorted_i)
     assert np.all(sorted_i == np.sort(sorted_i))
+
+
+@pytest.mark.parametrize("full_list", [False, True])
+@pytest.mark.parametrize("skin", [0.0, 0.5])
+@pytest.mark.parametrize("cutoff", TEST_CUTOFFS)
+@pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
+def test_sorted_only_reorders(system, cutoff, skin, full_list):
+    """
+    `sorted=True` must change nothing but the order: the same pairs come out,
+    carrying the same shifts and distances, grouped by `i`.
+
+    `skin > 0` goes through the Verlet path, the only one that has to sort a
+    pair list as long as the whole neighbor list.
+    """
+    points = cp.asarray(system.points, dtype=cp.float64)
+    box = cp.asarray(system.box, dtype=cp.float64)
+    periodic = cp.asarray(system.periodic)
+
+    def compute(sort):
+        calculator = NeighborList(
+            cutoff=cutoff, full_list=full_list, sorted=sort, skin=skin
+        )
+        i, j, S, d = calculator.compute(
+            points=points, box=box, periodic=periodic, quantities="ijSd"
+        )
+        i, j, S, d = cp.asnumpy(i), cp.asnumpy(j), cp.asnumpy(S), cp.asnumpy(d)
+
+        pairs = zip(
+            i.tolist(),
+            j.tolist(),
+            *[S[:, k].tolist() for k in range(3)],
+            d.tolist(),
+            strict=True,
+        )
+
+        if not full_list:
+            pairs = (canonical_half_pair(*pair[:5]) + pair[5:] for pair in pairs)
+
+        return i, set(pairs)
+
+    _, unsorted_pairs = compute(sort=False)
+    sorted_i, sorted_pairs = compute(sort=True)
+
+    assert np.all(sorted_i[1:] >= sorted_i[:-1])
+    assert sorted_pairs == unsorted_pairs
 
 
 def test_brute_force_too_many_images():

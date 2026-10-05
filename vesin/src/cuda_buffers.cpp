@@ -210,6 +210,11 @@ SortBuffers::~SortBuffers() {
         GPULITE_CUDART_CALL(cudaFree(this->d_shifts_tmp));
         GPULITE_CUDART_CALL(cudaFree(this->d_distances_tmp));
         GPULITE_CUDART_CALL(cudaFree(this->d_vectors_tmp));
+        GPULITE_CUDART_CALL(cudaFree(this->d_counts));
+        GPULITE_CUDART_CALL(cudaFree(this->d_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals2));
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
     }
@@ -238,27 +243,92 @@ SortBuffers& SortBuffers::operator=(SortBuffers&& other) noexcept {
 
         this->d_vectors_tmp = other.d_vectors_tmp;
         other.d_vectors_tmp = nullptr;
+
+        this->points_capacity = other.points_capacity;
+        other.points_capacity = 0;
+
+        this->d_counts = other.d_counts;
+        other.d_counts = nullptr;
+
+        this->d_offsets = other.d_offsets;
+        other.d_offsets = nullptr;
+
+        this->d_block_totals = other.d_block_totals;
+        other.d_block_totals = nullptr;
+
+        this->d_block_offsets = other.d_block_offsets;
+        other.d_block_offsets = nullptr;
+
+        this->d_block_totals2 = other.d_block_totals2;
+        other.d_block_totals2 = nullptr;
     }
     return *this;
 }
 
-void SortBuffers::allocate(size_t n_pairs, bool return_shifts, bool return_distances, bool return_vectors) {
+void SortBuffers::allocate(
+    size_t n_pairs,
+    size_t n_points,
+    bool return_shifts,
+    bool return_distances,
+    bool return_vectors
+) {
+    // The per-pair and per-point arrays are sized by different quantities and
+    // grown independently, so that getting more pairs does not throw away a
+    // per-point buffer that is still big enough, and vice versa.
     if (this->capacity < n_pairs) {
-        *this = SortBuffers{};
+        GPULITE_CUDART_CALL(cudaFree(this->d_pairs_tmp));
+        GPULITE_CUDART_CALL(cudaFree(this->d_shifts_tmp));
+        GPULITE_CUDART_CALL(cudaFree(this->d_distances_tmp));
+        GPULITE_CUDART_CALL(cudaFree(this->d_vectors_tmp));
+        this->d_pairs_tmp = nullptr;
+        this->d_shifts_tmp = nullptr;
+        this->d_distances_tmp = nullptr;
+        this->d_vectors_tmp = nullptr;
+        this->capacity = 0;
+
         GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_pairs_tmp, sizeof(size_t) * n_pairs * 2));
         this->capacity = n_pairs;
     }
 
+    // The optional buffers are allocated the first time they are asked for,
+    // which can be a later call than the one that set the capacity, so they are
+    // sized from the capacity rather than from this call's `n_pairs`.
     if (return_shifts && this->d_shifts_tmp == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_shifts_tmp, sizeof(int32_t) * n_pairs * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_shifts_tmp, sizeof(int32_t) * this->capacity * 3));
     }
 
     if (return_distances && this->d_distances_tmp == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_distances_tmp, sizeof(double) * n_pairs));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_distances_tmp, sizeof(double) * this->capacity));
     }
 
     if (return_vectors && this->d_vectors_tmp == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_vectors_tmp, sizeof(double) * n_pairs * 3));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_vectors_tmp, sizeof(double) * this->capacity * 3));
+    }
+
+    if (this->points_capacity < n_points) {
+        GPULITE_CUDART_CALL(cudaFree(this->d_counts));
+        GPULITE_CUDART_CALL(cudaFree(this->d_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_offsets));
+        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals2));
+        this->d_counts = nullptr;
+        this->d_offsets = nullptr;
+        this->d_block_totals = nullptr;
+        this->d_block_offsets = nullptr;
+        this->d_block_totals2 = nullptr;
+        this->points_capacity = 0;
+
+        // Same two-level scan as the cell list, see `device_exclusive_scan`
+        size_t n_blocks = (n_points + 1023) / 1024;
+        size_t n_blocks_2 = (n_blocks + 1023) / 1024;
+
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_counts, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_offsets, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals, sizeof(int32_t) * n_blocks));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_offsets, sizeof(int32_t) * n_blocks));
+        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals2, sizeof(int32_t) * n_blocks_2));
+
+        this->points_capacity = n_points;
     }
 }
 

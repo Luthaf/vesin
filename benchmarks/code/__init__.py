@@ -16,6 +16,7 @@ from ._vesin import (
     VesinNeighborList,
     VesinSortedNeighborList,
     VesinVerletNeighborList,
+    VesinVerletSortedNeighborList,
 )
 
 
@@ -30,7 +31,9 @@ __all__ = [
     "VesinNeighborList",
     "VesinSortedNeighborList",
     "VesinVerletNeighborList",
+    "VesinVerletSortedNeighborList",
     "all_implementations",
+    "default_implementations",
     "get_implementation",
 ]
 
@@ -44,6 +47,7 @@ _IMPLEMENTATIONS = {
         VesinNeighborList,
         VesinSortedNeighborList,
         VesinVerletNeighborList,
+        VesinVerletSortedNeighborList,
         NValchemiNeighborList,
         NNPOpsNeighborList,
         MLipopsNeighborList,
@@ -56,9 +60,21 @@ def get_implementation(name):
     try:
         return _IMPLEMENTATIONS[name]
     except KeyError:
-        raise ValueError(f"Unknown implementation: {name}") from None
+        available = ", ".join(_IMPLEMENTATIONS)
+        raise ValueError(
+            f"Unknown implementation '{name}', available implementations: {available}"
+        ) from None
 
 
 def all_implementations():
     """Return the names of all registered implementations."""
     return list(_IMPLEMENTATIONS)
+
+
+def default_implementations():
+    """Return the names of the implementations ``all`` expands to.
+
+    This leaves out the implementations setting ``run_by_default = False``,
+    which only run when named explicitly.
+    """
+    return [name for name, cls in _IMPLEMENTATIONS.items() if cls.run_by_default]

@@ -12,7 +12,9 @@ class VesinNeighborListBase(NeighborList):
     def version(cls):
         return vesin.__version__
 
-    def __init__(self, atoms, cutoff, full_list, device, sorted, skin):
+    def __init__(
+        self, atoms, cutoff, full_list, device, sorted, skin, algorithm="auto"
+    ):
         super().__init__(atoms, cutoff, full_list, device)
 
         self.calculator = vesin.NeighborList(
@@ -20,6 +22,7 @@ class VesinNeighborListBase(NeighborList):
             full_list=full_list,
             sorted=sorted,
             skin=skin,
+            algorithm=algorithm,
         )
 
         if device == "cpu":
@@ -70,4 +73,40 @@ class VesinVerletSortedNeighborList(VesinNeighborListBase):
     def __init__(self, atoms, cutoff, full_list, device="cpu"):
         super().__init__(
             atoms, cutoff, full_list, device, sorted=True, skin=0.2 * cutoff
+        )
+
+
+# Forcing one algorithm or the other measures what `algorithm="auto"` has to
+# choose between. Neither is meant to win everywhere: the brute force kernels
+# refuse to run past their point and periodic image limits, and those runs show
+# up as missing points rather than as timings.
+class VesinBruteForceNeighborList(VesinNeighborListBase):
+    name = "vesin/brute-force"
+    run_by_default = False
+
+    def __init__(self, atoms, cutoff, full_list, device="cpu"):
+        super().__init__(
+            atoms,
+            cutoff,
+            full_list,
+            device,
+            sorted=False,
+            skin=0.0,
+            algorithm="brute_force",
+        )
+
+
+class VesinCellListNeighborList(VesinNeighborListBase):
+    name = "vesin/cell-list"
+    run_by_default = False
+
+    def __init__(self, atoms, cutoff, full_list, device="cpu"):
+        super().__init__(
+            atoms,
+            cutoff,
+            full_list,
+            device,
+            sorted=False,
+            skin=0.0,
+            algorithm="cell_list",
         )

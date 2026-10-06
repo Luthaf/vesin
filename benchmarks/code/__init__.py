@@ -13,6 +13,8 @@ from ._nvalchemi import NValchemiNeighborList
 from ._pymatgen import PymatgenNeighborList
 from ._sisl import SislNeighborList
 from ._vesin import (
+    VesinBruteForceNeighborList,
+    VesinCellListNeighborList,
     VesinNeighborList,
     VesinSortedNeighborList,
     VesinVerletNeighborList,
@@ -28,6 +30,8 @@ __all__ = [
     "NValchemiNeighborList",
     "PymatgenNeighborList",
     "SislNeighborList",
+    "VesinBruteForceNeighborList",
+    "VesinCellListNeighborList",
     "VesinNeighborList",
     "VesinSortedNeighborList",
     "VesinVerletNeighborList",
@@ -45,6 +49,8 @@ _IMPLEMENTATIONS = {
         PymatgenNeighborList,
         SislNeighborList,
         VesinNeighborList,
+        VesinBruteForceNeighborList,
+        VesinCellListNeighborList,
         VesinSortedNeighborList,
         VesinVerletNeighborList,
         VesinVerletSortedNeighborList,

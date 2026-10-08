@@ -17,6 +17,14 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+### Removed
+
+- The `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable and the
+  `VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT` compile-time option. Neither is needed
+  any more: when the CUDA brute force search finds more pairs than it reserved
+  room for, it now runs again with enough room for the number it counted, and
+  keeps that allocation for all subsequent calls.
+
 ## [Version 0.6.2](https://github.com/Luthaf/vesin/releases/tag/v0.6.2) - 2026-09-28
 
 ### Added

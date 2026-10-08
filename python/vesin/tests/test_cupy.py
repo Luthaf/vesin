@@ -338,42 +338,6 @@ def test_dtype(dtype):
     assert d.dtype == dtype
 
 
-def test_max_pairs():
-    """
-    With VESIN_CUDA_MAX_PAIRS_PER_POINT=10 and 100 points, a cutoff of 9.0
-    in a 15.0 box generates too many pairs and should raise an error.
-    """
-    dtype = cp.float64
-
-    box = cp.eye(3, dtype=dtype) * 20.0
-    points = cp.array(np.random.default_rng(0).random((100, 3), dtype=dtype) * 20.0)
-
-    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "10"
-    message = (
-        "The number of neighbor pairs exceeds the maximum capacity of 1000 "
-        "\\(max_pairs_per_point=10; n_points=100\\). Consider reducing the "
-        "cutoff distance, or explicitly setting VESIN_CUDA_MAX_PAIRS_PER_POINT as "
-        "an environment variable."
-    )
-    calculator = NeighborList(cutoff=9, full_list=True, algorithm="brute_force")
-    with pytest.raises(RuntimeError, match=message):
-        _ = calculator.compute(points, box, True, "ijSDd")
-
-    os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = "1000"
-    # This should now work without error
-    calculator = NeighborList(cutoff=9, full_list=True, algorithm="brute_force")
-    _ = calculator.compute(points, box, True, "ijSDd")
-
-    for invalid in ["-3", "44 ABC", "0", "-1", "1.5", ""]:
-        os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"] = invalid
-        message = f"Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '{invalid}'"
-        calculator = NeighborList(cutoff=9, full_list=True, algorithm="brute_force")
-        with pytest.raises(RuntimeError, match=message):
-            _ = calculator.compute(points, box, True, "ijSDd")
-
-    del os.environ["VESIN_CUDA_MAX_PAIRS_PER_POINT"]
-
-
 def test_gigantic_cell():
     """Check that the code properly handles very large periodic cells"""
     cell = 1e7 * cp.eye(3)

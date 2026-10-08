@@ -11,15 +11,6 @@ namespace cuda {
 
 struct CudaNeighborListExtras;
 
-#ifndef VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT
-/// Default value for the number of pairs per points in the CUDA implementation.
-/// Unless `VESIN_CUDA_MAX_PAIRS_PER_POINT` is set in the environement, the
-/// maximal number of pairs is `n_points *
-/// max(VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT, cutoff^3)`. This can be overriden
-/// at compile time.
-#define VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT 128
-#endif
-
 /// Most blocks used for the first pass of the bounding box reduction. The
 /// second pass reduces this many partials in a single block, and the scratch
 /// buffer holding them is allocated once at this size (48 kB).

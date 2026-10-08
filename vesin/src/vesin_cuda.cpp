@@ -1,8 +1,6 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <limits>
 
 #include <algorithm>
@@ -875,7 +873,11 @@ static void run_cell_list(
     NVTX_POP(); // cell_list_total
 }
 
-static void run_brute_force(
+// Run the brute force kernels, leaving the pairs they found in `neighbors`.
+//
+// Returns false when the output buffers were too small to hold them all. The
+// exact number of pairs the search found will be in `neighbors.length`.
+static bool run_brute_force(
     const double (*d_points)[3],
     size_t n_points,
     const double d_box[3][3],
@@ -971,20 +973,15 @@ static void run_brute_force(
     neighbors.length = extras->pinned->length;
 
     if (extras->pinned->overflow != 0) {
-        throw std::runtime_error(
-            "The number of neighbor pairs exceeds the maximum capacity of " +
-            std::to_string(extras->pairs_capacity) + " (max_pairs_per_point=" +
-            std::to_string(extras->pairs_capacity / n_points) + "; n_points=" +
-            std::to_string(n_points) + "). " +
-            "Consider reducing the cutoff distance, or explicitly setting " +
-            "VESIN_CUDA_MAX_PAIRS_PER_POINT as an environment variable."
-        );
+        return false;
     }
 
     // Brute-force output is unsorted; sort if requested
     if (options.sorted && neighbors.length > 1) {
         vesin::cuda::sort_pairs(n_points, options, neighbors);
     }
+
+    return true;
 }
 
 void vesin::cuda::neighbors(
@@ -1061,34 +1058,39 @@ void vesin::cuda::neighbors(
                 neighbors
             );
         } else {
-            // Brute force path needs to allocate output buffers before running
-            // the kernel, since it uses an atomic counter to track the number
-            // of pairs found.
-            size_t max_pairs_per_point = std::max(
-                static_cast<size_t>(VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT),
-                static_cast<size_t>(std::ceil(std::pow(options.cutoff, 3)))
+            // Brute force writes its pairs through an atomic counter, and needs
+            // a pre-allocated output. We guess a starting size here, and will
+            // grow it below if needed
+            size_t max_pairs_per_point = static_cast<size_t>(std::max(
+                128.0, std::ceil(std::pow(options.cutoff, 3))
+            ));
+
+            vesin::cuda::allocate_output_buffers(
+                neighbors, n_points * max_pairs_per_point, options
             );
 
-            auto* env_max_pairs = std::getenv("VESIN_CUDA_MAX_PAIRS_PER_POINT");
-            if (env_max_pairs != nullptr) {
-                auto length = std::strlen(env_max_pairs);
-                char* end = nullptr;
-                errno = 0;
-                auto parsed_max_pairs_per_point = std::strtoll(env_max_pairs, &end, 10);
-                if (errno != 0 || end != env_max_pairs + length || parsed_max_pairs_per_point <= 0) {
+            auto buffer_large_enough = run_brute_force(d_points, n_points, d_box, d_periodic, options, neighbors);
+
+            if (!buffer_large_enough) {
+                // The guess was too small, but the number of pairs is in
+                // `neighbors.length`. We re-allocate the outputs with 10%
+                // headroom in case the number of pairs fluctuate between now
+                // and the next call.
+                auto needed = static_cast<size_t>(1.1 * static_cast<double>(neighbors.length));
+                vesin::cuda::allocate_output_buffers(neighbors, needed, options);
+
+                buffer_large_enough = run_brute_force(d_points, n_points, d_box, d_periodic, options, neighbors);
+
+                if (!buffer_large_enough) {
                     throw std::runtime_error(
-                        "Invalid value for VESIN_CUDA_MAX_PAIRS_PER_POINT: '" +
-                        std::string(env_max_pairs) + "'"
+                        "the brute force search overflowed its output buffers "
+                        "twice in a row, the second time with room for " +
+                        std::to_string(needed) + " pairs against the " +
+                        std::to_string(neighbors.length) + " the first search "
+                        "counted. This should not happen, please report it as a bug"
                     );
                 }
-                max_pairs_per_point = static_cast<size_t>(parsed_max_pairs_per_point);
             }
-
-            vesin::cuda::allocate_output_buffers(neighbors, n_points * max_pairs_per_point, options);
-
-            run_brute_force(
-                d_points, n_points, d_box, d_periodic, options, neighbors
-            );
         }
     }
 }

@@ -9,6 +9,7 @@
 
 #include <gpulite/gpulite.hpp>
 
+#include "pick_cuda_algo.hpp"
 #include "vesin_cuda.hpp"
 
 using namespace vesin::cuda;
@@ -386,7 +387,13 @@ static BoxChecks check_box(
         break;
     case VesinAutoAlgorithm:
     default:
-        results.use_cell_list = n_images > 1 || n_points >= 500;
+        results.use_cell_list = auto_use_cell_list(
+            static_cast<double>(n_points),
+            static_cast<double>(n_images),
+            options.cutoff,
+            options.sorted,
+            neighbors.device.device_id
+        );
         break;
     }
 

@@ -101,6 +101,7 @@ if __name__ == "__main__":
             merge_files("vesin_cuda.cpp", output)
             merge_files("verlet_cuda.cpp", output)
             merge_files("cuda_buffers.cpp", output)
+            merge_files("pick_cuda_algo.cpp", output)
             merge_files("vesin.cpp", output)
 
         ALREADY_SEEN.clear()

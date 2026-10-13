@@ -5,16 +5,10 @@
 
 // Largest number of periodic images the brute force kernels will enumerate for
 // a single pair of atoms, i.e. `prod(2 * n_search + 1)`.
-//
-// This is 1 for any box at least twice the cutoff in every periodic direction,
-// which is the case the brute force algorithm is meant for. It only grows when
-// the box is smaller than that, and by the time it reaches this many images the
-// cell list is unconditionally faster, so `vesin::cuda::neighbors` reports an
-// error instead of running for a very long time.
 #define MAX_BRUTE_FORCE_IMAGES 4096
 
 // Largest number of points the brute force kernels accept, from the maximal
-// possible value for `gridDim.y`. Should not be a limiation in practice, since
+// possible value for `gridDim.y`. Should not be a limitation in practice, since
 // we want to switch to cell list earlier anyway.
 #define MAX_BRUTE_FORCE_POINTS 65535
 

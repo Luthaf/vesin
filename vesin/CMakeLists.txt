@@ -46,6 +46,7 @@ set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet_cuda.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_buffers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pick_cuda_algo.cpp
 )
 
 # Generate the CUDA source files for NVRTC compilation

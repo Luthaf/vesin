@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -15,7 +16,7 @@
 using namespace vesin::cuda;
 
 #include "cuda/verlet.cuh"
-const unsigned char CUDA_VERLET_HEX[] = {
+const uint8_t CUDA_VERLET_HEX[] = {
 #include "generated/cuda/verlet.cu.inc"
 };
 const char* CUDA_VERLET_CODE = reinterpret_cast<const char*>(CUDA_VERLET_HEX);

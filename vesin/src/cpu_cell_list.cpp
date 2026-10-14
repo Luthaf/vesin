@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
@@ -51,7 +52,7 @@ static std::pair<double, double> time_search(
     double box_length,
     double cutoff
 ) {
-    constexpr int N_ITERS = 5;
+    constexpr int32_t N_ITERS = 5;
 
     std::array<std::array<double, 3>, 3> matrix = {{
         {{box_length, 0.0, 0.0}},
@@ -82,7 +83,7 @@ static std::pair<double, double> time_search(
 
     double elapsed = 0.0;
     volatile size_t prevent_optimizations = 0;
-    for (int rep = 0; rep < N_ITERS; rep++) {
+    for (int32_t rep = 0; rep < N_ITERS; rep++) {
         auto start = std::chrono::high_resolution_clock::now();
 
         size_t count = 0;
@@ -460,7 +461,7 @@ CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, 
     constexpr double CELL_VISIT_COST = 8.0;
     // Limit the number of cells we use when the box is a lot smaller than the
     // cutoff
-    constexpr int MAX_CELLS_PER_CUTOFF = 6;
+    constexpr int32_t MAX_CELLS_PER_CUTOFF = 6;
 
     auto points_per_cell = static_cast<double>(n_points);
     for (size_t d = 0; d < 3; d++) {
@@ -471,7 +472,7 @@ CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, 
 
     auto k = std::pow(points_per_cell / (2.0 * CELL_VISIT_COST), 0.25);
     auto cells_per_cutoff = std::clamp(
-        static_cast<int>(std::lround(k)), 1, MAX_CELLS_PER_CUTOFF
+        static_cast<int32_t>(std::lround(k)), 1, MAX_CELLS_PER_CUTOFF
     );
 
     auto n_cells = Vector{0.0, 0.0, 0.0};

@@ -1,8 +1,8 @@
 #include "verlet.cuh"
 
 __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
-    auto* address_as_ull = reinterpret_cast<unsigned long long*>(address);
-    return static_cast<size_t>(atomicAdd(address_as_ull, static_cast<unsigned long long>(val)));
+    auto* address_as_ull = reinterpret_cast<uint64*>(address);
+    return static_cast<size_t>(atomicAdd(address_as_ull, static_cast<uint64>(val)));
 }
 
 __global__ void check_verlet_displacements(
@@ -10,7 +10,7 @@ __global__ void check_verlet_displacements(
     const double* __restrict__ ref_points,
     size_t n_points,
     double half_skin_sq,
-    int* rebuild_flag
+    int32* rebuild_flag
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
@@ -35,11 +35,11 @@ __global__ void filter_verlet_candidates(
     bool return_distances,
     bool return_vectors,
     const size_t (*candidate_pairs)[2],
-    const int (*candidate_shifts)[3],
+    const int32 (*candidate_shifts)[3],
     size_t candidate_length,
     size_t* length,
     size_t (*pair_indices)[2],
-    int (*shifts_out)[3],
+    int32 (*shifts_out)[3],
     double* distances,
     double (*vectors)[3]
 ) {
@@ -51,9 +51,9 @@ __global__ void filter_verlet_candidates(
     double cutoff2 = cutoff * cutoff;
     size_t i = candidate_pairs[idx][0];
     size_t j = candidate_pairs[idx][1];
-    int sx = candidate_shifts[idx][0];
-    int sy = candidate_shifts[idx][1];
-    int sz = candidate_shifts[idx][2];
+    int32 sx = candidate_shifts[idx][0];
+    int32 sy = candidate_shifts[idx][1];
+    int32 sz = candidate_shifts[idx][2];
 
     const double* ri = points[i];
     const double* rj = points[j];

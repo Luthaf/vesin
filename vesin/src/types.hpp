@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cassert>
+#include <cstdint>
 #include <string>
 
 #include "math.hpp"
@@ -24,10 +25,10 @@ public:
         min_positions_({1e300, 1e300, 1e300}) {
 
         // find number of periodic directions and their indices
-        int n_periodic = 0;
-        int periodic_idx_1 = -1;
-        int periodic_idx_2 = -1;
-        for (int i = 0; i < 3; ++i) {
+        int32_t n_periodic = 0;
+        int32_t periodic_idx_1 = -1;
+        int32_t periodic_idx_2 = -1;
+        for (int32_t i = 0; i < 3; ++i) {
             if (periodic_[i]) {
                 n_periodic += 1;
                 if (periodic_idx_1 == -1) {
@@ -177,7 +178,7 @@ public:
             }
         }
 
-        for (int dim = 0; dim < 3; dim++) {
+        for (int32_t dim = 0; dim < 3; dim++) {
             // if all atoms have the same coordinate in this dimension, pretend
             // that the bounding box is at least 1 unit wide to avoid numerical issues
             if (max_positions_[dim] - min_positions_[dim] < 1e-6) {

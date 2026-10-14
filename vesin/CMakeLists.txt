@@ -51,6 +51,9 @@ set(VESIN_SOURCES
 
 # Generate the CUDA source files for NVRTC compilation
 file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/*.cu)
+# the headers are inlined in the generated files by `make_hex_array.cmake`, so
+# the generated files need to be re-created whenever any of them changes
+file(GLOB CUDA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/*.cuh)
 foreach(cuda_source IN LISTS CUDA_SOURCES)
     get_filename_component(cuda_filename ${cuda_source} NAME)
     set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/cuda/${cuda_filename}.inc")
@@ -60,7 +63,10 @@ foreach(cuda_source IN LISTS CUDA_SOURCES)
             -DINPUT_FILE=${cuda_source}
             -DOUTPUT_FILE=${output_file}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/make_hex_array.cmake
-        DEPENDS ${cuda_source}
+        DEPENDS
+            ${cuda_source}
+            ${CUDA_HEADERS}
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/make_hex_array.cmake
         COMMENT "Generating ${output_file}"
     )
     list(APPEND GENERATED_CUDA_HEX ${output_file})

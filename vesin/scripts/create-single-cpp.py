@@ -12,8 +12,13 @@ DIST = os.path.realpath(os.path.join(HERE, "..", "dist"))
 ALREADY_SEEN = set()
 
 
-def find_file(path):
-    candidates = [
+def find_file(path, including_dir):
+    candidates = []
+    if including_dir is not None:
+        # look next to the file containing the `#include` first, like compilers
+        candidates.append(os.path.join(including_dir, path))
+
+    candidates += [
         os.path.join(ROOT, "vesin", "src", path),
         os.path.join(ROOT, "vesin", "include", path),
         os.path.join(os.getcwd(), path),
@@ -39,11 +44,11 @@ def include_path(line):
         return ""
 
 
-def merge_files(path, output):
+def merge_files(path, output, including_dir=None):
     if path.startswith("generated/"):
         pass
 
-    path = find_file(path)
+    path = find_file(path, including_dir)
 
     if path in ALREADY_SEEN:
         return
@@ -59,7 +64,7 @@ def merge_files(path, output):
             if "#include" in line:
                 new_path = include_path(line)
                 if new_path != "":
-                    merge_files(new_path, output)
+                    merge_files(new_path, output, os.path.dirname(path))
                 else:
                     output.write(line)
             else:

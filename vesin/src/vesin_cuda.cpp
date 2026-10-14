@@ -29,25 +29,25 @@ using namespace vesin::cuda;
 #endif
 
 #include "cuda/bruteforce.cuh"
-const unsigned char CUDA_BRUTEFORCE_HEX[] = {
+const uint8_t CUDA_BRUTEFORCE_HEX[] = {
 #include "generated/cuda/bruteforce.cu.inc"
 };
 const char* CUDA_BRUTEFORCE_CODE = reinterpret_cast<const char*>(CUDA_BRUTEFORCE_HEX);
 
 #include "cuda/cell_list.cuh"
-const unsigned char CUDA_CELL_LIST_HEX[] = {
+const uint8_t CUDA_CELL_LIST_HEX[] = {
 #include "generated/cuda/cell_list.cu.inc"
 };
 const char* CUDA_CELL_LIST_CODE = reinterpret_cast<const char*>(CUDA_CELL_LIST_HEX);
 
 #include "cuda/sort_pairs.cuh"
-const unsigned char CUDA_SORT_PAIRS_HEX[] = {
+const uint8_t CUDA_SORT_PAIRS_HEX[] = {
 #include "generated/cuda/sort_pairs.cu.inc"
 };
 const char* CUDA_SORT_PAIRS_CODE = reinterpret_cast<const char*>(CUDA_SORT_PAIRS_HEX);
 
 #include "cuda/scan.cuh"
-const unsigned char CUDA_SCAN_HEX[] = {
+const uint8_t CUDA_SCAN_HEX[] = {
 #include "generated/cuda/scan.cu.inc"
 };
 const char* CUDA_SCAN_CODE = reinterpret_cast<const char*>(CUDA_SCAN_HEX);

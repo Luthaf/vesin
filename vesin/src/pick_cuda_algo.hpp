@@ -2,6 +2,7 @@
 #define VESIN_PICK_CUDA_ALGO_HPP
 
 #include <cstddef>
+#include <cstdint>
 
 namespace vesin {
 namespace cuda {
@@ -19,7 +20,7 @@ bool auto_use_cell_list(
     double n_images,
     double cutoff,
     bool sorted,
-    int device_id
+    int32_t device_id
 );
 
 } // namespace cuda

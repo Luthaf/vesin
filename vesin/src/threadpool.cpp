@@ -1,5 +1,7 @@
 #include "threadpool.hpp"
 
+#include <cstdint>
+
 #include <algorithm>
 #include <chrono>
 
@@ -157,7 +159,7 @@ void ThreadPool::execute_assigned_tasks(size_t thread_id, size_t active_threads)
 }
 
 static double measure_dispatch_cost_us() {
-    constexpr int N_ITERS = 10;
+    constexpr int32_t N_ITERS = 10;
 
     auto& pool = ThreadPool::global();
 
@@ -167,7 +169,7 @@ static double measure_dispatch_cost_us() {
     auto n_threads = pool.max_threads();
 
     double elapsed = 0.0;
-    for (int rep = 0; rep < N_ITERS; rep++) {
+    for (int32_t rep = 0; rep < N_ITERS; rep++) {
         auto start = std::chrono::high_resolution_clock::now();
 
         pool.run(n_threads, 2 * n_threads, Scheduling::dynamic(128), [](size_t, size_t) {});

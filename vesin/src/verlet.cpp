@@ -2,6 +2,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #include "cpu_cell_list.hpp"
@@ -173,12 +174,12 @@ void cpu::VerletList::filter(
     // cell/cutoff ratio, but a small table covers the common case and replaces
     // a call to `shift.cartesian(box)` per candidate with a table lookup.
     // Out-of-range shifts fall back to the call.
-    constexpr int SHIFT_MAX = 3;
+    constexpr int32_t SHIFT_MAX = 3;
     auto matrix = box.matrix();
     Vector shift_lookup[2 * SHIFT_MAX + 1][2 * SHIFT_MAX + 1][2 * SHIFT_MAX + 1];
-    for (int sx = 0; sx < 2 * SHIFT_MAX + 1; sx++) {
-        for (int sy = 0; sy < 2 * SHIFT_MAX + 1; sy++) {
-            for (int sz = 0; sz < 2 * SHIFT_MAX + 1; sz++) {
+    for (int32_t sx = 0; sx < 2 * SHIFT_MAX + 1; sx++) {
+        for (int32_t sy = 0; sy < 2 * SHIFT_MAX + 1; sy++) {
+            for (int32_t sz = 0; sz < 2 * SHIFT_MAX + 1; sz++) {
                 auto shift_vec = Vector{
                     static_cast<double>(sx - SHIFT_MAX),
                     static_cast<double>(sy - SHIFT_MAX),

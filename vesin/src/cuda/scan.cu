@@ -25,19 +25,19 @@
 #define SCAN_MAX_BLOCKS SCAN_THREADS
 
 __global__ void exclusive_scan_phase_1(
-    const int* __restrict__ d_in,
-    int* __restrict__ d_out,
-    int* __restrict__ d_block_totals,
+    const int32* __restrict__ d_in,
+    int32* __restrict__ d_out,
+    int32* __restrict__ d_block_totals,
     size_t n
 ) {
-    __shared__ int scan_data[SCAN_THREADS];
+    __shared__ int32 scan_data[SCAN_THREADS];
     auto tid = threadIdx.x;
     auto chunk_base = blockIdx.x * SCAN_ELEMENTS_PER_BLOCK;
     auto thread_base = chunk_base + tid * SCAN_ELEMENTS_PER_THREAD;
 
     // Each thread loads SCAN_ELEMENTS_PER_THREAD elements and sums them
-    int local_sum = 0;
-    for (int i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
+    int32 local_sum = 0;
+    for (int32 i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
         auto idx = thread_base + i;
         local_sum += (idx < n) ? d_in[idx] : 0;
     }
@@ -45,8 +45,8 @@ __global__ void exclusive_scan_phase_1(
     __syncthreads();
 
     // Hillis-Steele inclusive scan over thread sums
-    for (int stride = 1; stride < SCAN_THREADS; stride *= 2) {
-        int val = (tid >= stride) ? scan_data[tid - stride] : 0;
+    for (int32 stride = 1; stride < SCAN_THREADS; stride *= 2) {
+        int32 val = (tid >= stride) ? scan_data[tid - stride] : 0;
         __syncthreads();
         scan_data[tid] += val;
         __syncthreads();
@@ -54,11 +54,11 @@ __global__ void exclusive_scan_phase_1(
     // scan_data[tid] = inclusive scan of per-thread sums
     // Exclusive prefix for this thread = scan_data[tid] - local_sum
 
-    int prefix = scan_data[tid] - local_sum;
+    int32 prefix = scan_data[tid] - local_sum;
 
     // Write out the exclusive scan for each element
-    int running = prefix;
-    for (int i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
+    int32 running = prefix;
+    for (int32 i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
         auto idx = thread_base + i;
         if (idx < n) {
             d_out[idx] = running;
@@ -74,25 +74,25 @@ __global__ void exclusive_scan_phase_1(
 
 
 __global__ void exclusive_scan_phase_2(
-    int* __restrict__ d_block_totals,
+    int32* __restrict__ d_block_totals,
     size_t n_blocks
 ) {
-    __shared__ int scan_data[SCAN_THREADS];
+    __shared__ int32 scan_data[SCAN_THREADS];
     auto tid = threadIdx.x;
 
     scan_data[tid] = (tid < n_blocks) ? d_block_totals[tid] : 0;
     __syncthreads();
 
     // Hillis-Steele inclusive scan
-    for (int stride = 1; stride < SCAN_THREADS; stride *= 2) {
-        int val = (tid >= stride) ? scan_data[tid - stride] : 0;
+    for (int32 stride = 1; stride < SCAN_THREADS; stride *= 2) {
+        int32 val = (tid >= stride) ? scan_data[tid - stride] : 0;
         __syncthreads();
         scan_data[tid] += val;
         __syncthreads();
     }
 
     // Convert to exclusive and write back
-    int exclusive = scan_data[tid] - ((tid < n_blocks) ? d_block_totals[tid] : 0);
+    int32 exclusive = scan_data[tid] - ((tid < n_blocks) ? d_block_totals[tid] : 0);
     if (tid < n_blocks) {
         d_block_totals[tid] = exclusive;
     }
@@ -100,8 +100,8 @@ __global__ void exclusive_scan_phase_2(
 
 
 __global__ void exclusive_scan_phase_3(
-    int* __restrict__ d_out,
-    const int* __restrict__ d_block_totals,
+    int32* __restrict__ d_out,
+    const int32* __restrict__ d_block_totals,
     size_t n
 ) {
     auto tid = threadIdx.x;
@@ -109,7 +109,7 @@ __global__ void exclusive_scan_phase_3(
     auto thread_base = chunk_base + tid * SCAN_ELEMENTS_PER_THREAD;
     auto offset = d_block_totals[blockIdx.x];
 
-    for (int i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
+    for (int32 i = 0; i < SCAN_ELEMENTS_PER_THREAD; i++) {
         auto idx = thread_base + i;
         if (idx < n) {
             d_out[idx] += offset;

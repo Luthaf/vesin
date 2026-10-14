@@ -3,6 +3,8 @@
 
 #include <cstddef>
 
+#include "integer.cuh"
+
 // Largest number of periodic images the brute force kernels will enumerate for
 // a single pair of atoms, i.e. `prod(2 * n_search + 1)`.
 #define MAX_BRUTE_FORCE_IMAGES 4096
@@ -22,18 +24,18 @@ __global__ void brute_force_half(
     const double box[3][3],
     const double inv_box[3][3],
     const bool periodic[3],
-    const int n_search[3],
+    const int32 n_search[3],
     double cutoff2,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
     size_t* length,
     size_t (*pair_indices)[2],
-    int (*shifts)[3],
+    int32 (*shifts)[3],
     double* distances,
     double (*vectors)[3],
     size_t max_pairs,
-    int* overflow_flag
+    int32* overflow_flag
 );
 
 __global__ void brute_force_full(
@@ -41,18 +43,18 @@ __global__ void brute_force_full(
     const double box[3][3],
     const double inv_box[3][3],
     const bool periodic[3],
-    const int n_search[3],
+    const int32 n_search[3],
     double cutoff2,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
     size_t* length,
     size_t (*pair_indices)[2],
-    int (*shifts)[3],
+    int32 (*shifts)[3],
     double* distances,
     double (*vectors)[3],
     size_t max_pairs,
-    int* overflow_flag
+    int32* overflow_flag
 );
 
 __global__ void analyze_box(
@@ -60,7 +62,7 @@ __global__ void analyze_box(
     const bool periodic[3],
     double cutoff,
     bool* all_periodic,
-    int n_search[3],
+    int32 n_search[3],
     double inv_box_out[3][3]
 );
 

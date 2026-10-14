@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #include <algorithm>
@@ -47,7 +48,7 @@ static constexpr double MAX_CROSSOVER_POINTS = 50000.0;
 
 // A simple cubic lattice filling `counts[dim] * spacing` in each direction,
 // together with the box holding it.
-static std::vector<double> calibration_lattice(const int counts[3], double box[3][3], double spacing) {
+static std::vector<double> calibration_lattice(const int32_t counts[3], double box[3][3], double spacing) {
     for (size_t i = 0; i < 3; i++) {
         for (size_t j = 0; j < 3; j++) {
             box[i][j] = 0.0;
@@ -57,9 +58,9 @@ static std::vector<double> calibration_lattice(const int counts[3], double box[3
 
     auto points = std::vector<double>();
     points.reserve(3 * static_cast<size_t>(counts[0]) * counts[1] * counts[2]);
-    for (int x = 0; x < counts[0]; x++) {
-        for (int y = 0; y < counts[1]; y++) {
-            for (int z = 0; z < counts[2]; z++) {
+    for (int32_t x = 0; x < counts[0]; x++) {
+        for (int32_t y = 0; y < counts[1]; y++) {
+            for (int32_t z = 0; z < counts[2]; z++) {
                 points.push_back(x * spacing);
                 points.push_back(y * spacing);
                 points.push_back(z * spacing);
@@ -77,8 +78,8 @@ namespace {
 /// memory on the current device and checks that the input pointers are on the
 /// same device.
 struct DeviceGuard {
-    int previous = 0;
-    explicit DeviceGuard(int device_id) {
+    int32_t previous = 0;
+    explicit DeviceGuard(int32_t device_id) {
         GPULITE_CUDART_CALL(cudaGetDevice(&this->previous));
         if (this->previous != device_id) {
             GPULITE_CUDART_CALL(cudaSetDevice(device_id));
@@ -130,15 +131,15 @@ struct NeighborListRAII {
 // time one took, in microseconds. The first call is thrown away to allow it to
 // compile the kernels and warm up the GPU.
 static double time_neighbors(
-    int device_id,
+    int32_t device_id,
     const std::vector<double>& points,
     const double box[3][3],
     VesinAlgorithm algorithm,
     double cutoff,
     bool sorted,
-    int n_iters
+    int32_t n_iters
 ) {
-    constexpr int N_WARMUP = 1;
+    constexpr int32_t N_WARMUP = 1;
 
     auto n_points = points.size() / 3;
     bool periodic[3] = {true, true, true};
@@ -181,7 +182,7 @@ static double time_neighbors(
         options.return_vectors = false;
         options.skin = 0.0;
 
-        for (int i = 0; i < N_WARMUP + n_iters; i++) {
+        for (int32_t i = 0; i < N_WARMUP + n_iters; i++) {
             if (i == N_WARMUP) {
                 GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
                 timings.clear();
@@ -205,7 +206,7 @@ static double time_neighbors(
 // `log(cell list / brute force)` falls through zero with a slope close to -1,
 // brute force growing as `n^2` where the cell list grows as `n`, so two sizes
 // on both sides of the crossing are measured and the crossing is interpolated.
-static std::optional<Crossovers> measure_crossovers(int device_id) {
+static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
     constexpr double CUTOFF = 5.0;
     constexpr double SPACING = 2.0;
     #undef NAN
@@ -216,8 +217,8 @@ static std::optional<Crossovers> measure_crossovers(int device_id) {
         double sorted;
     };
 
-    auto log_ratios = [&](int side, int n_iters) {
-        int counts[3] = {side, side, side};
+    auto log_ratios = [&](int32_t side, int32_t n_iters) {
+        int32_t counts[3] = {side, side, side};
         double box[3][3] = {};
         auto points = calibration_lattice(counts, box, SPACING);
 
@@ -241,8 +242,8 @@ static std::optional<Crossovers> measure_crossovers(int device_id) {
         return LogRatios{std::log(cell / brute), std::log(cell / brute_sorted)};
     };
 
-    static constexpr int SMALL_SIDE = 12;  // 1728 points
-    static constexpr int LARGE_SIDE = 20;  // 8000 points
+    static constexpr int32_t SMALL_SIDE = 12;  // 1728 points
+    static constexpr int32_t LARGE_SIDE = 20;  // 8000 points
 
     auto small = log_ratios(SMALL_SIDE, /*n_iters=*/9);
     auto large = log_ratios(LARGE_SIDE, /*n_iters=*/3);
@@ -276,9 +277,9 @@ static std::optional<Crossovers> measure_crossovers(int device_id) {
 // Where the two algorithms cost the same on one device, measured the first time
 // that device picks an algorithm and kept for the rest of the process. Empty if
 // they could not be measured at all.
-static const std::optional<Crossovers>& crossovers(int device_id) {
+static const std::optional<Crossovers>& crossovers(int32_t device_id) {
     static std::mutex mutex;
-    static std::map<int, std::optional<Crossovers>> measured;
+    static std::map<int32_t, std::optional<Crossovers>> measured;
 
     auto guard = std::lock_guard<std::mutex>(mutex);
     auto it = measured.find(device_id);
@@ -305,7 +306,7 @@ bool vesin::cuda::auto_use_cell_list(
     double n_images,
     double cutoff,
     bool sorted,
-    int device_id
+    int32_t device_id
 ) {
     // Past the brute force kernels' own limits the cell list is the only one
     // that can run at all.

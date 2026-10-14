@@ -18,7 +18,7 @@ void check_cuda(cudaError_t status) {
     }
 }
 
-void run_cuda_test(int device_id) {
+void run_cuda_test(int32_t device_id) {
     check_cuda(cudaSetDevice(device_id));
 
     double points[][3] = {
@@ -159,13 +159,13 @@ void run_cuda_test(int device_id) {
 
 TEST_CASE("Test CUDA") {
     // get the number of CUDA devices
-    int n_devices = 0;
+    int32_t n_devices = 0;
     check_cuda(cudaGetDeviceCount(&n_devices));
     REQUIRE(n_devices > 0);
 
     // start multiple threads to test concurrent execution
     auto threads = std::vector<std::thread>();
-    for (int thread_id = 0; thread_id < 10; ++thread_id) {
+    for (int32_t thread_id = 0; thread_id < 10; ++thread_id) {
         std::thread t(run_cuda_test, thread_id % n_devices);
         threads.push_back(std::move(t));
     }
@@ -178,10 +178,10 @@ TEST_CASE("Test CUDA") {
 // Exercise the CUDA Verlet skin cache path with a small system that
 // reliably triggers the cache filter and displacement-check kernels.
 TEST_CASE("Test CUDA Verlet skin cache") {
-    int n_devices = 0;
+    int32_t n_devices = 0;
     check_cuda(cudaGetDeviceCount(&n_devices));
     REQUIRE(n_devices > 0);
-    int device_id = 0;
+    int32_t device_id = 0;
     check_cuda(cudaSetDevice(device_id));
 
     // small but sufficient system to exercise the Verlet cache kernels

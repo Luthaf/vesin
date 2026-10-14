@@ -3,6 +3,8 @@
 
 #include <cstddef>
 
+#include "integer.cuh"
+
 // First step of `compute_bounding_box`: per-block partial bounding boxes.
 __global__ void compute_bounding_box(
     const double (*points)[3],
@@ -29,9 +31,9 @@ __global__ void compute_cell_grid_params(
     size_t max_cells,
     double cell_visit_cost,
     double inv_box[3][3],
-    int* n_cells,
-    int* n_search,
-    int* n_cells_total,
+    int32* n_cells,
+    int32* n_search,
+    int32* n_cells_total,
     double* face_distances,
     bool* cell_out_of_reach
 );
@@ -42,18 +44,18 @@ __global__ void assign_cell_indices(
     size_t n_points,
     const double inv_box[3][3],
     const bool periodic[3],
-    const int* n_cells,
+    const int32* n_cells,
     const double* face_distances,
     const double* bounding_min,
-    int* cell_indices,
-    int* particle_shifts
+    int32* cell_indices,
+    int32* particle_shifts
 );
 
 // Count particles per cell (histogram)
 __global__ void count_particles_per_cell(
-    const int* cell_indices,
+    const int32* cell_indices,
     size_t n_points,
-    int* cell_counts
+    int32* cell_counts
 );
 
 // Reorder particles by cell for coalesced access in neighbor search.
@@ -61,15 +63,15 @@ __global__ void count_particles_per_cell(
 __global__ void scatter_particles(
     const double (*points)[3],
     size_t n_points,
-    const int* cell_indices,
-    const int* particle_shifts,
+    const int32* cell_indices,
+    const int32* particle_shifts,
     const double box[3][3],
-    int* cell_offsets,
+    int32* cell_offsets,
     double* sorted_points,
     double* wrapped_positions,
-    int* sorted_indices,
-    int* sorted_shifts,
-    int* sorted_cell_indices
+    int32* sorted_indices,
+    int32* sorted_shifts,
+    int32* sorted_cell_indices
 );
 
 // Two pass cell list, this is the first pass. This kernel search all neighbors,
@@ -80,16 +82,16 @@ __global__ void count_neighbors_cell_list(
     const double box[3][3],
     const bool* cell_out_of_reach,
     const bool periodic[3],
-    const int* n_cells,
-    const int* n_search,
-    const int* sorted_indices,
-    const int* sorted_shifts,
-    const int* sorted_cell_indices,
-    const int* cell_starts,
-    const int* cell_counts,
+    const int32* n_cells,
+    const int32* n_search,
+    const int32* sorted_indices,
+    const int32* sorted_shifts,
+    const int32* sorted_cell_indices,
+    const int32* cell_starts,
+    const int32* cell_counts,
     double cutoff,
     bool full_list,
-    int* counts
+    int32* counts
 );
 
 // Two pass cell list, this is the second pass. This kernel actually fills the
@@ -100,21 +102,21 @@ __global__ void fill_neighbors_cell_list(
     const double box[3][3],
     const bool* cell_out_of_reach,
     const bool periodic[3],
-    const int* n_cells,
-    const int* n_search,
-    const int* sorted_indices,
-    const int* sorted_shifts,
-    const int* sorted_cell_indices,
-    const int* cell_starts,
-    const int* cell_counts,
+    const int32* n_cells,
+    const int32* n_search,
+    const int32* sorted_indices,
+    const int32* sorted_shifts,
+    const int32* sorted_cell_indices,
+    const int32* cell_starts,
+    const int32* cell_counts,
     double cutoff,
     bool full_list,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
-    const int* write_offsets,
+    const int32* write_offsets,
     size_t (*pair_indices)[2],
-    int (*shifts_out)[3],
+    int32 (*shifts_out)[3],
     double* distances,
     double (*vectors)[3]
 );

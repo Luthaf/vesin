@@ -38,7 +38,7 @@ static size_t resolve_n_threads(int32_t n_threads) {
     return 1;
 }
 
-extern "C" int vesin_neighbors(
+extern "C" int32_t vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],

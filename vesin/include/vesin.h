@@ -106,7 +106,7 @@ struct VesinDevice {
     /// Type of the device
     VesinDeviceKind type;
     /// Device index (0 for CPU, GPU index for CUDA)
-    int device_id = 0;
+    int32_t device_id = 0;
 };
 
 /// The actual neighbor list
@@ -190,7 +190,7 @@ void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 /// @param error_message Pointer to a `char*` that wil be set to the error
 ///     message if this function fails. This does not need to be freed when no
 ///     longer needed.
-int VESIN_API vesin_neighbors(
+int32_t VESIN_API vesin_neighbors(
     const double (*points)[3],
     size_t n_points,
     const double box[3][3],

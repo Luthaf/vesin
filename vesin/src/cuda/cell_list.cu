@@ -5,8 +5,8 @@
 // cooperate on neighbor search. Output buffering reduces atomic contention.
 
 __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
-    auto* address_as_ull = reinterpret_cast<unsigned long long*>(address);
-    return static_cast<size_t>(atomicAdd(address_as_ull, static_cast<unsigned long long>(val)));
+    auto* address_as_ull = reinterpret_cast<uint64*>(address);
+    return static_cast<size_t>(atomicAdd(address_as_ull, static_cast<uint64>(val)));
 }
 
 // Vector math helpers for double3
@@ -81,16 +81,16 @@ __device__ inline void reduce_bounding_box_block(
     const double local_min[3],
     const double local_max[3]
 ) {
-    int tid = static_cast<int>(threadIdx.x);
-    for (int dim = 0; dim < 3; dim++) {
+    int32 tid = static_cast<int32>(threadIdx.x);
+    for (int32 dim = 0; dim < 3; dim++) {
         shared_min[dim][tid] = local_min[dim];
         shared_max[dim][tid] = local_max[dim];
     }
     __syncthreads();
 
-    for (int stride = static_cast<int>(blockDim.x) / 2; stride > 0; stride >>= 1) {
+    for (int32 stride = static_cast<int32>(blockDim.x) / 2; stride > 0; stride >>= 1) {
         if (tid < stride) {
-            for (int dim = 0; dim < 3; dim++) {
+            for (int32 dim = 0; dim < 3; dim++) {
                 shared_min[dim][tid] = min(shared_min[dim][tid], shared_min[dim][tid + stride]);
                 shared_max[dim][tid] = max(shared_max[dim][tid], shared_max[dim][tid + stride]);
             }
@@ -106,7 +106,7 @@ __device__ inline void write_bounding_box(
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
 ) {
-    for (int dim = 0; dim < 3; dim++) {
+    for (int32 dim = 0; dim < 3; dim++) {
         bounding_min[dim] = corner_min[dim];
 
         // Add 1% margin to bounding box size to ensure particles on the
@@ -165,7 +165,7 @@ __global__ void compute_bounding_box(
         write_bounding_box(corner_min, corner_max, face_distances, bounding_min);
     } else {
         auto* out = partials + blockIdx.x * 6;
-        for (int dim = 0; dim < 3; dim++) {
+        for (int32 dim = 0; dim < 3; dim++) {
             out[dim] = corner_min[dim];
             out[3 + dim] = corner_max[dim];
         }
@@ -189,7 +189,7 @@ __global__ void reduce_bounding_box(
 
     for (size_t i = threadIdx.x; i < n_partials; i += blockDim.x) {
         const auto* in = partials + i * 6;
-        for (int dim = 0; dim < 3; dim++) {
+        for (int32 dim = 0; dim < 3; dim++) {
             local_min[dim] = min(local_min[dim], in[dim]);
             local_max[dim] = max(local_max[dim], in[3 + dim]);
         }
@@ -222,9 +222,9 @@ __device__ inline bool cell_offset_out_of_reach(
     const double3& cell_a,
     const double3& cell_b,
     const double3& cell_c,
-    int dx,
-    int dy,
-    int dz,
+    int32 dx,
+    int32 dy,
+    int32 dz,
     double cutoff2
 ) {
     double3 v = make_double3(
@@ -262,7 +262,7 @@ __device__ inline double fit_cells_in_budget(double n_cells[3], double max_cells
 
     // Scale all three at once to get close in one step,
     double ratio = cbrt(max_cells / total);
-    for (int dim = 0; dim < 3; dim++) {
+    for (int32 dim = 0; dim < 3; dim++) {
         n_cells[dim] = max(1.0, floor(n_cells[dim] * ratio));
     }
     total = n_cells[0] * n_cells[1] * n_cells[2];
@@ -270,7 +270,7 @@ __device__ inline double fit_cells_in_budget(double n_cells[3], double max_cells
     // then walk the largest dimension down, since rounding each dimension
     // separately can leave the product just above the budget.
     while (total > max_cells) {
-        int largest = 0;
+        int32 largest = 0;
         if (n_cells[1] > n_cells[largest]) {
             largest = 1;
         }
@@ -297,9 +297,9 @@ __global__ void compute_cell_grid_params(
     size_t max_cells,
     double cell_visit_cost,
     double inv_box[3][3],
-    int* __restrict__ n_cells,
-    int* __restrict__ n_search,
-    int* __restrict__ n_cells_total,
+    int32* __restrict__ n_cells,
+    int32* __restrict__ n_search,
+    int32* __restrict__ n_cells_total,
     double* __restrict__ face_distances,
     bool* __restrict__ cell_out_of_reach
 ) {
@@ -310,7 +310,7 @@ __global__ void compute_cell_grid_params(
     // The grid is picked by a single thread and handed to the rest of the block
     // through shared memory.
     __shared__ double shared_cell_vectors[9];
-    __shared__ int shared_n_search[3];
+    __shared__ int32 shared_n_search[3];
 
     // Only one thread picks the grid; the rest wait, then fill the offset mask
     // together at the end.
@@ -323,10 +323,10 @@ __global__ void compute_cell_grid_params(
             make_double3(box[2][0], box[2][1], box[2][2]),
         };
 
-        int n_periodic = 0;
-        int periodic_idx_1 = -1;
-        int periodic_idx_2 = -1;
-        for (int d = 0; d < 3; d++) {
+        int32 n_periodic = 0;
+        int32 periodic_idx_1 = -1;
+        int32 periodic_idx_2 = -1;
+        for (int32 d = 0; d < 3; d++) {
             if (periodic[d]) {
                 n_periodic += 1;
                 if (periodic_idx_1 == -1) {
@@ -409,7 +409,7 @@ __global__ void compute_cell_grid_params(
         // over k gives k = (atoms_per_cell / (2 * cell_visit_cost))^(1/4), where
         // `atoms_per_cell` is measured on the one-cell-per-cutoff grid.
         auto atoms_per_cell = (double)n_points;
-        for (int dim = 0; dim < 3; dim++) {
+        for (int32 dim = 0; dim < 3; dim++) {
             double count = floor(face_distances[dim] / cutoff);
             count = min(max(count, 1.0), (double)max_cells);
             atoms_per_cell /= count;
@@ -419,15 +419,15 @@ __global__ void compute_cell_grid_params(
 
         // Cap cells_per_cutoff to 6, to prevent having too many cells to search in
         // extreme cases.
-        int cells_per_cutoff = max(1, min((int)round(k), 6));
+        int32 cells_per_cutoff = max(1, min((int32)round(k), 6));
 
         // Number of cells to put in each dimension.
         double n_cells_per_dim[3];
-        for (int dim = 0; dim < 3; dim++) {
+        for (int32 dim = 0; dim < 3; dim++) {
             // Refining a non-periodic dimension under mixed periodicity buys
             // nothing: `n_search` there is widened below to cover the whole extent
             // regardless, so a finer grid sweeps the same atoms in more cells.
-            int dim_cells_per_cutoff = cells_per_cutoff;
+            int32 dim_cells_per_cutoff = cells_per_cutoff;
             if (n_periodic > 0 && n_periodic < 3 && !periodic[dim]) {
                 dim_cells_per_cutoff = 1;
             }
@@ -440,45 +440,45 @@ __global__ void compute_cell_grid_params(
 
         // `max_cells` is at most 2^21, so both the per-dimension counts and the
         // total fit in an `int` by this point.
-        n_cells[0] = (int)n_cells_per_dim[0];
-        n_cells[1] = (int)n_cells_per_dim[1];
-        n_cells[2] = (int)n_cells_per_dim[2];
-        n_cells_total[0] = (int)total;
+        n_cells[0] = (int32)n_cells_per_dim[0];
+        n_cells[1] = (int32)n_cells_per_dim[1];
+        n_cells[2] = (int32)n_cells_per_dim[2];
+        n_cells_total[0] = (int32)total;
 
         // Compute search range - how many cells to search in each direction
         // When cells are larger than cutoff, we need to search more cells
-        for (int dim = 0; dim < 3; dim++) {
+        for (int32 dim = 0; dim < 3; dim++) {
             double cell_size = face_distances[dim] / n_cells[dim];
-            n_search[dim] = max(1, (int)ceil(cutoff / cell_size));
+            n_search[dim] = max(1, (int32)ceil(cutoff / cell_size));
 
             if (!periodic[dim]) {
                 // A non-periodic direction never searches past its own extent, so
                 // we can reduce the search size.
-                int extent = n_cells[dim] - 1;
+                int32 extent = n_cells[dim] - 1;
                 n_search[dim] = (n_periodic > 0) ? extent : min(n_search[dim], extent);
             }
         }
 
         // Cartesian vector spanning one cell along each grid direction, used
         // just below to decide which cell offsets are out of reach.
-        for (int i = 0; i < 9; i++) {
+        for (int32 i = 0; i < 9; i++) {
             shared_cell_vectors[i] = 0.0;
         }
 
         if (n_periodic == 3) {
-            for (int dim = 0; dim < 3; dim++) {
+            for (int32 dim = 0; dim < 3; dim++) {
                 double scale = 1.0 / n_cells[dim];
                 shared_cell_vectors[3 * dim + 0] = rows[dim].x * scale;
                 shared_cell_vectors[3 * dim + 1] = rows[dim].y * scale;
                 shared_cell_vectors[3 * dim + 2] = rows[dim].z * scale;
             }
         } else if (n_periodic == 0) {
-            for (int dim = 0; dim < 3; dim++) {
+            for (int32 dim = 0; dim < 3; dim++) {
                 shared_cell_vectors[3 * dim + dim] = face_distances[dim] / n_cells[dim];
             }
         }
 
-        for (int i = 0; i < 3; i++) {
+        for (int32 i = 0; i < 3; i++) {
             shared_n_search[i] = n_search[i];
         }
     }
@@ -493,25 +493,25 @@ __global__ void compute_cell_grid_params(
 
     bool can_prune_offsets = (cell_a.x != 0.0) || (cell_a.y != 0.0) || (cell_a.z != 0.0);
 
-    long long n_x = 2 * shared_n_search[0] + 1;
-    long long n_y = 2 * shared_n_search[1] + 1;
-    long long n_z = 2 * shared_n_search[2] + 1;
-    long long n_offsets = n_x * n_y * n_z;
+    int64 n_x = 2 * shared_n_search[0] + 1;
+    int64 n_y = 2 * shared_n_search[1] + 1;
+    int64 n_z = 2 * shared_n_search[2] + 1;
+    int64 n_offsets = n_x * n_y * n_z;
 
     if (n_offsets > MAX_OUT_OF_REACH_MASK) {
         return;
     }
 
     double cutoff2 = cutoff * cutoff;
-    for (long long i = threadIdx.x; i < n_offsets; i += blockDim.x) {
+    for (int64 i = threadIdx.x; i < n_offsets; i += blockDim.x) {
         if (!can_prune_offsets) {
             cell_out_of_reach[i] = false;
             continue;
         }
 
-        int dx = (int)(i % n_x) - shared_n_search[0];
-        int dy = (int)((i / n_x) % n_y) - shared_n_search[1];
-        int dz = (int)(i / (n_x * n_y)) - shared_n_search[2];
+        int32 dx = (int32)(i % n_x) - shared_n_search[0];
+        int32 dy = (int32)((i / n_x) % n_y) - shared_n_search[1];
+        int32 dz = (int32)(i / (n_x * n_y)) - shared_n_search[2];
 
         cell_out_of_reach[i] = cell_offset_out_of_reach(cell_a, cell_b, cell_c, dx, dy, dz, cutoff2);
     }
@@ -522,11 +522,11 @@ __global__ void assign_cell_indices(
     size_t n_points,
     const double inv_box[3][3],
     const bool periodic[3],
-    const int* __restrict__ n_cells,
+    const int32* __restrict__ n_cells,
     const double* __restrict__ face_distances,
     const double* __restrict__ bounding_min,
-    int* __restrict__ cell_indices,
-    int* __restrict__ particle_shifts
+    int32* __restrict__ cell_indices,
+    int32* __restrict__ particle_shifts
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
@@ -547,23 +547,23 @@ __global__ void assign_cell_indices(
 
     // For non-periodic dimensions, compute fractional coordinates using the
     // bounding box instead of the box matrix inverse
-    for (int d = 0; d < 3; d++) {
+    for (int32 d = 0; d < 3; d++) {
         if (!periodic[d]) {
             frac[d] = (pos_arr[d] - bounding_min[d]) / face_distances[d];
         }
     }
 
-    int cell_idx[3];
-    int shift[3];
+    int32 cell_idx[3];
+    int32 shift[3];
 
-    for (int d = 0; d < 3; d++) {
+    for (int32 d = 0; d < 3; d++) {
         // Use divmod for both periodic and non-periodic dimensions.
         // For non-periodic dimensions, the fractional coordinates should be
         // in [0, 1) due to the bounding box margin, so shift will be 0.
-        shift[d] = static_cast<int>(floor(frac[d]));
+        shift[d] = static_cast<int32>(floor(frac[d]));
         frac[d] -= shift[d];
 
-        cell_idx[d] = static_cast<int>(frac[d] * n_cells[d]);
+        cell_idx[d] = static_cast<int32>(frac[d] * n_cells[d]);
         cell_idx[d] = max(0, min(n_cells[d] - 1, cell_idx[d]));
     }
 
@@ -574,9 +574,9 @@ __global__ void assign_cell_indices(
 }
 
 __global__ void count_particles_per_cell(
-    const int* __restrict__ cell_indices,
+    const int32* __restrict__ cell_indices,
     size_t n_points,
-    int* __restrict__ cell_counts
+    int32* __restrict__ cell_counts
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
@@ -588,23 +588,23 @@ __global__ void count_particles_per_cell(
 __global__ void scatter_particles(
     const double (*__restrict__ points)[3],
     size_t n_points,
-    const int* __restrict__ cell_indices,
-    const int* __restrict__ particle_shifts,
+    const int32* __restrict__ cell_indices,
+    const int32* __restrict__ particle_shifts,
     const double box[3][3],
-    int* __restrict__ cell_offsets,
+    int32* __restrict__ cell_offsets,
     double* __restrict__ sorted_points,
     double* __restrict__ wrapped_positions,
-    int* __restrict__ sorted_indices,
-    int* __restrict__ sorted_shifts,
-    int* __restrict__ sorted_cell_indices
+    int32* __restrict__ sorted_indices,
+    int32* __restrict__ sorted_shifts,
+    int32* __restrict__ sorted_cell_indices
 ) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_points) {
         return;
     }
 
-    int cell = cell_indices[i];
-    int slot = atomicAdd(&cell_offsets[cell], 1);
+    int32 cell = cell_indices[i];
+    int32 slot = atomicAdd(&cell_offsets[cell], 1);
 
     // Vectorized points copy
     const auto* pos_in = reinterpret_cast<const double3*>(points);
@@ -614,9 +614,9 @@ __global__ void scatter_particles(
     pos_out[slot] = pos;
 
     // Compute wrapped position: wrapped = pos - shift @ box
-    int shift_x = particle_shifts[i * 3 + 0];
-    int shift_y = particle_shifts[i * 3 + 1];
-    int shift_z = particle_shifts[i * 3 + 2];
+    int32 shift_x = particle_shifts[i * 3 + 0];
+    int32 shift_y = particle_shifts[i * 3 + 1];
+    int32 shift_z = particle_shifts[i * 3 + 2];
     const auto* box3 = reinterpret_cast<const double3*>(box);
     double3 box_a = box3[0];
     double3 box_b = box3[1];
@@ -627,7 +627,7 @@ __global__ void scatter_particles(
         pos.z - (shift_x * box_a.z + shift_y * box_b.z + shift_z * box_c.z)
     );
 
-    sorted_indices[slot] = static_cast<int>(i);
+    sorted_indices[slot] = static_cast<int32>(i);
     sorted_shifts[slot * 3 + 0] = shift_x;
     sorted_shifts[slot * 3 + 1] = shift_y;
     sorted_shifts[slot * 3 + 2] = shift_z;
@@ -667,18 +667,18 @@ struct SharedCellGrid {
     double3 box_b;
     double3 box_c;
 
-    int n_cells_x;
-    int n_cells_y;
-    int n_cells_z;
-    int n_cells_xy;
+    int32 n_cells_x;
+    int32 n_cells_y;
+    int32 n_cells_z;
+    int32 n_cells_xy;
 
-    int n_search_x;
-    int n_search_y;
-    int n_search_z;
+    int32 n_search_x;
+    int32 n_search_y;
+    int32 n_search_z;
 
-    int n_search_cells_x;
-    int n_search_cells_y;
-    int n_search_cells_z;
+    int32 n_search_cells_x;
+    int32 n_search_cells_y;
+    int32 n_search_cells_z;
 
     bool pbc_x;
     bool pbc_y;
@@ -693,8 +693,8 @@ __device__ inline void load_cell_grid(
     SharedCellGrid& grid,
     const double box[3][3],
     const bool periodic[3],
-    const int* __restrict__ n_cells,
-    const int* __restrict__ n_search
+    const int32* __restrict__ n_cells,
+    const int32* __restrict__ n_search
 ) {
     if (threadIdx.x != 0) {
         return;
@@ -722,9 +722,9 @@ __device__ inline void load_cell_grid(
     grid.pbc_y = periodic[1];
     grid.pbc_z = periodic[2];
 
-    long long n_offsets = (long long)grid.n_search_cells_x
-                        * (long long)grid.n_search_cells_y
-                        * (long long)grid.n_search_cells_z;
+    int64 n_offsets = (int64)grid.n_search_cells_x
+                        * (int64)grid.n_search_cells_y
+                        * (int64)grid.n_search_cells_z;
     grid.use_offset_mask = n_offsets <= MAX_OUT_OF_REACH_MASK;
 }
 
@@ -737,15 +737,15 @@ __device__ inline void load_cell_grid(
 template <typename Emit>
 __device__ inline void traverse_neighbors(
     size_t sorted_i,
-    int thread_in_group,
+    int32 thread_in_group,
     const double* __restrict__ wrapped_positions,
     const SharedCellGrid& grid,
     const bool* __restrict__ cell_out_of_reach,
-    const int* __restrict__ sorted_indices,
-    const int* __restrict__ sorted_shifts,
-    const int* __restrict__ sorted_cell_indices,
-    const int* __restrict__ cell_starts,
-    const int* __restrict__ cell_counts,
+    const int32* __restrict__ sorted_indices,
+    const int32* __restrict__ sorted_shifts,
+    const int32* __restrict__ sorted_cell_indices,
+    const int32* __restrict__ cell_starts,
+    const int32* __restrict__ cell_counts,
     double cutoff2,
     bool full_list,
     Emit&& emit
@@ -756,33 +756,33 @@ __device__ inline void traverse_neighbors(
     auto shift_i_y = sorted_shifts[sorted_i * 3 + 1];
     auto shift_i_z = sorted_shifts[sorted_i * 3 + 2];
 
-    int cell_i = sorted_cell_indices[sorted_i];
-    int cell_i_z = cell_i / grid.n_cells_xy;
-    int cell_i_y = (cell_i % grid.n_cells_xy) / grid.n_cells_x;
-    int cell_i_x = cell_i % grid.n_cells_x;
+    int32 cell_i = sorted_cell_indices[sorted_i];
+    int32 cell_i_z = cell_i / grid.n_cells_xy;
+    int32 cell_i_y = (cell_i % grid.n_cells_xy) / grid.n_cells_x;
+    int32 cell_i_x = cell_i % grid.n_cells_x;
 
     // The (dx, dy, dz) offsets of the cells to search form a box of
     // `n_search_cells_x * n_search_cells_y * n_search_cells_z` entries. Each
     // thread of the group walks a strided subset of that box: it decodes its
     // starting point from the flattened index once, then advances by
     // `n_threads`.
-    int index_x = thread_in_group % grid.n_search_cells_x;
-    int index_rest = thread_in_group / grid.n_search_cells_x;
-    int index_y = index_rest % grid.n_search_cells_y;
-    int index_z = index_rest / grid.n_search_cells_y;
-    int flat_offset = thread_in_group;
+    int32 index_x = thread_in_group % grid.n_search_cells_x;
+    int32 index_rest = thread_in_group / grid.n_search_cells_x;
+    int32 index_y = index_rest % grid.n_search_cells_y;
+    int32 index_z = index_rest / grid.n_search_cells_y;
+    int32 flat_offset = thread_in_group;
 
     // `index_z >= n_search_cells_z` already here means there are fewer cells to
     // search than threads in the group, and this thread has nothing to do.
     while (index_z < grid.n_search_cells_z) {
-        int dx = index_x - grid.n_search_x;
-        int dy = index_y - grid.n_search_y;
-        int dz = index_z - grid.n_search_z;
+        int32 dx = index_x - grid.n_search_x;
+        int32 dy = index_y - grid.n_search_y;
+        int32 dz = index_z - grid.n_search_z;
 
         // Advance to the next cell handled by this thread. This is done up
         // front so that the `continue`s below can not skip it.
         index_x += THREADS_PER_PARTICLE;
-        int this_offset = flat_offset;
+        int32 this_offset = flat_offset;
         flat_offset += THREADS_PER_PARTICLE;
         while (index_x >= grid.n_search_cells_x) {
             index_x -= grid.n_search_cells_x;
@@ -825,12 +825,12 @@ __device__ inline void traverse_neighbors(
             continue;
         }
 
-        int cell_j_x = cell_i_x + dx;
-        int cell_j_y = cell_i_y + dy;
-        int cell_j_z = cell_i_z + dz;
-        int cell_shift_x = 0;
-        int cell_shift_y = 0;
-        int cell_shift_z = 0;
+        int32 cell_j_x = cell_i_x + dx;
+        int32 cell_j_y = cell_i_y + dy;
+        int32 cell_j_z = cell_i_z + dz;
+        int32 cell_shift_x = 0;
+        int32 cell_shift_y = 0;
+        int32 cell_shift_z = 0;
 
         if (grid.pbc_x) {
             while (cell_j_x < 0) {
@@ -881,20 +881,20 @@ __device__ inline void traverse_neighbors(
             grid.box_a.z * cell_shift_x + grid.box_b.z * cell_shift_y + grid.box_c.z * cell_shift_z
         );
 
-        int cell_j = cell_j_x + cell_j_y * grid.n_cells_x + cell_j_z * grid.n_cells_xy;
-        int start_j = cell_starts[cell_j];
-        int count_j = cell_counts[cell_j];
+        int32 cell_j = cell_j_x + cell_j_y * grid.n_cells_x + cell_j_z * grid.n_cells_xy;
+        int32 start_j = cell_starts[cell_j];
+        int32 count_j = cell_counts[cell_j];
 
         // Within its own cell a half list takes only the atoms after this one,
         // which is what makes each within-cell pair appear exactly once. A full
         // list takes them all, skipping only the atom itself.
-        int first_k = start_j;
+        int32 first_k = start_j;
         if (!full_list && same_cell) {
-            first_k = max(start_j, static_cast<int>(sorted_i) + 1);
+            first_k = max(start_j, static_cast<int32>(sorted_i) + 1);
         }
 
-        for (int k = first_k; k < start_j + count_j; k++) {
-            if (full_list && same_cell && k == static_cast<int>(sorted_i)) {
+        for (int32 k = first_k; k < start_j + count_j; k++) {
+            if (full_list && same_cell && k == static_cast<int32>(sorted_i)) {
                 continue;
             }
 
@@ -912,14 +912,14 @@ __device__ inline void traverse_neighbors(
             }
 
             // Compute shift only for pairs that pass the cutoff
-            int orig_j = sorted_indices[k];
-            int shift_j_x = sorted_shifts[k * 3 + 0];
-            int shift_j_y = sorted_shifts[k * 3 + 1];
-            int shift_j_z = sorted_shifts[k * 3 + 2];
+            int32 orig_j = sorted_indices[k];
+            int32 shift_j_x = sorted_shifts[k * 3 + 0];
+            int32 shift_j_y = sorted_shifts[k * 3 + 1];
+            int32 shift_j_z = sorted_shifts[k * 3 + 2];
 
-            int total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
-            int total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
-            int total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
+            int32 total_shift_x = shift_i_x - shift_j_x + cell_shift_x;
+            int32 total_shift_y = shift_i_y - shift_j_y + cell_shift_y;
+            int32 total_shift_z = shift_i_z - shift_j_z + cell_shift_z;
 
             emit(orig_j, total_shift_x, total_shift_y, total_shift_z, vec, dist2);
         }
@@ -929,13 +929,13 @@ __device__ inline void traverse_neighbors(
 // Which atom this thread helps with, and where it sits in its group.
 struct ParticleGroup {
     size_t sorted_i;     // sorted position of the atom handled by the group
-    int thread_in_group; // 0 <= thread_in_group < THREADS_PER_PARTICLE
-    int slot;            // index of the group in the per-block shared arrays
+    int32 thread_in_group; // 0 <= thread_in_group < THREADS_PER_PARTICLE
+    int32 slot;            // index of the group in the per-block shared arrays
 };
 
 __device__ inline ParticleGroup particle_group() {
-    int lane = static_cast<int>(threadIdx.x) % 32;
-    int warp = static_cast<int>(threadIdx.x) / 32;
+    int32 lane = static_cast<int32>(threadIdx.x) % 32;
+    int32 warp = static_cast<int32>(threadIdx.x) / 32;
 
     ParticleGroup group;
     group.thread_in_group = lane % THREADS_PER_PARTICLE;
@@ -953,23 +953,23 @@ __global__ void count_neighbors_cell_list(
     const double box[3][3],
     const bool* __restrict__ cell_out_of_reach,
     const bool periodic[3],
-    const int* __restrict__ n_cells,
-    const int* __restrict__ n_search,
-    const int* __restrict__ sorted_indices,
-    const int* __restrict__ sorted_shifts,
-    const int* __restrict__ sorted_cell_indices,
-    const int* __restrict__ cell_starts,
-    const int* __restrict__ cell_counts,
+    const int32* __restrict__ n_cells,
+    const int32* __restrict__ n_search,
+    const int32* __restrict__ sorted_indices,
+    const int32* __restrict__ sorted_shifts,
+    const int32* __restrict__ sorted_cell_indices,
+    const int32* __restrict__ cell_starts,
+    const int32* __restrict__ cell_counts,
     double cutoff,
     bool full_list,
-    int* __restrict__ counts  // [n_points] output
+    int32* __restrict__ counts  // [n_points] output
 ) {
-    __shared__ int shared_counts[PARTICLES_PER_BLOCK];
+    __shared__ int32 shared_counts[PARTICLES_PER_BLOCK];
     __shared__ SharedCellGrid grid;
 
     auto group = particle_group();
 
-    if (static_cast<int>(threadIdx.x) < PARTICLES_PER_BLOCK) {
+    if (static_cast<int32>(threadIdx.x) < PARTICLES_PER_BLOCK) {
         shared_counts[threadIdx.x] = 0;
     }
     load_cell_grid(grid, box, periodic, n_cells, n_search);
@@ -977,7 +977,7 @@ __global__ void count_neighbors_cell_list(
 
     // Threads past the end of the system still take part in the reduction and
     // the barriers below, they just contribute a count of zero.
-    int count = 0;
+    int32 count = 0;
     if (group.sorted_i < n_points) {
         traverse_neighbors(
             group.sorted_i,
@@ -992,7 +992,7 @@ __global__ void count_neighbors_cell_list(
             cell_counts,
             cutoff * cutoff,
             full_list,
-            [&](int, int, int, int, double3, double) { count++; }
+            [&](int32, int32, int32, int32, double3, double) { count++; }
         );
     }
 
@@ -1011,27 +1011,27 @@ __global__ void fill_neighbors_cell_list(
     const double box[3][3],
     const bool* __restrict__ cell_out_of_reach,
     const bool periodic[3],
-    const int* __restrict__ n_cells,
-    const int* __restrict__ n_search,
-    const int* __restrict__ sorted_indices,
-    const int* __restrict__ sorted_shifts,
-    const int* __restrict__ sorted_cell_indices,
-    const int* __restrict__ cell_starts,
-    const int* __restrict__ cell_counts,
+    const int32* __restrict__ n_cells,
+    const int32* __restrict__ n_search,
+    const int32* __restrict__ sorted_indices,
+    const int32* __restrict__ sorted_shifts,
+    const int32* __restrict__ sorted_cell_indices,
+    const int32* __restrict__ cell_starts,
+    const int32* __restrict__ cell_counts,
     double cutoff,
     bool full_list,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
-    const int* __restrict__ write_offsets,  // [n_points] prefix sum
+    const int32* __restrict__ write_offsets,  // [n_points] prefix sum
     size_t (*pair_indices)[2],
-    int (*shifts_out)[3],
+    int32 (*shifts_out)[3],
     double* distances,
     double (*vectors)[3]
 ) {
     // Write cursor for each group, so that the threads sharing an atom hand out
     // distinct slots inside that atom's [write_offsets[i], +count_i) range.
-    __shared__ int shared_cursors[PARTICLES_PER_BLOCK];
+    __shared__ int32 shared_cursors[PARTICLES_PER_BLOCK];
     __shared__ SharedCellGrid grid;
 
     auto group = particle_group();
@@ -1046,7 +1046,7 @@ __global__ void fill_neighbors_cell_list(
         return;
     }
 
-    int point_i = sorted_indices[group.sorted_i];
+    int32 point_i = sorted_indices[group.sorted_i];
 
     traverse_neighbors(
         group.sorted_i,
@@ -1061,8 +1061,8 @@ __global__ void fill_neighbors_cell_list(
         cell_counts,
         cutoff * cutoff,
         full_list,
-        [&](int point_j, int sx, int sy, int sz, double3 vec, double dist2) {
-            int offset = atomicAdd(&shared_cursors[group.slot], 1);
+        [&](int32 point_j, int32 sx, int32 sy, int32 sz, double3 vec, double dist2) {
+            int32 offset = atomicAdd(&shared_cursors[group.slot], 1);
 
             pair_indices[offset][0] = point_i;
             pair_indices[offset][1] = point_j;

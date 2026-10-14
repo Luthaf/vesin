@@ -2,8 +2,8 @@
 
 __device__ inline size_t atomicAdd_size_t(size_t* address, size_t val) {
     return static_cast<size_t>(atomicAdd(
-        reinterpret_cast<unsigned long long*>(address),
-        static_cast<unsigned long long>(val)
+        reinterpret_cast<uint64*>(address),
+        static_cast<uint64>(val)
     ));
 }
 
@@ -84,7 +84,7 @@ __device__ inline void brute_force_images(
     const double (*__restrict__ box)[3],
     const double (*__restrict__ inv_box)[3],
     const bool* __restrict__ periodic,
-    const int* __restrict__ n_search_in,
+    const int32* __restrict__ n_search_in,
     double cutoff2,
     Emit&& emit
 ) {
@@ -120,9 +120,9 @@ __device__ inline void brute_force_images(
     // resulting fractional coordinates being bounded by 0.5 -- see the bound on
     // `n_search` in `analyze_box`.
     int3 wrap = make_int3(
-        periodic[0] ? static_cast<int>(round(frac.x)) : 0,
-        periodic[1] ? static_cast<int>(round(frac.y)) : 0,
-        periodic[2] ? static_cast<int>(round(frac.z)) : 0
+        periodic[0] ? static_cast<int32>(round(frac.x)) : 0,
+        periodic[1] ? static_cast<int32>(round(frac.y)) : 0,
+        periodic[2] ? static_cast<int32>(round(frac.z)) : 0
     );
 
     // Every image adds an integer combination of the box rows, so these stay
@@ -135,9 +135,9 @@ __device__ inline void brute_force_images(
     };
     int3 n_search = make_int3(n_search_in[0], n_search_in[1], n_search_in[2]);
 
-    for (int sx = -n_search.x; sx <= n_search.x; sx++) {
-        for (int sy = -n_search.y; sy <= n_search.y; sy++) {
-            for (int sz = -n_search.z; sz <= n_search.z; sz++) {
+    for (int32 sx = -n_search.x; sx <= n_search.x; sx++) {
+        for (int32 sy = -n_search.y; sy <= n_search.y; sy++) {
+            for (int32 sz = -n_search.z; sz <= n_search.z; sz++) {
                 // shift convention: `vector = rj - ri + shift @ box`
                 int3 shift = make_int3(sx - wrap.x, sy - wrap.y, sz - wrap.z);
 
@@ -174,18 +174,18 @@ __global__ void brute_force_half(
     const double (*__restrict__ box)[3],
     const double (*__restrict__ inv_box)[3],
     const bool* __restrict__ periodic,
-    const int* __restrict__ n_search,
+    const int32* __restrict__ n_search,
     double cutoff2,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
     size_t* length,
     size_t (*pair_indices)[2],
-    int (*shifts)[3],
+    int32 (*shifts)[3],
     double* distances,
     double (*vectors)[3],
     size_t max_pairs,
-    int* overflow_flag
+    int32* overflow_flag
 ) {
     brute_force_images(
         points,
@@ -227,18 +227,18 @@ __global__ void brute_force_full(
     const double (*__restrict__ box)[3],
     const double (*__restrict__ inv_box)[3],
     const bool* __restrict__ periodic,
-    const int* __restrict__ n_search,
+    const int32* __restrict__ n_search,
     double cutoff2,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
     size_t* length,
     size_t (*pair_indices)[2],
-    int (*shifts)[3],
+    int32 (*shifts)[3],
     double* distances,
     double (*vectors)[3],
     size_t max_pairs,
-    int* overflow_flag
+    int32* overflow_flag
 ) {
     // One thread per unordered pair, writing out both (i, j) and (j, i)
     brute_force_images(
@@ -296,10 +296,10 @@ __global__ void brute_force_full(
 // This mirrors `compute_cell_grid_params` in cell_list.cu; keep the two in
 // agreement.
 __device__ void regularize_box(double3 rows[3], const bool periodic[3]) {
-    int n_periodic = 0;
-    int periodic_idx_1 = -1;
-    int periodic_idx_2 = -1;
-    for (int d = 0; d < 3; d++) {
+    int32 n_periodic = 0;
+    int32 periodic_idx_1 = -1;
+    int32 periodic_idx_2 = -1;
+    for (int32 d = 0; d < 3; d++) {
         if (periodic[d]) {
             n_periodic += 1;
             if (periodic_idx_1 == -1) {
@@ -340,7 +340,7 @@ __global__ void analyze_box(
     const bool* __restrict__ periodic,
     double cutoff,
     bool* all_periodic,
-    int* n_search,
+    int32* n_search,
     double inv_box_out[3][3]
 ) {
     if (threadIdx.x != 0 || blockIdx.x != 0) {
@@ -380,7 +380,7 @@ __global__ void analyze_box(
     // This is exactly 0 when `cutoff <= face_distance / 2`, i.e. whenever the
     // minimum image convention applies: the single wrapped image is then the
     // only one that can be in range, and the loop runs once.
-    for (int d = 0; d < 3; d++) {
+    for (int32 d = 0; d < 3; d++) {
         if (!periodic[d]) {
             n_search[d] = 0;
             continue;
@@ -392,6 +392,6 @@ __global__ void analyze_box(
         // box needs too many images before the kernels ever run, see the
         // comment on the constant.
         double shifts = ceil(cutoff / face_distances[d] + 0.5) - 1.0;
-        n_search[d] = static_cast<int>(min(max(shifts, 0.0), double(MAX_N_SEARCH)));
+        n_search[d] = static_cast<int32>(min(max(shifts, 0.0), double(MAX_N_SEARCH)));
     }
 }

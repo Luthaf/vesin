@@ -93,7 +93,7 @@ else()
     FetchContent_Declare(
         gpulite
         GIT_REPOSITORY https://github.com/metatensor/gpu-lite.git
-        GIT_TAG 6c221167aeca7e113ea6f27e9a2e12391bdb189a # mts-v1.3.0
+        GIT_TAG 20d9a75f2221e4d51dbbd979fca7f7f9424b0e75 # mts-v1.3.1
         EXCLUDE_FROM_ALL
     )
 endif()

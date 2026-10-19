@@ -230,6 +230,60 @@ jobs:
           name: torch-wheel-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
 
+  build-jax-wheels:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }} (jax)
+    strategy:
+      matrix:
+        include:
+          - name: x86_64 Linux
+            os: ubuntu-24.04
+            cibw-arch: x86_64
+          - name: arm64 Linux
+            os: ubuntu-24.04-arm
+            cibw-arch: aarch64
+          - name: arm64 macOS
+            os: macos-15
+            cibw-arch: arm64
+          - name: x86_64 Windows
+            os: windows-2022
+            cibw-arch: AMD64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.15"
+
+      - name: install dependencies
+        run: python -m pip install cibuildwheel twine
+
+      - name: build vesin-jax wheel
+        run: python -m cibuildwheel python/vesin_jax
+        env:
+          # the wheel does not depend on the Python version, any version
+          # supported by the oldest jaxlib works to build it
+          CIBW_BUILD: cp312-*
+          CIBW_SKIP: "*musllinux*"
+          CIBW_ARCHS: ${{ matrix.cibw-arch }}
+          CIBW_BUILD_VERBOSITY: 1
+          # jaxlib wheels require glibc >= 2.27
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
+          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
+          CIBW_ENVIRONMENT: >
+            MACOSX_DEPLOYMENT_TARGET=11
+
+      - name: check wheels with twine
+        run: twine check wheelhouse/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jax-wheel-${{ matrix.os }}-${{ matrix.cibw-arch }}
+          path: ./wheelhouse/*.whl
+
   build-sdist:
     runs-on: ubuntu-24.04
     name: sdist
@@ -248,6 +302,7 @@ jobs:
           pip install build
           python -m build --sdist python/vesin --outdir dist
           python -m build --sdist python/vesin_torch --outdir dist
+          python -m build --sdist python/vesin_jax --outdir dist
 
       - uses: actions/upload-artifact@v7
         with:
@@ -256,7 +311,7 @@ jobs:
 
   merge-and-release:
     name: Merge and release wheels/sdists
-    needs: [build-wheels, merge-torch-wheels, build-sdist]
+    needs: [build-wheels, merge-torch-wheels, build-jax-wheels, build-sdist]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -273,6 +328,13 @@ jobs:
         with:
           path: dist
           pattern: torch-wheel-*
+          merge-multiple: true
+
+      - name: Download vesin-jax wheels
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: jax-wheel-*
           merge-multiple: true
 
       - name: Download sdist

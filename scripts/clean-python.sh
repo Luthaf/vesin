@@ -18,6 +18,9 @@ rm -rf python/vesin/build
 rm -rf python/vesin_torch/dist
 rm -rf python/vesin_torch/build
 
+rm -rf python/vesin_jax/dist
+rm -rf python/vesin_jax/build
+
 find . -name "*.egg-info" -exec rm -rf "{}" +
 find . -name "__pycache__" -exec rm -rf "{}" +
 find . -name ".coverage" -exec rm -rf "{}" +

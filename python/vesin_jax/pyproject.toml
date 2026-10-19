@@ -1,0 +1,55 @@
+[project]
+name = "vesin-jax"
+dynamic = ["version", "dependencies"]
+requires-python = ">=3.10"
+authors = [
+    {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
+]
+
+readme = "README.md"
+license = "BSD-3-Clause"
+description = "Computing neighbor lists for atomistic system, with JAX"
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+homepage = "https://github.com/Luthaf/vesin/"
+documentation = "https://luthaf.fr/vesin/"
+repository = "https://github.com/Luthaf/vesin/"
+changelog = "https://github.com/Luthaf/vesin/blob/main/CHANEGELOG.md"
+
+### ======================================================================== ###
+
+[build-system]
+requires = ["setuptools >=77"]
+# use a custom build backend to add a dependency on jaxlib/cmake only when
+# building wheels
+build-backend = "backend"
+backend-path = ["build-backend"]
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+include = ["vesin_jax"]
+
+### ======================================================================== ###
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "error",
+]

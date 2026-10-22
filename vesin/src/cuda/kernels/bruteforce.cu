@@ -443,10 +443,10 @@ __global__ void analyze_box(
 
         // `min`/`max` are `fmin`/`fmax`, so this also pins down a NaN coming
         // out of a box with a zero-length or parallel pair of periodic vectors.
-        // Hitting `MAX_N_SEARCH` is not a truncation: the caller is told the
-        // box needs too many images before the kernels ever run, see the
+        // Hitting `VESIN_MAX_N_SEARCH` is not a truncation: the caller is told
+        // the box needs too many images before the kernels ever run, see the
         // comment on the constant.
         double shifts = ceil(cutoff / face_distances[d] + 0.5) - 1.0;
-        n_search[d] = static_cast<int32>(min(max(shifts, 0.0), double(MAX_N_SEARCH)));
+        n_search[d] = static_cast<int32>(min(max(shifts, 0.0), double(VESIN_MAX_N_SEARCH)));
     }
 }

@@ -1,11 +1,11 @@
-#ifndef VESIN_MATH_HPP
-#define VESIN_MATH_HPP
+#ifndef VESIN_CPU_MATH_HPP
+#define VESIN_CPU_MATH_HPP
 
 #include <array>
 #include <cmath>
 #include <stdexcept>
 
-namespace vesin {
+namespace vesin::cpu {
 struct Vector;
 
 Vector operator*(Vector vector, double scalar);
@@ -116,6 +116,6 @@ inline Vector operator*(Vector vector, Matrix matrix) {
     };
 }
 
-} // namespace vesin
+} // namespace vesin::cpu
 
 #endif

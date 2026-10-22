@@ -10,8 +10,8 @@
 #include <mutex>
 #include <thread>
 
-namespace vesin {
-namespace cpu {
+
+namespace vesin::cpu {
 
 namespace details {
     // Functions for `pthread_atfork` handlers.
@@ -238,7 +238,7 @@ private:
     friend void details::fork_child();
 };
 
-} // namespace cpu
-} // namespace vesin
+} // namespace vesin::cpu
+
 
 #endif // VESIN_CPU_THREADPOOL_HPP

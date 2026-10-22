@@ -12,10 +12,10 @@
 
 #include <gpulite/gpulite.hpp>
 
-#include "cuda/bruteforce.cuh"
+#include "./neighbors.hpp"
+#include "./pick_algo.hpp"
 
-#include "pick_cuda_algo.hpp"
-#include "vesin_cuda.hpp"
+#include "kernels/bruteforce.cuh"
 
 // This file picks which of the two CUDA neighbor search algorithms
 // `VesinAutoAlgorithm` should run. The cell list wins above a certain number of
@@ -28,12 +28,14 @@ using namespace vesin::cuda;
 //
 // The cell list is already sorted, while brute force has to sort after the
 // fact, so for sorted NL the crossover is smaller.
+namespace {
 struct Crossovers {
     // Points per unit of cutoff, for unsorted output.
     double per_cutoff;
     // Points, with no cutoff term, for sorted output.
     double sorted;
 };
+} // namespace
 
 // What to use when the device could not be measured.
 //
@@ -209,8 +211,7 @@ static double time_neighbors(
 static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
     constexpr double CUTOFF = 5.0;
     constexpr double SPACING = 2.0;
-    #undef NAN
-    constexpr double NAN = std::numeric_limits<double>::quiet_NaN();
+    constexpr double QUIET_NAN = std::numeric_limits<double>::quiet_NaN();
 
     struct LogRatios {
         double plain;
@@ -236,7 +237,7 @@ static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
         );
 
         if (!(brute > 0.0) || !(brute_sorted > 0.0) || !(cell > 0.0)) {
-            return LogRatios{NAN, NAN};
+            return LogRatios{QUIET_NAN, QUIET_NAN};
         }
 
         return LogRatios{std::log(cell / brute), std::log(cell / brute_sorted)};
@@ -255,10 +256,10 @@ static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
     // the case, we fallback to the default crossover values.
     auto interpolate = [&](double at_small, double at_large) {
         if (std::isnan(at_small) || std::isnan(at_large)) {
-            return NAN;
+            return QUIET_NAN;
         }
         if (at_small <= 0.0 || at_large >= 0.0) {
-            return NAN;
+            return QUIET_NAN;
         }
         return std::exp(
             log_small + (log_large - log_small) * at_small / (at_small - at_large)
@@ -310,7 +311,7 @@ bool vesin::cuda::auto_use_cell_list(
 ) {
     // Past the brute force kernels' own limits the cell list is the only one
     // that can run at all.
-    if (n_points > MAX_BRUTE_FORCE_POINTS || n_images > MAX_BRUTE_FORCE_IMAGES) {
+    if (n_points > VESIN_MAX_BRUTE_FORCE_POINTS || n_images > VESIN_MAX_BRUTE_FORCE_IMAGES) {
         return true;
     }
 

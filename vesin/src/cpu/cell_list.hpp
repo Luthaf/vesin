@@ -10,13 +10,9 @@
 
 #include "vesin.h"
 
-#include "types.hpp"
-#include "verlet.hpp"
+#include "./types.hpp"
 
-namespace vesin {
-namespace cpu {
-
-struct VerletList;
+namespace vesin::cpu {
 
 /// All memory allocations used by the CPU cell-list algorithm, stored
 /// separately from `CellList` so they can be reused across calls to
@@ -44,33 +40,7 @@ struct CellListBuffersCPU {
     std::vector<std::vector<size_t>> local_counts;
 };
 
-/// Extra CPU allocation metadata stored in `VesinNeighborList::opaque`.
-struct ExtraDataCpu {
-    /// Initialize empty CPU-side metadata.
-    ExtraDataCpu() = default;
-    /// Release optional Verlet cache state.
-    ~ExtraDataCpu() = default;
-
-    /// Disallow copy construction; this object owns CPU-side cache metadata.
-    ExtraDataCpu(const ExtraDataCpu&) = delete;
-    /// Disallow copy assignment; this object owns CPU-side cache metadata.
-    ExtraDataCpu& operator=(const ExtraDataCpu&) = delete;
-    /// Disallow move construction; the C API stores this object by pointer.
-    ExtraDataCpu(ExtraDataCpu&&) = delete;
-    /// Disallow move assignment; the C API stores this object by pointer.
-    ExtraDataCpu& operator=(ExtraDataCpu&&) = delete;
-
-    /// Persisted GrowableNeighborList output capacity.
-    size_t capacity = 0;
-    /// Reusable Verlet cache state and filter scratch for `skin > 0`.
-    VerletBuffersCPU verlet_buffers;
-    /// Cached allocations for the cell-list path, reused across calls.
-    CellListBuffersCPU cell_list_buffers;
-};
-
 class ThreadPool;
-
-void free_neighbors(VesinNeighborList& neighbors);
 
 void cell_list_neighbors(
     const Vector* points,
@@ -80,14 +50,6 @@ void cell_list_neighbors(
     CellListBuffersCPU& buffers,
     VesinNeighborList& neighbors,
     size_t& capacity
-);
-
-void neighbors(
-    const Vector* points,
-    size_t n_points,
-    BoundingBox box,
-    VesinOptions options,
-    VesinNeighborList& neighbors
 );
 
 /// The cell list is used to sort points inside bins/cells.
@@ -302,7 +264,7 @@ public:
     void grow(size_t new_size);
 };
 
-} // namespace cpu
-} // namespace vesin
+} // namespace vesin::cpu
+
 
 #endif

@@ -1,14 +1,14 @@
-#ifndef VESIN_TYPES_HPP
-#define VESIN_TYPES_HPP
+#ifndef VESIN_CPU_TYPES_HPP
+#define VESIN_CPU_TYPES_HPP
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <string>
 
-#include "math.hpp"
+#include "./math.hpp"
 
-namespace vesin {
+namespace vesin::cpu {
 
 class BoundingBox {
 public:
@@ -21,8 +21,9 @@ public:
     BoundingBox(Matrix matrix, const bool periodic[3]):
         matrix_(matrix),
         periodic_({periodic[0], periodic[1], periodic[2]}),
-        max_positions_({-1e300, -1e300, -1e300}),
-        min_positions_({1e300, 1e300, 1e300}) {
+        min_positions_({1e300, 1e300, 1e300}),
+        max_positions_({-1e300, -1e300, -1e300})
+    {
 
         // find number of periodic directions and their indices
         int32_t n_periodic = 0;
@@ -260,6 +261,6 @@ inline CellShift operator-(CellShift a, CellShift b) {
     };
 }
 
-} // namespace vesin
+} // namespace vesin::cpu
 
 #endif

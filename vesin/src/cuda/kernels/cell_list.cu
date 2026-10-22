@@ -66,18 +66,14 @@ __device__ void invert_matrix(const double3 box[3], double3 inverse[3]) {
     );
 }
 
-// Block size for the two bounding box kernels. Must be a power of two, for the
-// tree reduction below. Keep `BOUNDING_BOX_BLOCK` in vesin_cuda.cpp in sync.
-#define BOUNDING_BOX_BLOCK 256
-
 __device__ const double BOUNDING_BOX_MAX = 1e300;
 __device__ const double BOUNDING_BOX_MIN = -1e300;
 
 // Reduce `local_min` / `local_max` across the block, leaving the result in
 // element 0 of the shared arrays. `blockDim.x` must be a power of two.
 __device__ inline void reduce_bounding_box_block(
-    double shared_min[3][BOUNDING_BOX_BLOCK],
-    double shared_max[3][BOUNDING_BOX_BLOCK],
+    double shared_min[3][VESIN_BOUNDING_BOX_BLOCK],
+    double shared_max[3][VESIN_BOUNDING_BOX_BLOCK],
     const double local_min[3],
     const double local_max[3]
 ) {
@@ -133,8 +129,8 @@ __global__ void compute_bounding_box(
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
 ) {
-    __shared__ double shared_min[3][BOUNDING_BOX_BLOCK];
-    __shared__ double shared_max[3][BOUNDING_BOX_BLOCK];
+    __shared__ double shared_min[3][VESIN_BOUNDING_BOX_BLOCK];
+    __shared__ double shared_max[3][VESIN_BOUNDING_BOX_BLOCK];
 
     double local_min[3] = {BOUNDING_BOX_MAX, BOUNDING_BOX_MAX, BOUNDING_BOX_MAX};
     double local_max[3] = {BOUNDING_BOX_MIN, BOUNDING_BOX_MIN, BOUNDING_BOX_MIN};
@@ -181,8 +177,8 @@ __global__ void reduce_bounding_box(
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
 ) {
-    __shared__ double shared_min[3][BOUNDING_BOX_BLOCK];
-    __shared__ double shared_max[3][BOUNDING_BOX_BLOCK];
+    __shared__ double shared_min[3][VESIN_BOUNDING_BOX_BLOCK];
+    __shared__ double shared_max[3][VESIN_BOUNDING_BOX_BLOCK];
 
     double local_min[3] = {BOUNDING_BOX_MAX, BOUNDING_BOX_MAX, BOUNDING_BOX_MAX};
     double local_max[3] = {BOUNDING_BOX_MIN, BOUNDING_BOX_MIN, BOUNDING_BOX_MIN};
@@ -239,18 +235,6 @@ __device__ inline bool cell_offset_out_of_reach(
 
     return gap > 0.0 && gap * gap >= cutoff2 * v2;
 }
-
-// How many entries are in the cell reachability mask.
-//
-// A box much thinner than the cutoff can still exceed it, in which case no
-// pruning will be done.
-#define MAX_OUT_OF_REACH_MASK 32768
-
-// Block size of `compute_cell_grid_params`. One thread picks the grid, then the
-// whole block fills the offset mask, so this only has to be large enough to
-// cover `MAX_OUT_OF_REACH_MASK` in a few iterations each. Must match
-// `GRID_PARAMS_BLOCK` in vesin_cuda.cpp.
-#define GRID_PARAMS_BLOCK 256
 
 // Shrink `n_cells` until the three dimensions multiply to `max_cells` or less,
 // and return that product.
@@ -498,7 +482,7 @@ __global__ void compute_cell_grid_params(
     int64 n_z = 2 * shared_n_search[2] + 1;
     int64 n_offsets = n_x * n_y * n_z;
 
-    if (n_offsets > MAX_OUT_OF_REACH_MASK) {
+    if (n_offsets > VESIN_MAX_OUT_OF_REACH_MASK) {
         return;
     }
 
@@ -646,17 +630,6 @@ __global__ void scatter_particles(
 // write slots per original atom), so no separate sort pass is needed.
 // -------------------------------------------------------------------------- //
 
-// `THREADS_PER_PARTICLE` is the number of threads cooperating on one atom in
-// the neighbor search, and the resulting number of atoms a block covers. Must
-// divide 32, so that a group never straddles two warps.
-//
-// Keep `CELL_LIST_BLOCK` and `THREADS_PER_PARTICLE` in vesin_cuda.cpp in sync
-// with these: the host sizes the launch from them, and they size the shared
-// arrays here.
-#define CELL_LIST_BLOCK 256
-#define THREADS_PER_PARTICLE 8
-#define PARTICLES_PER_BLOCK (CELL_LIST_BLOCK / THREADS_PER_PARTICLE)
-
 // Everything about the cell grid that is the same for every thread of a block.
 // Loading it once into shared memory, instead of once per thread into
 // registers, keeps this data out of the traversal's register budget. That
@@ -725,12 +698,13 @@ __device__ inline void load_cell_grid(
     int64 n_offsets = (int64)grid.n_search_cells_x
                         * (int64)grid.n_search_cells_y
                         * (int64)grid.n_search_cells_z;
-    grid.use_offset_mask = n_offsets <= MAX_OUT_OF_REACH_MASK;
+    grid.use_offset_mask = n_offsets <= VESIN_MAX_OUT_OF_REACH_MASK;
 }
 
-// Shared neighbor traversal logic. `THREADS_PER_PARTICLE` threads cooperate on
-// the sorted position `sorted_i`, each walking the subset of neighbor cells
-// given by its `thread_in_group` (0 <= thread_in_group < THREADS_PER_PARTICLE).
+// Shared neighbor traversal logic. `VESIN_THREADS_PER_PARTICLE` threads
+// cooperate on the sorted position `sorted_i`, each walking the subset of
+// neighbor cells given by its `thread_in_group`
+// (0 <= thread_in_group < VESIN_THREADS_PER_PARTICLE).
 //
 // `Emit` is a functor called as emit(orig_j, shift_x, shift_y, shift_z, vec,
 // dist2) for each pair that passes the cutoff and half-list filters.
@@ -781,9 +755,9 @@ __device__ inline void traverse_neighbors(
 
         // Advance to the next cell handled by this thread. This is done up
         // front so that the `continue`s below can not skip it.
-        index_x += THREADS_PER_PARTICLE;
+        index_x += VESIN_THREADS_PER_PARTICLE;
         int32 this_offset = flat_offset;
-        flat_offset += THREADS_PER_PARTICLE;
+        flat_offset += VESIN_THREADS_PER_PARTICLE;
         while (index_x >= grid.n_search_cells_x) {
             index_x -= grid.n_search_cells_x;
             index_y += 1;
@@ -806,7 +780,7 @@ __device__ inline void traverse_neighbors(
         // `cell_counts` gathers, so a skipped offset costs three comparisons
         // rather than a whole cell visit.
         //
-        // Must stay identical to `build_half_offsets()` in cpu_cell_list.cpp:
+        // Must stay identical to `build_half_offsets()` in cpu/cell_list.cpp:
         // which half is canonical is arbitrary, but it decides which way round
         // a pair comes out, and CPU and CUDA output is compared pair by pair.
         bool same_cell = (dx == 0 && dy == 0 && dz == 0);
@@ -929,7 +903,7 @@ __device__ inline void traverse_neighbors(
 // Which atom this thread helps with, and where it sits in its group.
 struct ParticleGroup {
     size_t sorted_i;     // sorted position of the atom handled by the group
-    int32 thread_in_group; // 0 <= thread_in_group < THREADS_PER_PARTICLE
+    int32 thread_in_group; // 0 <= thread_in_group < VESIN_THREADS_PER_PARTICLE
     int32 slot;            // index of the group in the per-block shared arrays
 };
 
@@ -938,9 +912,9 @@ __device__ inline ParticleGroup particle_group() {
     int32 warp = static_cast<int32>(threadIdx.x) / 32;
 
     ParticleGroup group;
-    group.thread_in_group = lane % THREADS_PER_PARTICLE;
-    group.slot = warp * (32 / THREADS_PER_PARTICLE) + lane / THREADS_PER_PARTICLE;
-    group.sorted_i = static_cast<size_t>(blockIdx.x) * PARTICLES_PER_BLOCK +
+    group.thread_in_group = lane % VESIN_THREADS_PER_PARTICLE;
+    group.slot = warp * (32 / VESIN_THREADS_PER_PARTICLE) + lane / VESIN_THREADS_PER_PARTICLE;
+    group.sorted_i = static_cast<size_t>(blockIdx.x) * VESIN_PARTICLES_PER_BLOCK +
                      static_cast<size_t>(group.slot);
 
     return group;
@@ -966,12 +940,12 @@ __global__ void count_neighbors_cell_list(
     int32* __restrict__ padding_overflow,
     int32* __restrict__ counts  // [n_points] output
 ) {
-    __shared__ int32 shared_counts[PARTICLES_PER_BLOCK];
+    __shared__ int32 shared_counts[VESIN_PARTICLES_PER_BLOCK];
     __shared__ SharedCellGrid grid;
 
     auto group = particle_group();
 
-    if (static_cast<int32>(threadIdx.x) < PARTICLES_PER_BLOCK) {
+    if (static_cast<int32>(threadIdx.x) < VESIN_PARTICLES_PER_BLOCK) {
         shared_counts[threadIdx.x] = 0;
     }
     load_cell_grid(grid, box, periodic, n_cells, n_search);
@@ -1042,7 +1016,7 @@ __global__ void fill_neighbors_cell_list(
 ) {
     // Write cursor for each group, so that the threads sharing an atom hand out
     // distinct slots inside that atom's [write_offsets[i], +count_i) range.
-    __shared__ int32 shared_cursors[PARTICLES_PER_BLOCK];
+    __shared__ int32 shared_cursors[VESIN_PARTICLES_PER_BLOCK];
     __shared__ SharedCellGrid grid;
 
     auto group = particle_group();
@@ -1110,7 +1084,7 @@ __global__ void fill_neighbors_cell_list(
         if (group.sorted_i < n_points) {
             int32 end = (point_i + 1) * padded_to;
             int32 start = shared_cursors[group.slot] + group.thread_in_group;
-            for (int32 offset = start; offset < end; offset += THREADS_PER_PARTICLE) {
+            for (int32 offset = start; offset < end; offset += VESIN_THREADS_PER_PARTICLE) {
                 pair_indices[offset][0] = point_i;
                 pair_indices[offset][1] = static_cast<size_t>(-1);
                 if (return_shifts) {

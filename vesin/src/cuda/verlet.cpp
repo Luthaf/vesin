@@ -10,16 +10,19 @@
 
 #include <gpulite/gpulite.hpp>
 
-#include "verlet_cuda.hpp"
-#include "vesin_cuda.hpp"
+#include "./extra_data.hpp"
+#include "./neighbors.hpp"
+#include "./padding.hpp"
+#include "./sort_pairs.hpp"
+#include "./verlet.hpp"
 
 using namespace vesin::cuda;
 
-#include "cuda/verlet.cuh"
+#include "kernels/verlet.cuh"
 const uint8_t CUDA_VERLET_HEX[] = {
-#include "generated/cuda/verlet.cu.inc"
+#include "generated/kernels/verlet.cu.inc"
 };
-const char* CUDA_VERLET_CODE = reinterpret_cast<const char*>(CUDA_VERLET_HEX);
+static const char* CUDA_VERLET_CODE = reinterpret_cast<const char*>(CUDA_VERLET_HEX);
 
 static double corner_point_displacements(
     const double h_box[9],

@@ -29,7 +29,7 @@ EXTENSIONS = [".c", ".h", ".cc", ".cpp", ".hpp", ".cu", ".cuh"]
 # the explicit-size integers for CUDA code from the built-in types.
 EXCLUDED_FILES = [
     os.path.join("vesin", "tests", "single-cpp", "main.cpp"),
-    os.path.join("vesin", "src", "cuda", "integer.cuh"),
+    os.path.join("vesin", "src", "cuda", "kernels", "integer.cuh"),
 ]
 
 # built-in integer types, including multi-word ones such as `unsigned long long`

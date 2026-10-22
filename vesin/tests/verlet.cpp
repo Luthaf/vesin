@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "../src/cpu_cell_list.hpp"
-#include "../src/verlet.hpp"
+#include "../src/cpu/cell_list.hpp"
+#include "../src/cpu/verlet.hpp"
 
 TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
     auto options = VesinOptions();
@@ -14,16 +14,16 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
     options.return_distances = false;
     options.return_vectors = false;
 
-    vesin::Matrix box_matrix;
+    vesin::cpu::Matrix box_matrix;
     bool periodic[3] = {false, false, false};
 
-    vesin::Vector lot_of_pairs_points[] = {
+    vesin::cpu::Vector lot_of_pairs_points[] = {
         {0.0, 0.0, 0.0},
         {0.9, 0.0, 0.0},
         {1.8, 0.0, 0.0},
         {2.7, 0.0, 0.0},
     };
-    vesin::Vector few_pairs_points[] = {
+    vesin::cpu::Vector few_pairs_points[] = {
         {0.0, 0.0, 0.0},
         {1.19, 0.0, 0.0},
         {1.51, 0.0, 0.0},
@@ -37,11 +37,11 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
 
     auto cell_buffers = vesin::cpu::CellListBuffersCPU();
 
-    auto lot_of_pairs_box = vesin::BoundingBox(box_matrix, periodic);
+    auto lot_of_pairs_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     lot_of_pairs_box.make_bounding_for(lot_of_pairs_points, 4);
     verlet.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box, cell_buffers);
 
-    auto few_pairs_box = vesin::BoundingBox(box_matrix, periodic);
+    auto few_pairs_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     few_pairs_box.make_bounding_for(few_pairs_points, 4);
     REQUIRE_FALSE(verlet.needs_rebuild(few_pairs_points, 4, few_pairs_box));
 
@@ -75,18 +75,18 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
     options.return_distances = false;
     options.return_vectors = false;
 
-    auto box_matrix = vesin::Matrix({{
+    auto box_matrix = vesin::cpu::Matrix({{
         {1.0, 0.0, 0.0},
         {0.0, 1.0, 0.0},
         {0.0, 0.0, 1.0},
     }});
     bool periodic[3] = {true, true, true};
 
-    vesin::Vector initial_points[] = {
+    vesin::cpu::Vector initial_points[] = {
         {0.12, 0.11, 0.31},
         {0.95, 0.11, 0.31},
     };
-    auto ref_box = vesin::BoundingBox(box_matrix, periodic);
+    auto ref_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     ref_box.make_bounding_for(initial_points, 2);
 
     auto verlet_buffers = vesin::cpu::VerletBuffersCPU();
@@ -97,21 +97,21 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
 
     // this is within the skin distance (0.12 -> 0.95 is 0.17 with periodic
     // boundaries) and should not trigger a rebuild
-    vesin::Vector small_displacement_points[] = {
+    vesin::cpu::Vector small_displacement_points[] = {
         {0.12, 0.11, 0.31},
         {1.02, 0.11, 0.31},
     };
-    auto small_displacement_box = vesin::BoundingBox(box_matrix, periodic);
+    auto small_displacement_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     small_displacement_box.make_bounding_for(small_displacement_points, 2);
 
     REQUIRE_FALSE(state.needs_rebuild(small_displacement_points, 2, small_displacement_box));
 
     // this is above the skin distance (0.95 -> 1.11 > 0.2) and should trigger a rebuild
-    vesin::Vector large_displacement_points[] = {
+    vesin::cpu::Vector large_displacement_points[] = {
         {0.95, 0.11, 0.31},
         {1.11, 0.11, 0.31},
     };
-    auto large_displacement_box = vesin::BoundingBox(box_matrix, periodic);
+    auto large_displacement_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     large_displacement_box.make_bounding_for(large_displacement_points, 2);
     REQUIRE(state.needs_rebuild(large_displacement_points, 2, large_displacement_box));
 }

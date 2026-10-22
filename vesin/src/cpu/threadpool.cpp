@@ -217,6 +217,7 @@ void vesin::cpu::details::fork_child() {
     ThreadPool::global().after_fork_ = true;
 }
 
+namespace {
 struct ForkHandlerRegistrar {
     ForkHandlerRegistrar() {
         pthread_atfork(
@@ -226,5 +227,6 @@ struct ForkHandlerRegistrar {
         );
     }
 } fork_handler_registrar_;
+} // namespace
 
 #endif // _WIN32

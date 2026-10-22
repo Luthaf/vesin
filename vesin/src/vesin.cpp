@@ -9,12 +9,12 @@
 
 #include "vesin.h"
 
-#include "cpu_cell_list.hpp"
-#include "vesin_cuda.hpp"
+#include "./cpu/neighbors.hpp"
+#include "./cuda/neighbors.hpp"
 
 // used to store dynamically allocated error messages before giving a pointer
 // to them back to the user
-thread_local std::string LAST_ERROR;
+static thread_local std::string LAST_ERROR;
 
 static size_t resolve_n_threads(int32_t n_threads) {
     if (n_threads > 0) {
@@ -126,17 +126,17 @@ extern "C" int32_t vesin_neighbors(
         }
 
         if (device.type == VesinCPU) {
-            auto matrix = vesin::Matrix{{{
+            auto matrix = vesin::cpu::Matrix{{{
                 {{box[0][0], box[0][1], box[0][2]}},
                 {{box[1][0], box[1][1], box[1][2]}},
                 {{box[2][0], box[2][1], box[2][2]}},
             }}};
 
-            auto box = vesin::BoundingBox(matrix, periodic);
+            auto box = vesin::cpu::BoundingBox(matrix, periodic);
             box.make_bounding_for(points, n_points);
 
             vesin::cpu::neighbors(
-                reinterpret_cast<const vesin::Vector*>(points),
+                reinterpret_cast<const vesin::cpu::Vector*>(points),
                 n_points,
                 std::move(box),
                 options,

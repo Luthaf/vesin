@@ -40,23 +40,31 @@ option(VESIN_ENABLE_NVTX "Enable NVTX profiling markers" OFF)
 
 set(VESIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/threadpool.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_cell_list.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/vesin_cuda.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/verlet_cuda.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_buffers.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/pick_cuda_algo.cpp
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/neighbors.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cell_list.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/verlet.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/threadpool.cpp
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/neighbors.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/extra_data.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/bruteforce.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/cell_list.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/verlet.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/sort_pairs.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/padding.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/pick_algo.cpp
 )
 
 # Generate the CUDA source files for NVRTC compilation
-file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/*.cu)
+file(GLOB CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/kernels/*.cu)
 # the headers are inlined in the generated files by `make_hex_array.cmake`, so
 # the generated files need to be re-created whenever any of them changes
-file(GLOB CUDA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/*.cuh)
+file(GLOB CUDA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda/kernels/*.cuh)
 foreach(cuda_source IN LISTS CUDA_SOURCES)
     get_filename_component(cuda_filename ${cuda_source} NAME)
-    set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/cuda/${cuda_filename}.inc")
+    set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/kernels/${cuda_filename}.inc")
     add_custom_command(
         OUTPUT ${output_file}
         COMMAND ${CMAKE_COMMAND}

@@ -1,12 +1,11 @@
-#ifndef VESIN_VERLET_CUDA_HPP
-#define VESIN_VERLET_CUDA_HPP
+#ifndef VESIN_CUDA_VERLET_HPP
+#define VESIN_CUDA_VERLET_HPP
 
 #include <cstdint>
 
 #include "vesin.h"
 
-namespace vesin {
-namespace cuda {
+namespace vesin::cuda {
 
 /// Verlet cache state. Candidates are generated at cutoff + skin and filtered
 /// at the exact cutoff while the reference points remain valid.
@@ -61,7 +60,7 @@ private:
     void filter_neighbors(const double (*d_points)[3], size_t n_points, const double d_box[3][3], VesinOptions options, VesinNeighborList& neighbors) const;
 };
 
-} // namespace cuda
-} // namespace vesin
+} // namespace vesin::cuda
 
-#endif // VESIN_CUDA_HPP
+
+#endif // VESIN_CUDA_VERLET_HPP

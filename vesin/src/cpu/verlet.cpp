@@ -7,11 +7,11 @@
 
 #include <limits>
 
-#include "cpu_cell_list.hpp"
-#include "threadpool.hpp"
-#include "verlet.hpp"
+#include "./cell_list.hpp"
+#include "./threadpool.hpp"
+#include "./verlet.hpp"
 
-using namespace vesin;
+using namespace vesin::cpu;
 
 /// Target number of candidates in a single block when filtering
 static constexpr size_t FILTER_BLOCK_SIZE = 2048;
@@ -42,16 +42,12 @@ static double corner_point_displacements(const Matrix& box, const Matrix& ref_bo
     return std::sqrt(delta1) + std::sqrt(delta2);
 }
 
-cpu::VerletBuffersCPU::~VerletBuffersCPU() {
-    if (candidates.device.type == VesinCPU) {
-        cpu::free_neighbors(candidates);
-    }
+VerletBuffersCPU::~VerletBuffersCPU() {
+    vesin_free(&candidates);
 }
 
-void cpu::VerletList::clear_candidates() {
-    if (buffers_.candidates.device.type == VesinCPU) {
-        cpu::free_neighbors(buffers_.candidates);
-    }
+void VerletList::clear_candidates() {
+    vesin_free(&buffers_.candidates);
 
     buffers_.candidates = VesinNeighborList();
     buffers_.has_cache = false;
@@ -60,7 +56,7 @@ void cpu::VerletList::clear_candidates() {
     buffers_.block_points.clear();
 }
 
-void cpu::VerletList::set_options(VesinOptions options) {
+void VerletList::set_options(VesinOptions options) {
     if (buffers_.options.cutoff != options.cutoff ||
         buffers_.options.skin != options.skin ||
         buffers_.options.full != options.full) {
@@ -70,7 +66,7 @@ void cpu::VerletList::set_options(VesinOptions options) {
     buffers_.options = options;
 }
 
-bool cpu::VerletList::needs_rebuild(
+bool VerletList::needs_rebuild(
     const Vector* points,
     size_t n_points,
     const BoundingBox& box
@@ -115,7 +111,7 @@ bool cpu::VerletList::needs_rebuild(
     return false;
 }
 
-void cpu::VerletList::rebuild(
+void VerletList::rebuild(
     const Vector* points,
     size_t n_points,
     const BoundingBox& box,
@@ -184,7 +180,7 @@ void cpu::VerletList::rebuild(
 // index. Each call filters candidates with the exact cutoff and the requested
 // shift/vector outputs, using the same two-pass parallel count-then-scatter
 // structure as `cell_list_neighbors`.
-void cpu::VerletList::filter(
+void VerletList::filter(
     const Vector* points,
     const BoundingBox& box,
     VesinOptions options,

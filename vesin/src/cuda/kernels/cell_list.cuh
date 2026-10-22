@@ -5,6 +5,35 @@
 
 #include "integer.cuh"
 
+// Block size for the two bounding box kernels. Must be a power of two, for
+// their tree reduction. This is also used to size their shared memory.
+#define VESIN_BOUNDING_BOX_BLOCK 256
+
+// How many entries are in the cell reachability mask
+// (`CellListBuffersCUDA::d_cell_out_of_reach`).
+//
+// A box much thinner than the cutoff can still exceed it, in which case no
+// pruning will be done.
+#define VESIN_MAX_OUT_OF_REACH_MASK 32768
+
+// Block size of `compute_cell_grid_params`. One thread picks the grid, then the
+// whole block fills the offset mask, so this only has to be large enough to
+// cover `VESIN_MAX_OUT_OF_REACH_MASK` in a few iterations each.
+#define VESIN_GRID_PARAMS_BLOCK 256
+
+// Block size for the two neighbor search kernels, and the number of threads
+// they put on each atom (and the resulting number of atoms a block covers).
+// One atom's search is a walk over (2 * n_search + 1)^3 cells, and splitting it
+// across threads both multiplies the number of blocks and shortens the
+// dependent chain of gather loads within one atom.
+//
+// The block size must be a multiple of 32 and the thread count must divide 32,
+// so that a group never straddles two warps. These are also used to size the
+// shared memory of the kernels.
+#define VESIN_CELL_LIST_BLOCK 256
+#define VESIN_THREADS_PER_PARTICLE 8
+#define VESIN_PARTICLES_PER_BLOCK (VESIN_CELL_LIST_BLOCK / VESIN_THREADS_PER_PARTICLE)
+
 // First step of `compute_bounding_box`: per-block partial bounding boxes.
 __global__ void compute_bounding_box(
     const double (*points)[3],

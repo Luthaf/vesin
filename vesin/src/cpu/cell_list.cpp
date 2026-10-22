@@ -8,31 +8,13 @@
 #include <limits>
 #include <tuple>
 
-#include "cpu_cell_list.hpp"
-#include "threadpool.hpp"
-#include "verlet.hpp"
+#include "./cell_list.hpp"
+#include "./threadpool.hpp"
+#include "./verlet.hpp"
 
 using namespace vesin;
 using namespace vesin::cpu;
 
-static void free_extra_data(VesinNeighborList& neighbors) {
-    delete static_cast<ExtraDataCpu*>(neighbors.opaque);
-    neighbors.opaque = nullptr;
-}
-
-static ExtraDataCpu& extra_data(VesinNeighborList& neighbors) {
-    if (neighbors.opaque == nullptr) {
-        neighbors.opaque = new ExtraDataCpu();
-    }
-
-    return *static_cast<ExtraDataCpu*>(neighbors.opaque);
-}
-
-static void validate_algorithm(VesinOptions options) {
-    if (options.algorithm != VesinAutoAlgorithm && options.algorithm != VesinCellList) {
-        throw std::runtime_error("only VesinAutoAlgorithm and VesinCellList are supported on CPU");
-    }
-}
 
 /// Measured cost of the cell list search, in microseconds. Searching around a
 /// single point costs `cells_searched * (visit + points_per_cell * candidate)`.
@@ -172,7 +154,7 @@ void vesin::cpu::cell_list_neighbors(
     VesinNeighborList& raw_neighbors,
     size_t& capacity
 ) {
-    validate_algorithm(options);
+    assert(options.algorithm == VesinCellList);
 
     auto cell_list = CellList(buffers, std::move(box), options.cutoff, n_points);
     cell_list.build(points, n_points);
@@ -314,37 +296,6 @@ void vesin::cpu::cell_list_neighbors(
     capacity = neighbors.capacity;
 }
 
-void vesin::cpu::neighbors(
-    const Vector* points,
-    size_t n_points,
-    BoundingBox box,
-    VesinOptions options,
-    VesinNeighborList& raw_neighbors
-) {
-    validate_algorithm(options);
-
-    auto& extra = extra_data(raw_neighbors);
-    if (options.skin > 0.0) {
-        auto state = VerletList(extra.verlet_buffers);
-        state.set_options(options);
-
-        if (state.needs_rebuild(points, n_points, box)) {
-            state.rebuild(points, n_points, box, extra.cell_list_buffers);
-        }
-
-        state.filter(points, box, options, raw_neighbors, extra.capacity);
-    } else {
-        cell_list_neighbors(
-            points,
-            n_points,
-            std::move(box),
-            options,
-            extra.cell_list_buffers,
-            raw_neighbors,
-            extra.capacity
-        );
-    }
-}
 
 /* ========================================================================== */
 
@@ -445,8 +396,9 @@ divmod(std::array<int32_t, 3> a, std::array<size_t, 3> b) {
 CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, size_t n_points):
     buffers_(buffers),
     n_search_({0, 0, 0}),
-    n_cells_({0, 0, 0}),
-    box_(std::move(box)) {
+    box_(std::move(box)),
+    n_cells_({0, 0, 0})
+{
     auto distances_between_faces = box_.distances_between_faces();
 
     // limit memory consumption, and the `O(n_cells)` part of `build()`
@@ -598,7 +550,7 @@ CellList::CellList(CellListBuffersCPU& buffers, BoundingBox box, double cutoff, 
     }
 }
 
-std::pair<size_t, vesin::CellShift> CellList::point_cell(Vector position) const {
+std::pair<size_t, CellShift> CellList::point_cell(Vector position) const {
     auto fractional = box_.cartesian_to_fractional(position);
 
     // find the cell in which this point should go
@@ -969,17 +921,4 @@ void GrowableNeighborList::reset() {
     this->neighbors.shifts = shifts;
     this->neighbors.distances = distances;
     this->neighbors.vectors = vectors;
-}
-
-void vesin::cpu::free_neighbors(VesinNeighborList& neighbors) {
-    assert(neighbors.device.type == VesinCPU);
-
-    if (neighbors.opaque != nullptr) {
-        free_extra_data(neighbors);
-    }
-
-    std::free(neighbors.pairs);
-    std::free(neighbors.shifts);
-    std::free(neighbors.vectors);
-    std::free(neighbors.distances);
 }

@@ -1,6 +1,6 @@
 #include <stdexcept>
 
-#include "vesin_cuda.hpp"
+#include "./neighbors.hpp"
 
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
     throw std::runtime_error("CUDA neighbor list generation is not included in this build of vesin");

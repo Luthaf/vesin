@@ -1,15 +1,15 @@
-#ifndef VESIN_VERLET_HPP
-#define VESIN_VERLET_HPP
+#ifndef VESIN_CPU_VERLET_HPP
+#define VESIN_CPU_VERLET_HPP
 
 #include <array>
 #include <cstddef>
 #include <vector>
 
-#include "types.hpp"
 #include "vesin.h"
 
-namespace vesin {
-namespace cpu {
+#include "./types.hpp"
+
+namespace vesin::cpu {
 
 struct CellListBuffersCPU;
 
@@ -121,7 +121,7 @@ private:
     VerletBuffersCPU& buffers_;
 };
 
-} // namespace cpu
-} // namespace vesin
+} // namespace vesin::cpu
+
 
 #endif

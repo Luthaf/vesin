@@ -30,10 +30,10 @@ def neighbor_lists_for_model(
 
         model = MyModel()  # some model following metatomic API
 
-        # Get the neighbor lists calculators for the model
-        calculators = neighbor_lists_for_model(systems, "angstrom", model)
-
         systems = [System(...), System(...)]  # some systems
+
+        # Get the neighbor lists calculators for the model
+        calculators = neighbor_lists_for_model("angstrom", model)
 
         # Compute and store the neighbor lists in the systems
         for calculator in calculators:

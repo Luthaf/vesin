@@ -25,6 +25,8 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   `copy.deepcopy` and `torch.save`.
 - Models using `vesin_torch.NeighborList` can now be exported with
   `torch.export`, and compiled with AOTInductor to run from C++.
+- `VesinOptions::pre_allocated_outputs` in the C API, to write the neighbor
+  list directly in output arrays allocated by the caller.
 
 ### Removed
 

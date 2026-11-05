@@ -11,7 +11,6 @@
 
 namespace vesin::cpu {
 
-struct CellListBuffersCPU;
 
 /// All reusable allocations and persistent state for the Verlet neighbor list,
 /// stored separately from `VerletList` so they persist across cache
@@ -100,8 +99,7 @@ struct VerletList {
     void rebuild(
         const Vector* points,
         size_t n_points,
-        const BoundingBox& box,
-        CellListBuffersCPU& cell_buffers
+        const BoundingBox& box
     );
 
     /// Filter cached candidates at the exact user cutoff for the current

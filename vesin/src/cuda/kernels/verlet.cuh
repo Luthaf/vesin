@@ -32,6 +32,8 @@ __global__ void filter_verlet_candidates(
     int32 (*shifts_out)[3],
     double* distances,
     double (*vectors)[3],
+    size_t max_pairs,
+    int32* overflow_flag,
     int32 padded_to,
     int32* pairs_per_point
 );

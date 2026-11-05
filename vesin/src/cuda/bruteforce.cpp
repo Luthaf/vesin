@@ -217,14 +217,17 @@ void vesin::cuda::brute_force_neighbors(
 
     // Brute force writes its pairs through an atomic counter, and needs a
     // pre-allocated output. We guess a starting size here, and will grow it
-    // below if needed
-    size_t max_pairs_per_point = static_cast<size_t>(std::max(
-        128.0, std::ceil(std::pow(options.cutoff, 3))
-    ));
+    // below if needed. Pre-allocated outputs are used as-is.
+    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+    if (!extras->pre_allocated_outputs) {
+        size_t max_pairs_per_point = static_cast<size_t>(std::max(
+            128.0, std::ceil(std::pow(options.cutoff, 3))
+        ));
 
-    vesin::cuda::allocate_output_buffers(
-        neighbors, n_points * max_pairs_per_point, options
-    );
+        vesin::cuda::allocate_output_buffers(
+            neighbors, n_points * max_pairs_per_point, options
+        );
+    }
 
     auto buffer_large_enough = run_brute_force(d_points, n_points, d_box, d_periodic, options, neighbors);
 
@@ -233,7 +236,7 @@ void vesin::cuda::brute_force_neighbors(
         // `neighbors.length`. We re-allocate the outputs with 10% headroom in
         // case the number of pairs fluctuate between now and the next call.
         auto needed = static_cast<size_t>(1.1 * static_cast<double>(neighbors.length));
-        vesin::cuda::allocate_output_buffers(neighbors, needed, options);
+        vesin::cuda::allocate_output_buffers(neighbors, neighbors.length, options, needed - neighbors.length);
 
         buffer_large_enough = run_brute_force(d_points, n_points, d_box, d_periodic, options, neighbors);
 

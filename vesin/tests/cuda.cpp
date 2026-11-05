@@ -1,11 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
-
 #ifdef VESIN_TESTS_WITH_CUDA
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <cuda_runtime.h>
 
@@ -240,6 +241,134 @@ TEST_CASE("Test CUDA Verlet skin cache") {
     REQUIRE(status == EXIT_SUCCESS);
 
     vesin_free(&neighbors);
+    check_cuda(cudaFree(d_points));
+    check_cuda(cudaFree(d_box));
+    check_cuda(cudaFree(d_periodic));
+}
+
+// Copy the pairs of `neighbors` to the host, sorted to compare the output of
+// algorithms producing them in an unspecified order
+static std::vector<std::array<size_t, 2>> sorted_pairs(const VesinNeighborList& neighbors) {
+    auto pairs = std::vector<std::array<size_t, 2>>(neighbors.length);
+    check_cuda(cudaMemcpy(
+        pairs.data(), neighbors.pairs, sizeof(size_t[2]) * neighbors.length, cudaMemcpyDeviceToHost
+    ));
+    std::sort(pairs.begin(), pairs.end());
+    return pairs;
+}
+
+TEST_CASE("CUDA pre-allocated output arrays") {
+    int32_t n_devices = 0;
+    check_cuda(cudaGetDeviceCount(&n_devices));
+    REQUIRE(n_devices > 0);
+    check_cuda(cudaSetDevice(0));
+
+    // simple cubic lattice of 4x4x4 points, each point has 18 neighbors with
+    // a cutoff of 1.5
+    auto points = std::vector<double>();
+    for (size_t x = 0; x < 4; x++) {
+        for (size_t y = 0; y < 4; y++) {
+            for (size_t z = 0; z < 4; z++) {
+                points.push_back(static_cast<double>(x));
+                points.push_back(static_cast<double>(y));
+                points.push_back(static_cast<double>(z));
+            }
+        }
+    }
+    size_t n_points = points.size() / 3;
+    double box[3][3] = {{4.0, 0.0, 0.0}, {0.0, 4.0, 0.0}, {0.0, 0.0, 4.0}};
+    bool periodic[3] = {true, true, true};
+
+    double (*d_points)[3] = nullptr;
+    double (*d_box)[3] = nullptr;
+    bool* d_periodic = nullptr;
+    check_cuda(cudaMalloc(&d_points, sizeof(double) * points.size()));
+    check_cuda(cudaMemcpy(d_points, points.data(), sizeof(double) * points.size(), cudaMemcpyHostToDevice));
+    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
+    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
+    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
+    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+
+    auto compute = [&](VesinNeighborList& neighbors, VesinOptions options) -> std::string {
+        const char* error_message = nullptr;
+        auto status = vesin_neighbors(
+            d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, options, &neighbors, &error_message
+        );
+        if (status != EXIT_SUCCESS) {
+            return error_message;
+        }
+        return "";
+    };
+
+    // covers the brute force, the cell list, and the Verlet filter (with
+    // skin > 0), with and without padding
+    for (auto algorithm : {VesinBruteForce, VesinCellList}) {
+        for (double skin : {0.0, 0.3}) {
+            for (size_t padded_to : {0, 20}) {
+                auto options = VesinOptions();
+                options.cutoff = 1.5;
+                options.full = true;
+                options.algorithm = algorithm;
+                options.skin = skin;
+                options.padded_to = padded_to;
+                options.return_shifts = true;
+                options.return_distances = true;
+                options.return_vectors = true;
+
+                auto reference = VesinNeighborList();
+                REQUIRE(compute(reference, options).empty());
+                auto expected = sorted_pairs(reference);
+                vesin_free(&reference);
+
+                auto n_pairs = expected.size();
+                REQUIRE(n_pairs == (padded_to > 0 ? n_points * padded_to : n_points * 18));
+
+                size_t (*pairs)[2] = nullptr;
+                int32_t (*shifts)[3] = nullptr;
+                double* distances = nullptr;
+                double (*vectors)[3] = nullptr;
+                check_cuda(cudaMalloc(&pairs, sizeof(size_t[2]) * n_pairs));
+                check_cuda(cudaMalloc(&shifts, sizeof(int32_t[3]) * n_pairs));
+                check_cuda(cudaMalloc(&distances, sizeof(double) * n_pairs));
+                check_cuda(cudaMalloc(&vectors, sizeof(double[3]) * n_pairs));
+
+                auto neighbors = VesinNeighborList();
+                auto set_arrays = [&](size_t capacity) {
+                    neighbors.pairs = pairs;
+                    neighbors.shifts = shifts;
+                    neighbors.distances = distances;
+                    neighbors.vectors = vectors;
+                    neighbors.length = capacity;
+                };
+
+                options.pre_allocated_outputs = true;
+
+                set_arrays(n_pairs);
+                REQUIRE(compute(neighbors, options).empty());
+                CHECK(neighbors.pairs == pairs);
+                CHECK(sorted_pairs(neighbors) == expected);
+
+                // the second call re-uses the Verlet cache if there is one
+                set_arrays(n_pairs);
+                REQUIRE(compute(neighbors, options).empty());
+                CHECK(sorted_pairs(neighbors) == expected);
+
+                set_arrays(n_pairs - 1);
+                CHECK(compute(neighbors, options) == (
+                    "the pre-allocated output arrays can hold " + std::to_string(n_pairs - 1) +
+                    " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
+                ));
+
+                // vesin never releases pre-allocated arrays
+                vesin_free(&neighbors);
+                check_cuda(cudaFree(pairs));
+                check_cuda(cudaFree(shifts));
+                check_cuda(cudaFree(distances));
+                check_cuda(cudaFree(vectors));
+            }
+        }
+    }
+
     check_cuda(cudaFree(d_points));
     check_cuda(cudaFree(d_box));
     check_cuda(cudaFree(d_periodic));

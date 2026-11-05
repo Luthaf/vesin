@@ -80,6 +80,12 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
 
         this->pairs_capacity = other.pairs_capacity;
         other.pairs_capacity = 0;
+
+        this->allocated_outputs = other.allocated_outputs;
+        other.allocated_outputs = OutputPointers();
+
+        this->pre_allocated_outputs = other.pre_allocated_outputs;
+        other.pre_allocated_outputs = false;
     }
     return *this;
 }

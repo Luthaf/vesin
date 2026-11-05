@@ -480,7 +480,7 @@ void vesin::cuda::cell_list_neighbors(
     // pairs we actually found, so that small step-to-step fluctuations don't
     // re-allocate all the buffers on every call.
     auto extra_pairs = std::min(n_pairs / 4, static_cast<size_t>(4096));
-    vesin::cuda::allocate_output_buffers(neighbors, n_pairs + extra_pairs, options);
+    vesin::cuda::allocate_output_buffers(neighbors, n_pairs, options, extra_pairs);
 
     config.gridDim = dim3(num_blocks_search);
     config.blockDim = dim3(VESIN_CELL_LIST_BLOCK);

@@ -88,6 +88,10 @@ module vesin_c
 
         !> Should the returned `VesinNeighborList` contain `vector`?
         logical(c_bool) :: return_vectors = .false.
+
+        !> Should vesin write the output in arrays pre-allocated by the caller?
+        !! See the C API documentation for `VesinOptions`.
+        logical(c_bool) :: pre_allocated_outputs = .false.
     end type VesinOptions
 
     !> Used as return type from `vesin_neighbors()`.

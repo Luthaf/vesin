@@ -8,9 +8,9 @@
 #include <limits>
 #include <tuple>
 
+#include "../outputs.hpp"
 #include "./cell_list.hpp"
 #include "./threadpool.hpp"
-#include "./verlet.hpp"
 
 using namespace vesin;
 using namespace vesin::cpu;
@@ -833,6 +833,10 @@ void GrowableNeighborList::grow(size_t new_size) {
         return;
     }
 
+    if (options.pre_allocated_outputs) {
+        throw pre_allocated_too_small(this->capacity, new_size);
+    }
+
     auto* new_pairs = alloc<size_t, 2>(neighbors.pairs, neighbors.length, new_size);
 
     int32_t (*new_shifts)[3] = nullptr;
@@ -872,8 +876,16 @@ void GrowableNeighborList::grow(size_t new_size) {
 }
 
 void GrowableNeighborList::reset() {
+    if (this->options.pre_allocated_outputs) {
+        // the arrays belong to the caller, we only use them
+        this->neighbors.length = 0;
+        return;
+    }
+
 #ifndef NDEBUG
-    auto size = this->neighbors.length;
+    // `length` can come from a previous calculation with pre-allocated outputs,
+    // so we also limit this to the arrays we allocated
+    auto size = std::min(this->neighbors.length, this->capacity);
     // set all allocated data to a bit pattern that maps to NaN for double
     std::memset(this->neighbors.pairs, 0b11111111, size * sizeof(size_t[2]));
 

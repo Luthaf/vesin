@@ -81,14 +81,31 @@ static void free_output_buffers(VesinNeighborList& neighbors) {
     neighbors.vectors = nullptr;
 }
 
+// Free the output arrays allocated by vesin in previous calculations
+static void free_allocated_outputs(CudaNeighborListExtras* extras) {
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.pairs));
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.shifts));
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.distances));
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.vectors));
+    extras->allocated_outputs = vesin::OutputPointers();
+    extras->pairs_capacity = 0;
+}
+
 void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
     assert(neighbors.device.type == VesinCUDA);
 
+    if (neighbors.opaque == nullptr) {
+        // vesin did not allocate anything for this neighbor list
+        return;
+    }
+
     GPULITE_CUDART_CALL(cudaSetDevice(neighbors.device.device_id));
 
-    free_output_buffers(neighbors);
+    // only release the arrays allocated by vesin, not the pre-allocated ones
+    auto* extras = static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
+    free_allocated_outputs(extras);
 
-    delete static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
+    delete extras;
     neighbors.opaque = nullptr;
 }
 
@@ -167,10 +184,20 @@ static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
 void vesin::cuda::allocate_output_buffers(
     VesinNeighborList& neighbors,
     size_t n_pairs,
-    VesinOptions options
+    VesinOptions options,
+    size_t headroom
 ) {
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
     allocate_scratch_buffers(extras);
+
+    if (extras->pre_allocated_outputs) {
+        if (extras->pairs_capacity < n_pairs) {
+            throw vesin::pre_allocated_too_small(extras->pairs_capacity, n_pairs);
+        }
+        return;
+    }
+
+    n_pairs += headroom;
 
     bool missing_requested_output =
         (options.return_shifts && neighbors.shifts == nullptr) ||
@@ -260,6 +287,33 @@ void vesin::cuda::neighbors(
     assert(neighbors.device.type == VesinCUDA);
     check_cuda_is_available();
 
+    auto* extras = vesin::cuda::get_cuda_extras(neighbors);
+    vesin::check_output_arrays(neighbors, extras->allocated_outputs, options);
+
+    if (options.pre_allocated_outputs) {
+        // the arrays allocated by vesin in previous calls are no longer needed
+        free_allocated_outputs(extras);
+        // the capacity of the pre-allocated arrays is given by the caller
+        extras->pairs_capacity = neighbors.length;
+    } else if (extras->pre_allocated_outputs) {
+        // the previous call used pre-allocated arrays, we have none of our own
+        extras->pairs_capacity = 0;
+    }
+    extras->pre_allocated_outputs = options.pre_allocated_outputs;
+
+    // Record the arrays allocated by vesin at the end of the calculation, even
+    // if it fails
+    struct RecordAllocatedOutputs {
+        CudaNeighborListExtras* extras;
+        VesinNeighborList& neighbors;
+        ~RecordAllocatedOutputs() {
+            if (!extras->pre_allocated_outputs) {
+                extras->allocated_outputs = vesin::OutputPointers::from(neighbors);
+            }
+        }
+    };
+    auto record = RecordAllocatedOutputs{extras, neighbors};
+
     if (n_points == 0) {
         // Nothing to do, and the kernels below can not be launched with an
         // empty grid anyway.
@@ -315,7 +369,18 @@ void vesin::cuda::neighbors(
         throw std::runtime_error("`points`, `box` and `periodic` device differs from input neighbors device_id");
     }
 
-    auto* extras = vesin::cuda::get_cuda_extras(neighbors);
+    if (options.pre_allocated_outputs) {
+        auto pointers = vesin::OutputPointers::from(neighbors);
+        for (const void* ptr : {pointers.pairs, pointers.shifts, pointers.distances, pointers.vectors}) {
+            if (ptr != nullptr && get_device_id(ptr) != device_id) {
+                throw std::runtime_error(
+                    "the pre-allocated output arrays in `neighbors` must be "
+                    "allocated on CUDA device " + std::to_string(device_id)
+                );
+            }
+        }
+    }
+
     allocate_scratch_buffers(extras);
 
     if (options.skin > 0.0) {

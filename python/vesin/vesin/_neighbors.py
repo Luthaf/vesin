@@ -107,14 +107,15 @@ class NeighborList:
         self.full_list = bool(full_list)
         self.sorted = bool(sorted)
         self.skin = float(skin)
-        self.padded_to = padded_to
 
-        if self.padded_to is not None:
-            self.padded_to = int(self.padded_to)
-            if self.padded_to <= 0:
+        self._padded_to = 0
+        if padded_to is not None:
+            padded_to = int(padded_to)
+            if padded_to <= 0:
                 raise ValueError(
-                    f"`padded_to` must be positive or None, got {self.padded_to}"
+                    f"`padded_to` must be positive or None, got {padded_to}"
                 )
+            self._padded_to = padded_to
 
             if not self.full_list:
                 raise ValueError("`padded_to != None` requires `full_list = true`")
@@ -129,6 +130,13 @@ class NeighborList:
     def __del__(self):
         if hasattr(self, "_lib") and hasattr(self, "_neighbors"):
             self._lib.vesin_free(self._neighbors)
+
+    @property
+    def padded_to(self) -> Optional[int]:
+        """Number of outgoing pairs each point is padded to, or ``None``."""
+        if self._padded_to == 0:
+            return None
+        return self._padded_to
 
     @property
     def algorithm(self) -> str:
@@ -230,7 +238,7 @@ class NeighborList:
         options.algorithm = self._c_algorithm
         options.skin = self.skin
         options.n_threads = self.n_threads
-        options.padded_to = self.padded_to if self.padded_to is not None else 0
+        options.padded_to = self._padded_to
 
         if isinstance(periodic, (bool, np.bool_)):
             periodic = np.array([periodic, periodic, periodic], dtype=np.bool_)
@@ -293,10 +301,35 @@ class NeighborList:
                     ctypes.sizeof(self._neighbors),
                 )
 
+        # With padding, the number of pairs is known before the calculation, so
+        # vesin can write directly in arrays allocated here.
+        n_points = points.shape[0]
+        pre_allocated = options.padded_to > 0 and n_points > 0
+        options.pre_allocated_outputs = pre_allocated
+        if pre_allocated:
+            capacity = n_points * options.padded_to
+
+            def allocate(name, shape, dtype):
+                array = empty_array_fn(shape, dtype=dtype, device_like=points)
+                array, ptr = get_ptr_fn(array, dtype)
+                field_type = dict(VesinNeighborList._fields_)[name]
+                setattr(self._neighbors, name, ctypes.cast(ptr, field_type))
+                return array
+
+            pairs = allocate("pairs", (capacity, 2), ctypes.c_size_t)
+            shifts = distances = vectors = None
+            if options.return_shifts:
+                shifts = allocate("shifts", (capacity, 3), ctypes.c_int32)
+            if options.return_distances:
+                distances = allocate("distances", (capacity,), ctypes.c_double)
+            if options.return_vectors:
+                vectors = allocate("vectors", (capacity, 3), ctypes.c_double)
+            self._neighbors.length = capacity
+
         error_message = ctypes.c_char_p()
         status = self._lib.vesin_neighbors(
             points_ptr,
-            points.shape[0],
+            n_points,
             box_ptr,
             periodic_ptr,
             device,
@@ -311,7 +344,18 @@ class NeighborList:
         # Create arrays for the output data
         n_pairs = self._neighbors.length
 
-        if n_pairs == 0:
+        if pre_allocated:
+            assert n_pairs == pairs.shape[0]
+            if distances is not None:
+                distances = to_dtype_fn(distances, output_float_dtype)
+            if vectors is not None:
+                vectors = to_dtype_fn(vectors, output_float_dtype)
+
+            # these arrays are owned by the caller, there is no need to copy
+            # them. We still copy the `i`/`j` columns below to make them
+            # contiguous.
+            copy_owned = False
+        elif n_pairs == 0:
             # Empty results -- use initial_dtype for floating-point arrays so
             # the caller gets the same dtype they passed in.
             pairs = empty_array_fn((0, 2), dtype=ctypes.c_size_t, device_like=points)
@@ -322,7 +366,9 @@ class NeighborList:
             vectors = empty_array_fn(
                 (0, 3), dtype=output_float_dtype, device_like=points
             )
+            copy_owned = copy
         else:
+            copy_owned = copy
             pairs = ptr_to_array_fn(
                 self._neighbors.pairs,
                 shape=(n_pairs, 2),
@@ -362,7 +408,7 @@ class NeighborList:
         data = []
         for quantity in quantities:
             if quantity == "P":
-                if copy:
+                if copy_owned:
                     data.append(copy_array_fn(pairs))
                 else:
                     data.append(pairs)
@@ -380,19 +426,19 @@ class NeighborList:
                     data.append(pairs[:, 1])
 
             elif quantity == "S":
-                if copy:
+                if copy_owned:
                     data.append(copy_array_fn(shifts))
                 else:
                     data.append(shifts)
 
             elif quantity == "d":
-                if copy:
+                if copy_owned:
                     data.append(copy_array_fn(distances))
                 else:
                     data.append(distances)
 
             elif quantity == "D":
-                if copy:
+                if copy_owned:
                     data.append(copy_array_fn(vectors))
                 else:
                     data.append(vectors)
@@ -452,7 +498,8 @@ def _cupy_to_dtype(array: "cp.ndarray", dtype) -> "cp.ndarray":
 
 
 def _cupy_empty(shape, dtype, device_like) -> "cp.ndarray":
-    return cp.empty(shape, dtype=dtype)
+    with device_like.device:
+        return cp.empty(shape, dtype=dtype)
 
 
 def _cupy_get_ptr(array: "cp.ndarray", dtype) -> ("cp.ndarray", POINTER):

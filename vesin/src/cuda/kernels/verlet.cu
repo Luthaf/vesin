@@ -42,6 +42,8 @@ __global__ void filter_verlet_candidates(
     int32 (*shifts_out)[3],
     double* distances,
     double (*vectors)[3],
+    size_t max_pairs,
+    int32* overflow_flag,
     int32 padded_to,
     int32* pairs_per_point
 ) {
@@ -82,6 +84,12 @@ __global__ void filter_verlet_candidates(
             out = i * padded_to + index_in_point;
         } else {
             out = atomicAdd_size_t(length, 1);
+
+            // Check if we are about to exceed max_pairs
+            if (out + 1 > max_pairs) {
+                atomicExch(overflow_flag, 1);
+                return;
+            }
         }
 
         pair_indices[out][0] = i;

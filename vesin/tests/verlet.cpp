@@ -1,6 +1,7 @@
+#include <cstdlib>
+
 #include <catch2/catch_test_macros.hpp>
 
-#include "../src/cpu/cell_list.hpp"
 #include "../src/cpu/verlet.hpp"
 
 TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
@@ -35,11 +36,9 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
     verlet.set_options(options);
     size_t output_capacity = 0;
 
-    auto cell_buffers = vesin::cpu::CellListBuffersCPU();
-
     auto lot_of_pairs_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     lot_of_pairs_box.make_bounding_for(lot_of_pairs_points, 4);
-    verlet.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box, cell_buffers);
+    verlet.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box);
 
     auto few_pairs_box = vesin::cpu::BoundingBox(box_matrix, periodic);
     few_pairs_box.make_bounding_for(few_pairs_points, 4);
@@ -61,7 +60,11 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
     REQUIRE(neighbors.length == 3);
     CHECK(output_capacity == initial_capacity);
 
-    vesin_free(&neighbors);
+    // this list was filled directly, not through `vesin_neighbors`
+    std::free(neighbors.pairs);
+    std::free(neighbors.shifts);
+    std::free(neighbors.distances);
+    std::free(neighbors.vectors);
 }
 
 TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
@@ -92,8 +95,7 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
     auto verlet_buffers = vesin::cpu::VerletBuffersCPU();
     auto state = vesin::cpu::VerletList(verlet_buffers);
     state.set_options(options);
-    auto cell_buffers = vesin::cpu::CellListBuffersCPU();
-    state.rebuild(initial_points, 2, ref_box, cell_buffers);
+    state.rebuild(initial_points, 2, ref_box);
 
     // this is within the skin distance (0.12 -> 0.95 is 0.17 with periodic
     // boundaries) and should not trigger a rebuild

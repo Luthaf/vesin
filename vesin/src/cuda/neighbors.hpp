@@ -43,8 +43,13 @@ void neighbors(
 /// Allocate output buffers in the `VesinNeighborList` according to the options
 /// and the given number of pairs. If the current capacity is sufficient, this
 /// is a no-op. Otherwise, existing buffers are freed and new ones are allocated
-/// with the requested capacity.
-void allocate_output_buffers(VesinNeighborList& neighbors, size_t n_pairs, VesinOptions options);
+/// for `n_pairs + headroom` pairs. With pre-allocated outputs, this throws an
+/// exception if the arrays can not hold `n_pairs` pairs.
+void allocate_output_buffers(
+    VesinNeighborList& neighbors,
+    size_t n_pairs, VesinOptions options,
+    size_t headroom = 0
+);
 
 } // namespace vesin::cuda
 

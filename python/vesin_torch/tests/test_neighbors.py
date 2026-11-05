@@ -212,3 +212,27 @@ def test_pad_neighbors_errors():
     message = "point 0 has more neighbors than the requested `padded_to` (1)"
     with pytest.raises(RuntimeError, match=re.escape(message)):
         nl.compute(points, box, periodic=False)
+
+    # the same calculator can still be used after an error
+    i, j = nl.compute(points[:1], box, periodic=False)
+    assert i.tolist() == [0]
+    assert j.tolist() == [-1]
+
+
+def test_padded_outputs_are_independent():
+    # with padding, vesin writes directly in tensors allocated for each call
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+    )
+    box = torch.eye(3, dtype=torch.float64)
+    nl = NeighborList(cutoff=1.5, full_list=True, sorted=True, padded_to=4)
+
+    P_1, d_1 = nl.compute(points, box, False, "Pd", copy=False)
+    expected = d_1.clone()
+
+    P_2, d_2 = nl.compute(1.05 * points, box, False, "Pd", copy=False)
+    assert P_1.data_ptr() != P_2.data_ptr()
+    assert d_1.data_ptr() != d_2.data_ptr()
+
+    assert torch.equal(d_1, expected)
+    assert torch.allclose(d_2, 1.05 * expected)

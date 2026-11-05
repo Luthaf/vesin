@@ -680,6 +680,33 @@ def test_pad_neighbors_errors():
     with pytest.raises(RuntimeError, match=re.escape(message)):
         nl.compute(points, box, periodic=False)
 
+    # the same calculator can still be used after an error
+    i, j = nl.compute(points[:1], box, periodic=False)
+    np.testing.assert_array_equal(i, [0])
+    np.testing.assert_array_equal(j, [np.iinfo(np.uint64).max])
+
+
+def test_padded_outputs_are_independent():
+    # with padding, vesin writes directly in arrays allocated for each call
+    points = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    box = np.eye(3)
+    nl = NeighborList(cutoff=1.5, full_list=True, sorted=True, padded_to=4)
+
+    P_1, d_1 = nl.compute(points, box, False, "Pd", copy=False)
+    expected = d_1.copy()
+
+    P_2, d_2 = nl.compute(1.05 * points, box, False, "Pd", copy=False)
+    assert not np.shares_memory(P_1, P_2)
+    assert not np.shares_memory(d_1, d_2)
+
+    np.testing.assert_array_equal(d_1, expected)
+    np.testing.assert_allclose(d_2, 1.05 * expected)
+
+    # no points means no pairs
+    P, d = nl.compute(np.zeros((0, 3)), box, False, "Pd")
+    assert P.shape == (0, 2)
+    assert d.shape == (0,)
+
 
 @pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
 @pytest.mark.parametrize("skin", [0.0, 0.5])

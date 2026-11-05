@@ -8,6 +8,8 @@
 #include <limits>
 
 #include "./cell_list.hpp"
+#include "./extra_data.hpp"
+#include "./neighbors.hpp"
 #include "./threadpool.hpp"
 #include "./verlet.hpp"
 
@@ -43,13 +45,12 @@ static double corner_point_displacements(const Matrix& box, const Matrix& ref_bo
 }
 
 VerletBuffersCPU::~VerletBuffersCPU() {
-    vesin_free(&candidates);
+    if (candidates.device.type == VesinCPU) {
+        cpu::free_neighbors(candidates);
+    }
 }
 
 void VerletList::clear_candidates() {
-    vesin_free(&buffers_.candidates);
-
-    buffers_.candidates = VesinNeighborList();
     buffers_.has_cache = false;
     buffers_.ref_points.clear();
     buffers_.candidate_offsets.clear();
@@ -114,8 +115,7 @@ bool VerletList::needs_rebuild(
 void VerletList::rebuild(
     const Vector* points,
     size_t n_points,
-    const BoundingBox& box,
-    cpu::CellListBuffersCPU& cell_buffers
+    const BoundingBox& box
 ) {
     this->clear_candidates();
 
@@ -129,6 +129,7 @@ void VerletList::rebuild(
     build_options.return_distances = false;
     build_options.return_vectors = false;
     build_options.skin = 0.0;
+    build_options.n_threads = options.n_threads;
 
     buffers_.candidates.device = {VesinCPU, 0};
 
@@ -136,23 +137,15 @@ void VerletList::rebuild(
     auto candidate_box = BoundingBox(box.matrix(), periodic.data());
     candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points);
 
-    size_t candidate_capacity = 0;
-    cpu::cell_list_neighbors(
-        points,
-        n_points,
-        std::move(candidate_box),
-        build_options,
-        cell_buffers,
-        buffers_.candidates,
-        candidate_capacity
-    );
+    cpu::neighbors(points, n_points, std::move(candidate_box), build_options, buffers_.candidates);
 
     // The candidates of each point are contiguous, starting at the offset
     // computed by `cell_list_neighbors`. Group whole points in blocks of
     // around `FILTER_BLOCK_SIZE` candidates, so each point is filtered by a
     // single block and we know how many neighbors it has at the end of the
     // first filter pass.
-    buffers_.candidate_offsets = cell_buffers.count;
+    const auto& candidates_extra = *static_cast<ExtraDataCpu*>(buffers_.candidates.opaque);
+    buffers_.candidate_offsets = candidates_extra.cell_list_buffers.count;
     assert(buffers_.candidate_offsets.size() == n_points + 1);
 
     buffers_.block_points.clear();

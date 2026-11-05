@@ -87,6 +87,20 @@ struct VesinOptions {
     bool return_distances;
     /// Should the returned `VesinNeighborList` contain `vector`?
     bool return_vectors;
+
+    /// Should vesin write the output in arrays pre-allocated by the caller?
+    ///
+    /// If this is `true`, all the arrays requested by the options above
+    /// (`pairs`, and `shifts`, `distances` or `vectors`) must be set in
+    /// `VesinNeighborList` before the call, and its `length` must be set to the
+    /// number of pairs these arrays can hold. vesin writes the pairs directly
+    /// in these arrays, and the calculation fails if they are too small. These
+    /// arrays stay owned by the caller, and are never released by vesin.
+    ///
+    /// If this is `false` (the default), vesin allocates the output arrays
+    /// itself, and re-uses them across calls. The pointers to these arrays must
+    /// not be modified by the caller.
+    bool pre_allocated_outputs;
 };
 
 /// Device on which the data can be
@@ -149,7 +163,9 @@ struct VESIN_API VesinNeighborList {
         vectors(nullptr) {}
 #endif
 
-    /// Number of pairs in this neighbor list
+    /// Number of pairs in this neighbor list. When using
+    /// `VesinOptions::pre_allocated_outputs`, this must be set before each call
+    /// to the number of pairs the pre-allocated arrays can hold.
     size_t length;
     /// Device used for the data allocations
     VesinDevice device;

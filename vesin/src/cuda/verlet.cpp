@@ -287,13 +287,15 @@ void VerletCache::filter_neighbors(
 
     if (options.padded_to > 0) {
         vesin::cuda::prepare_padding(neighbors, n_points, options);
-    } else {
+    } else if (!extras->pre_allocated_outputs) {
+        // the number of candidates is an upper bound on the number of pairs
         vesin::cuda::allocate_output_buffers(neighbors, this->candidates_.length, options);
     }
 
     // The kernel below accumulates the number of pairs it kept with atomics, so
     // the counter has to start from zero on every call.
     GPULITE_CUDART_CALL(cudaMemset(extras->d_length_ptr, 0, sizeof(size_t)));
+    GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
 
     size_t threads = 256;
     size_t blocks = (this->candidates_.length + threads - 1) / threads;
@@ -324,6 +326,8 @@ void VerletCache::filter_neighbors(
         neighbors.shifts,
         neighbors.distances,
         neighbors.vectors,
+        extras->pairs_capacity,
+        extras->d_overflow_flag,
         static_cast<int32_t>(options.padded_to),
         extras->d_pairs_per_point
     );
@@ -350,7 +354,8 @@ void VerletCache::run(
         return;
     }
 
-    // Read back the pair count from the GPU-side atomic counter.
+    // Read back the pair count from the GPU-side atomic counter, and the
+    // overflow flag.
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &extras->pinned->length,
@@ -359,9 +364,23 @@ void VerletCache::run(
         cudaMemcpyDeviceToHost,
         nullptr
     ));
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &extras->pinned->overflow,
+        extras->d_overflow_flag,
+        sizeof(int32_t),
+        cudaMemcpyDeviceToHost,
+        nullptr
+    ));
     GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
 
     neighbors.length = extras->pinned->length;
+
+    if (extras->pinned->overflow != 0) {
+        // vesin-allocated outputs can hold all the candidates, so this only
+        // happens with pre-allocated outputs
+        assert(extras->pre_allocated_outputs);
+        throw vesin::pre_allocated_too_small(extras->pairs_capacity, neighbors.length);
+    }
 
     // Verlet output is unsorted; sort if requested
     if (options.sorted && neighbors.length > 1) {

@@ -1,6 +1,8 @@
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -19,16 +21,6 @@ VesinDevice torch_to_vesin_device(torch::Device device) {
         return {VesinCUDA, device.index()};
     } else {
         throw std::runtime_error("device " + device.str() + " is not supported in vesin");
-    }
-}
-
-torch::Device vesin_to_torch_device(VesinDevice device) {
-    if (device.type == VesinCPU) {
-        return torch::Device(torch::kCPU);
-    } else if (device.type == VesinCUDA) {
-        return torch::Device(torch::kCUDA, static_cast<int8_t>(device.device_id));
-    } else {
-        throw std::runtime_error("vesin device is not supported in torch");
     }
 }
 
@@ -169,6 +161,41 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         box = box.contiguous();
     }
 
+    auto device = points.device();
+    auto int64_options = torch::TensorOptions().device(device).dtype(torch::kInt64);
+    auto int32_options = torch::TensorOptions().device(device).dtype(torch::kInt32);
+    auto double_options = torch::TensorOptions().device(device).dtype(torch::kDouble);
+
+    // With padding, the number of pairs is known before the calculation, so
+    // vesin can write directly in tensors allocated by torch. The pairs are
+    // stored as `int64_t` in torch and `size_t` in vesin, which requires both
+    // types to have the same size.
+    options.pre_allocated_outputs = options.padded_to > 0 && n_points > 0 && sizeof(size_t) == sizeof(int64_t);
+
+    auto pairs = torch::empty({0, 2}, int64_options);
+    auto shifts = torch::empty({0, 3}, int32_options);
+    auto distances = torch::empty({0}, double_options);
+    auto vectors = torch::empty({0, 3}, double_options);
+    if (options.pre_allocated_outputs) {
+        auto capacity = static_cast<int64_t>(n_points * options.padded_to);
+
+        pairs = torch::empty({capacity, 2}, int64_options);
+        data->pairs = reinterpret_cast<size_t (*)[2]>(pairs.data_ptr<int64_t>());
+        if (options.return_shifts) {
+            shifts = torch::empty({capacity, 3}, int32_options);
+            data->shifts = reinterpret_cast<int32_t (*)[3]>(shifts.data_ptr<int32_t>());
+        }
+        if (options.return_distances) {
+            distances = torch::empty({capacity}, double_options);
+            data->distances = distances.data_ptr<double>();
+        }
+        if (options.return_vectors) {
+            vectors = torch::empty({capacity, 3}, double_options);
+            data->vectors = reinterpret_cast<double (*)[3]>(vectors.data_ptr<double>());
+        }
+        data->length = static_cast<size_t>(capacity);
+    }
+
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
         reinterpret_cast<const double (*)[3]>(points.data_ptr<double>()),
@@ -185,8 +212,12 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         throw std::runtime_error(std::string("failed to compute neighbors: ") + error_message);
     }
 
+    if (options.pre_allocated_outputs) {
+        assert(pairs.size(0) == static_cast<int64_t>(data->length));
+        return {pairs, shifts, distances, vectors};
+    }
+
     // wrap vesin data in tensors
-    auto device = vesin_to_torch_device(data->device);
     auto size_t_options = torch::TensorOptions().device(device);
     if (sizeof(size_t) == sizeof(uint32_t)) {
         size_t_options = size_t_options.dtype(torch::kUInt32);
@@ -196,12 +227,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
-    int64_t length = static_cast<int64_t>(data->length);
-    auto pairs = torch::from_blob(data->pairs, {length, 2}, size_t_options)
-                     .to(torch::kInt64);
+    auto length = static_cast<int64_t>(data->length);
+    pairs = torch::from_blob(data->pairs, {length, 2}, size_t_options).to(torch::kInt64);
 
-    auto int32_options = torch::TensorOptions().device(device).dtype(torch::kInt32);
-    auto shifts = torch::empty({0, 3}, int32_options);
     if (options.return_shifts) {
         shifts = torch::from_blob(data->shifts, {length, 3}, int32_options);
         if (copy) {
@@ -209,8 +237,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         }
     }
 
-    auto double_options = torch::TensorOptions().device(device).dtype(torch::kDouble);
-    auto distances = torch::empty({0}, double_options);
     if (options.return_distances) {
         distances = torch::from_blob(data->distances, {length}, double_options);
         if (copy) {
@@ -218,7 +244,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         }
     }
 
-    auto vectors = torch::empty({0, 3}, double_options);
     if (options.return_vectors) {
         vectors = torch::from_blob(data->vectors, {length, 3}, double_options);
         if (copy) {

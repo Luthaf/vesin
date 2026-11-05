@@ -5,6 +5,8 @@
 
 #include "vesin.h"
 
+#include "../outputs.hpp"
+
 #include "./cell_list.hpp"
 #include "./verlet.hpp"
 
@@ -28,6 +30,9 @@ struct ExtraDataCpu {
 
     /// Persisted GrowableNeighborList output capacity.
     size_t capacity = 0;
+    /// Output arrays allocated by vesin and left in the neighbor list at the
+    /// end of the last calculation.
+    OutputPointers allocated_outputs;
     /// Reusable Verlet cache state and filter scratch for `skin > 0`.
     VerletBuffersCPU verlet_buffers;
     /// Cached allocations for the cell-list path, reused across calls.

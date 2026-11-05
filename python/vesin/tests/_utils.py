@@ -263,6 +263,16 @@ def issue_153() -> SystemForTests:
     )
 
 
+def empty_system() -> SystemForTests:
+    return SystemForTests(
+        name="empty_system",
+        transform_summary="nothing",
+        points=np.empty((0, 3), dtype=np.float64),
+        box=np.diag([1.0, 1.0, 1.0]).astype(np.float64),
+        periodic=(True, True, True),
+    )
+
+
 def system_from_xyz(name):
     atoms = ase.io.read(f"{CURRENT_DIR}/data/{name}.xyz")
     return SystemForTests(
@@ -293,6 +303,7 @@ TEST_SYSTEMS = [
     non_periodic_points_outside_box(),
     thin_film(),
     issue_153(),
+    empty_system(),
 ]
 
 

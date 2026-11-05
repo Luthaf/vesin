@@ -53,6 +53,11 @@ extern "C" int32_t vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    if (n_points == 0) {
+        neighbors->length = 0;
+        return EXIT_SUCCESS;
+    }
+
     if (points == nullptr) {
         *error_message = "`points` can not be a NULL pointer";
         return EXIT_FAILURE;

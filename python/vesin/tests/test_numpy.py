@@ -691,7 +691,11 @@ def test_padded_matches_unpadded(system, skin):
     i, j, S, D, d = unpadded.compute(**kwargs, quantities="ijSDd")
     counts = np.bincount(i, minlength=len(system.points))
 
-    padded_to = int(counts.max()) + 3
+    if len(counts) == 0:
+        padded_to = 3
+    else:
+        padded_to = int(counts.max()) + 3
+
     padded = NeighborList(cutoff=cutoff, full_list=True, skin=skin, padded_to=padded_to)
     # run twice to also go through the cached Verlet candidates
     for _ in range(2):

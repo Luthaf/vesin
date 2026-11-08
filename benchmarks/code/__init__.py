@@ -20,6 +20,8 @@ from ._vesin import (
     VesinVerletNeighborList,
     VesinVerletSortedNeighborList,
 )
+from ._vesin_jax import VesinJaxNeighborList
+from ._vesin_torch import VesinTorchNeighborList
 
 
 __all__ = [
@@ -32,9 +34,11 @@ __all__ = [
     "SislNeighborList",
     "VesinBruteForceNeighborList",
     "VesinCellListNeighborList",
+    "VesinJaxNeighborList",
     "VesinNeighborList",
     "VesinSortedNeighborList",
     "VesinVerletNeighborList",
+    "VesinTorchNeighborList",
     "VesinVerletSortedNeighborList",
     "all_implementations",
     "default_implementations",
@@ -54,6 +58,8 @@ _IMPLEMENTATIONS = {
         VesinSortedNeighborList,
         VesinVerletNeighborList,
         VesinVerletSortedNeighborList,
+        VesinTorchNeighborList,
+        VesinJaxNeighborList,
         NValchemiNeighborList,
         NNPOpsNeighborList,
         MLipopsNeighborList,

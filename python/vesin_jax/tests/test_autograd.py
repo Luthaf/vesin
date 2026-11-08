@@ -18,13 +18,19 @@ def pair_energy(calculator, points, box, periodic, max_pairs=4096):
     return jnp.sum(jnp.where(is_pair, (CUTOFF - d) ** 3 * (1.0 + d), 0.0))
 
 
-@pytest.mark.parametrize("system", SYSTEMS[3:], ids=str)
+@pytest.mark.parametrize(
+    "system",
+    [
+        SYSTEMS[name]
+        for name in ["Cd2I4O12", "random-periodic", "random-slab", "random-wire"]
+    ],
+    ids=str,
+)
 def test_grad(system):
     calculator = NeighborList(cutoff=CUTOFF, full_list=False)
 
     with enable_x64():
-        points = jnp.asarray(system.points, dtype=jnp.float64)
-        box = jnp.asarray(system.box, dtype=jnp.float64)
+        points, box = system.arrays(jnp.float64)
 
         def energy(points, box):
             return pair_energy(calculator, points, box, system.periodic)
@@ -35,11 +41,9 @@ def test_grad(system):
 
 def test_vectors_grad():
     calculator = NeighborList(cutoff=CUTOFF, full_list=True)
-    system = SYSTEMS[4]
 
     with enable_x64():
-        points = jnp.asarray(system.points, dtype=jnp.float64)
-        box = jnp.asarray(system.box, dtype=jnp.float64)
+        points, box = SYSTEMS["random-periodic"].arrays(jnp.float64)
 
         def vectors_sum(points, box):
             (D, n_pairs) = calculator.compute(points, box, True, "D", max_pairs=4096)
@@ -49,11 +53,9 @@ def test_vectors_grad():
 
 
 def test_no_nan_in_padding():
-    # most of the entries are padding, which should not create NaN
+    # most of the entries are padding, which must not create NaN in gradients
     calculator = NeighborList(cutoff=CUTOFF, full_list=True)
-    system = SYSTEMS[4]
-    points = jnp.asarray(system.points, dtype=jnp.float32)
-    box = jnp.asarray(system.box, dtype=jnp.float32)
+    points, box = SYSTEMS["random-periodic"].arrays()
 
     def energy(points, box):
         (d, n_pairs) = calculator.compute(points, box, True, "d", max_pairs=8192)
@@ -69,11 +71,9 @@ def test_no_nan_in_padding():
 
 def test_float32_grad():
     calculator = NeighborList(cutoff=CUTOFF, full_list=True)
-    system = SYSTEMS[4]
 
     def forces(dtype):
-        points = jnp.asarray(system.points, dtype=dtype)
-        box = jnp.asarray(system.box, dtype=dtype)
+        points, box = SYSTEMS["random-periodic"].arrays(dtype)
         grad = jax.grad(lambda p: pair_energy(calculator, p, box, True))(points)
         assert grad.dtype == dtype
         return np.asarray(grad, dtype=np.float64)

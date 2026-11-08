@@ -286,8 +286,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
         /*return_shifts=*/return_shifts,
         /*return_distances=*/return_distances,
         /*return_vectors=*/return_vectors,
-        /*pre_allocated_outputs=*/false,
-        /*cuda_stream=*/nullptr,
     };
 
     auto lock = state->lock();

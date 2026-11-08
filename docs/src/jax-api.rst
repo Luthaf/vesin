@@ -19,9 +19,10 @@ capacity if needed:
 
 .. code-block:: python
 
+    from functools import partial
+
     import jax
     import jax.numpy as jnp
-    from functools import partial
 
     from vesin_jax import NeighborList
 
@@ -30,20 +31,23 @@ capacity if needed:
 
     @partial(jax.jit, static_argnames="max_pairs")
     def energy(points, box, max_pairs):
-        i, j, d, n_pairs = calculator.compute(
-            points, box, True, quantities="ijd", max_pairs=max_pairs
+        i, d, n_pairs = calculator.compute(
+            points, box, True, quantities="id", max_pairs=max_pairs
         )
-        # padding entries have `i == j == len(points)`, and are ignored by
+        # the padding entries have `i == len(points)`, and are ignored by
         # `segment_sum`
         pair_energies = jnp.where(i < len(points), (5.0 - d) ** 2, 0.0)
         per_atom = jax.ops.segment_sum(pair_energies, i, num_segments=len(points))
         return jnp.sum(per_atom), n_pairs
 
 
+    points = jax.random.uniform(jax.random.key(0), (1000, 3)) * 20.0
+    box = 20.0 * jnp.eye(3)
+
     max_pairs = 1024
     e, n_pairs = energy(points, box, max_pairs)
     if n_pairs > max_pairs:
-        # leave some room to avoid re-compiling the code too often
+        # leave some room, to avoid compiling the code again at the next step
         max_pairs = int(1.2 * n_pairs)
         e, n_pairs = energy(points, box, max_pairs)
 

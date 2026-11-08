@@ -19,107 +19,6 @@ from ._c_lib import FFI_TARGET, free_state
 # memory allocated by vesin and its Verlet cache. The ids are never re-used.
 _STATE_IDS = itertools.count()
 
-# The primitive computing the neighbor list from the points, box and periodic
-# flags. It returns the pairs `int32[max_pairs, 2]`, their periodic shifts
-# `int32[max_pairs, 3]` and the number of pairs in the neighbor list `int32[]`.
-# Only the first `n_pairs` entries of the pairs and shifts are valid, and none
-# of them if `n_pairs > max_pairs`. This primitive is not differentiable.
-_neighbors_p = Primitive("vesin_neighbors")
-_neighbors_p.multiple_results = True
-_neighbors_p.def_impl(functools.partial(xla.apply_primitive, _neighbors_p))
-
-
-@_neighbors_p.def_abstract_eval
-def _neighbors_abstract_eval(points, box, periodic, *, max_pairs, **kwargs):
-    return (
-        jax.core.ShapedArray((max_pairs, 2), np.int32),
-        jax.core.ShapedArray((max_pairs, 3), np.int32),
-        jax.core.ShapedArray((), np.int32),
-    )
-
-
-def _tensor_type(shape, dtype):
-    return mlir.ir.RankedTensorType.get(
-        list(shape), mlir.dtype_to_ir_type(np.dtype(dtype))
-    )
-
-
-def _neighbors_lowering(
-    ctx,
-    points,
-    box,
-    periodic,
-    *,
-    max_pairs,
-    cutoff,
-    full_list,
-    sorted,
-    algorithm,
-    skin,
-    n_threads,
-    state,
-):
-    # vesin uses float64 points and returns the pairs as `size_t`. XLA supports
-    # these types even when jax runs without `jax_enable_x64`, so we convert
-    # from and to the types seen by users inside the compiled code.
-    points_aval, box_aval, _ = ctx.avals_in
-    if points_aval.dtype != np.float64:
-        points = hlo.convert(_tensor_type(points_aval.shape, np.float64), points)
-        box = hlo.convert(_tensor_type(box_aval.shape, np.float64), box)
-
-    lowering = jax.ffi.ffi_lowering(
-        FFI_TARGET,
-        result_types=[
-            _tensor_type((max_pairs, 2), np.uint64),
-            _tensor_type((max_pairs, 3), np.int32),
-            _tensor_type((), np.int32),
-        ],
-    )
-
-    pairs, shifts, n_pairs = lowering(
-        ctx,
-        points,
-        box,
-        periodic,
-        cutoff=np.float64(cutoff),
-        full_list=bool(full_list),
-        sorted=bool(sorted),
-        algorithm=algorithm,
-        skin=np.float64(skin),
-        n_threads=np.int64(n_threads),
-        state=np.int64(state),
-    )
-
-    pairs = hlo.convert(_tensor_type((max_pairs, 2), np.int32), pairs)
-    return [pairs, shifts, n_pairs]
-
-
-mlir.register_lowering(_neighbors_p, _neighbors_lowering, platform="cpu")
-mlir.register_lowering(_neighbors_p, _neighbors_lowering, platform="cuda")
-
-
-def _neighbors_batching(args, dims, **params):
-    # the systems are computed one after the other
-    args = [
-        jnp.moveaxis(a, d, 0) if d is not None else a
-        for a, d in zip(args, dims, strict=True)
-    ]
-
-    def single_system(batched):
-        batched = iter(batched)
-        system = [
-            next(batched) if d is not None else a
-            for a, d in zip(args, dims, strict=True)
-        ]
-        return _neighbors_p.bind(*system, **params)
-
-    batched = [a for a, d in zip(args, dims, strict=True) if d is not None]
-    outputs = jax.lax.map(single_system, batched)
-    return outputs, (0, 0, 0)
-
-
-batching.primitive_batchers[_neighbors_p] = _neighbors_batching
-
 
 class NeighborList:
     """
@@ -387,3 +286,106 @@ class NeighborList:
 
         results.append(n_pairs)
         return tuple(results)
+
+
+# The calculation itself is a JAX primitive, lowered to a call to the XLA FFI
+# handlers of the native library. From the points, box and periodic flags, it
+# returns the pairs `int32[max_pairs, 2]`, their periodic shifts
+# `int32[max_pairs, 3]` and the number of pairs in the neighbor list `int32[]`.
+# Only the first `n_pairs` entries of the pairs and shifts are valid, and none
+# of them if `n_pairs > max_pairs`. This primitive is not differentiable.
+_neighbors_p = Primitive("vesin_neighbors")
+_neighbors_p.multiple_results = True
+_neighbors_p.def_impl(functools.partial(xla.apply_primitive, _neighbors_p))
+
+
+@_neighbors_p.def_abstract_eval
+def _neighbors_abstract_eval(points, box, periodic, *, max_pairs, **kwargs):
+    return (
+        jax.core.ShapedArray((max_pairs, 2), np.int32),
+        jax.core.ShapedArray((max_pairs, 3), np.int32),
+        jax.core.ShapedArray((), np.int32),
+    )
+
+
+def _tensor_type(shape, dtype):
+    return mlir.ir.RankedTensorType.get(
+        list(shape), mlir.dtype_to_ir_type(np.dtype(dtype))
+    )
+
+
+def _neighbors_lowering(
+    ctx,
+    points,
+    box,
+    periodic,
+    *,
+    max_pairs,
+    cutoff,
+    full_list,
+    sorted,
+    algorithm,
+    skin,
+    n_threads,
+    state,
+):
+    # vesin uses float64 points and returns the pairs as `size_t`. XLA supports
+    # these types even when jax runs without `jax_enable_x64`, so we convert
+    # from and to the types seen by users inside the compiled code.
+    points_aval, box_aval, _ = ctx.avals_in
+    if points_aval.dtype != np.float64:
+        points = hlo.convert(_tensor_type(points_aval.shape, np.float64), points)
+        box = hlo.convert(_tensor_type(box_aval.shape, np.float64), box)
+
+    lowering = jax.ffi.ffi_lowering(
+        FFI_TARGET,
+        result_types=[
+            _tensor_type((max_pairs, 2), np.uint64),
+            _tensor_type((max_pairs, 3), np.int32),
+            _tensor_type((), np.int32),
+        ],
+    )
+
+    pairs, shifts, n_pairs = lowering(
+        ctx,
+        points,
+        box,
+        periodic,
+        cutoff=np.float64(cutoff),
+        full_list=bool(full_list),
+        sorted=bool(sorted),
+        algorithm=algorithm,
+        skin=np.float64(skin),
+        n_threads=np.int64(n_threads),
+        state=np.int64(state),
+    )
+
+    pairs = hlo.convert(_tensor_type((max_pairs, 2), np.int32), pairs)
+    return [pairs, shifts, n_pairs]
+
+
+mlir.register_lowering(_neighbors_p, _neighbors_lowering, platform="cpu")
+mlir.register_lowering(_neighbors_p, _neighbors_lowering, platform="cuda")
+
+
+def _neighbors_batching(args, dims, **params):
+    # the systems are computed one after the other
+    args = [
+        jnp.moveaxis(a, d, 0) if d is not None else a
+        for a, d in zip(args, dims, strict=True)
+    ]
+
+    def single_system(batched):
+        batched = iter(batched)
+        system = [
+            next(batched) if d is not None else a
+            for a, d in zip(args, dims, strict=True)
+        ]
+        return _neighbors_p.bind(*system, **params)
+
+    batched = [a for a, d in zip(args, dims, strict=True) if d is not None]
+    outputs = jax.lax.map(single_system, batched)
+    return outputs, (0, 0, 0)
+
+
+batching.primitive_batchers[_neighbors_p] = _neighbors_batching

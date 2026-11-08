@@ -268,8 +268,10 @@ jobs:
           CIBW_SKIP: "*musllinux*"
           CIBW_ARCHS: ${{ matrix.cibw-arch }}
           CIBW_BUILD_FRONTEND: build
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux2014_x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux2014_aarch64
+          # jax's dependencies (numpy, ml_dtypes) no longer have wheels for
+          # manylinux2014, and fail to build from source there
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
+          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
           # The XLA FFI is backward compatible, so building against the oldest
           # supported version of jax gives a wheel working with all versions
           CIBW_ENVIRONMENT: >

@@ -104,7 +104,7 @@ else()
     FetchContent_Declare(
         gpulite
         GIT_REPOSITORY https://github.com/metatensor/gpu-lite.git
-        GIT_TAG 7670a7ebae15453bb0976c58869cb95cadf8c96f # gpu-lite memset-async branch, TODO: mts-v1.3.2
+        GIT_TAG ac86d36c3fac02857d541ca1f67c196917912ca3 # gpu-lite memset-async branch, TODO: mts-v1.3.2
         EXCLUDE_FROM_ALL
     )
 endif()

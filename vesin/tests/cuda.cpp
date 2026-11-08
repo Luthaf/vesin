@@ -20,86 +20,107 @@ void check_cuda(cudaError_t status) {
     }
 }
 
-void run_cuda_test(int32_t device_id) {
-    check_cuda(cudaSetDevice(device_id));
+/// Neighbor list computed by `compute_on_device`, copied back to the host
+struct DeviceResults {
+    /// Empty if the calculation succeeded, the error message otherwise
+    std::string error;
+    std::vector<std::array<size_t, 2>> pairs;
+    std::vector<std::array<int32_t, 3>> shifts;
+    std::vector<double> distances;
+    std::vector<std::array<double, 3>> vectors;
+};
 
-    double points[][3] = {
+/// Compute a small neighbor list on the given device. This runs in multiple
+/// threads at the same time, so it must not use Catch2 assertions (they are not
+/// thread-safe): errors are reported in `DeviceResults::error` instead, and the
+/// results are checked by `check_device_results` from the main thread.
+static DeviceResults compute_on_device(int32_t device_id) {
+    auto results = DeviceResults();
+    // keep the first CUDA error
+    auto check = [&](cudaError_t status) {
+        if (status != cudaSuccess && results.error.empty()) {
+            results.error = std::string("CUDA error: ") + cudaGetErrorString(status);
+        }
+    };
+
+    double points[3][3] = {
         {0.0, 0.0, 0.0},
         {1.0, 1.0, 1.0},
         {2.0, 2.0, 2.0},
     };
-    size_t n_points = 3;
-    double (*d_points)[3] = nullptr;
-    check_cuda(cudaMalloc(&d_points, sizeof(double) * n_points * 3));
-    check_cuda(cudaMemcpy(d_points, points, sizeof(double) * n_points * 3, cudaMemcpyHostToDevice));
-
     double box[3][3] = {
         {0.0, 3.0, 3.0},
         {3.0, 0.0, 3.0},
         {3.0, 3.0, 0.0},
     };
-    double (*d_box)[3] = nullptr;
-    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
-    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
-
     bool periodic[3] = {true, true, true};
+
+    check(cudaSetDevice(device_id));
+
+    double (*d_points)[3] = nullptr;
+    double (*d_box)[3] = nullptr;
     bool* d_periodic = nullptr;
-    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
-    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+    check(cudaMalloc(&d_points, sizeof(points)));
+    check(cudaMalloc(&d_box, sizeof(box)));
+    check(cudaMalloc(&d_periodic, sizeof(periodic)));
+    check(cudaMemcpy(d_points, points, sizeof(points), cudaMemcpyHostToDevice));
+    check(cudaMemcpy(d_box, box, sizeof(box), cudaMemcpyHostToDevice));
+    check(cudaMemcpy(d_periodic, periodic, sizeof(periodic), cudaMemcpyHostToDevice));
 
-    VesinNeighborList neighbors;
+    if (results.error.empty()) {
+        auto options = VesinOptions();
+        options.cutoff = 3.0;
+        options.full = false;
+        options.sorted = false;
+        options.algorithm = VesinAutoAlgorithm;
+        options.return_shifts = true;
+        options.return_distances = true;
+        options.return_vectors = true;
 
-    auto options = VesinOptions();
-    options.cutoff = 3.0;
-    options.full = false;
-    options.sorted = false;
-    options.algorithm = VesinAutoAlgorithm;
-    options.return_shifts = true;
-    options.return_distances = true;
-    options.return_vectors = true;
+        auto neighbors = VesinNeighborList();
+        const char* error_message = nullptr;
+        auto status = vesin_neighbors(
+            d_points, 3, d_box, d_periodic, {VesinCUDA, device_id}, options, &neighbors, &error_message
+        );
 
-    const char* error_message = nullptr;
-    auto status = vesin_neighbors(
-        d_points,
-        n_points,
-        d_box,
-        d_periodic,
-        {VesinDeviceKind::VesinCUDA, device_id},
-        options,
-        &neighbors,
-        &error_message
-    );
+        if (status != EXIT_SUCCESS) {
+            results.error = std::string("vesin error: ") + (error_message != nullptr ? error_message : "unknown");
+        } else {
+            auto n_pairs = neighbors.length;
+            results.pairs.resize(n_pairs);
+            results.shifts.resize(n_pairs);
+            results.distances.resize(n_pairs);
+            results.vectors.resize(n_pairs);
+            check(cudaMemcpy(results.pairs.data(), neighbors.pairs, sizeof(size_t[2]) * n_pairs, cudaMemcpyDeviceToHost));
+            check(cudaMemcpy(results.shifts.data(), neighbors.shifts, sizeof(int32_t[3]) * n_pairs, cudaMemcpyDeviceToHost));
+            check(cudaMemcpy(results.distances.data(), neighbors.distances, sizeof(double) * n_pairs, cudaMemcpyDeviceToHost));
+            check(cudaMemcpy(results.vectors.data(), neighbors.vectors, sizeof(double[3]) * n_pairs, cudaMemcpyDeviceToHost));
+        }
 
-    REQUIRE(error_message == nullptr);
-    REQUIRE(status == EXIT_SUCCESS);
+        vesin_free(&neighbors);
+    }
 
-    CHECK(neighbors.length == 5);
-    CHECK(neighbors.pairs != nullptr);
-    CHECK(neighbors.shifts != nullptr);
-    CHECK(neighbors.distances != nullptr);
-    CHECK(neighbors.vectors != nullptr);
+    check(cudaFree(d_points));
+    check(cudaFree(d_box));
+    check(cudaFree(d_periodic));
 
-    auto* h_pairs = static_cast<size_t (*)[2]>(malloc(sizeof(size_t) * neighbors.length * 2));
-    check_cuda(cudaMemcpy(h_pairs, neighbors.pairs, sizeof(size_t) * neighbors.length * 2, cudaMemcpyDeviceToHost));
+    return results;
+}
 
-    auto* h_shifts = static_cast<int32_t (*)[3]>(malloc(sizeof(int32_t) * neighbors.length * 3));
-    check_cuda(cudaMemcpy(h_shifts, neighbors.shifts, sizeof(int32_t) * neighbors.length * 3, cudaMemcpyDeviceToHost));
+static void check_device_results(const DeviceResults& results) {
+    REQUIRE(results.error.empty());
+    REQUIRE(results.pairs.size() == 5);
 
-    auto* h_distances = static_cast<double*>(malloc(sizeof(double) * neighbors.length));
-    check_cuda(cudaMemcpy(h_distances, neighbors.distances, sizeof(double) * neighbors.length, cudaMemcpyDeviceToHost));
-
-    auto* h_vectors = static_cast<double (*)[3]>(malloc(sizeof(double) * neighbors.length * 3));
-    check_cuda(cudaMemcpy(h_vectors, neighbors.vectors, sizeof(double) * neighbors.length * 3, cudaMemcpyDeviceToHost));
-
-    for (size_t i = 0; i < neighbors.length; ++i) {
+    for (size_t i = 0; i < results.pairs.size(); ++i) {
         // Which point of a half-list pair ends up as `i` and which as `j` is
         // not guaranteed: `(i, j)` with some shift and `(j, i)` with the
         // opposite shift describe the same pair. Canonicalize to `i < j` before
         // comparing, like `Pair::canonicalize()` in neighbors.cpp does.
-        auto pair_i = h_pairs[i][0];
-        auto pair_j = h_pairs[i][1];
-        auto shift = std::array<int32_t, 3>{h_shifts[i][0], h_shifts[i][1], h_shifts[i][2]};
-        auto vector = std::array<double, 3>{h_vectors[i][0], h_vectors[i][1], h_vectors[i][2]};
+        auto pair_i = results.pairs[i][0];
+        auto pair_j = results.pairs[i][1];
+        auto shift = results.shifts[i];
+        auto vector = results.vectors[i];
+        auto distance = results.distances[i];
 
         if (pair_i > pair_j) {
             std::swap(pair_i, pair_j);
@@ -112,7 +133,7 @@ void run_cuda_test(int32_t device_id) {
         if (pair_i == 0 && pair_j == 2) {
             // we have three pairs between 0 and 2 with shifts (-1, 0, 0),
             // (0, -1, 0), and (0, 0, -1)
-            CHECK(h_distances[i] == std::sqrt(6.0));
+            CHECK(distance == std::sqrt(6.0));
 
             if (shift[0] == -1 && shift[1] == 0 && shift[2] == 0) {
                 CHECK(vector[0] == 2.0);
@@ -137,7 +158,7 @@ void run_cuda_test(int32_t device_id) {
             CHECK(shift[1] == 0);
             CHECK(shift[2] == 0);
 
-            CHECK(h_distances[i] == std::sqrt(3.0));
+            CHECK(distance == std::sqrt(3.0));
             CHECK(vector[0] == 1.0);
             CHECK(vector[1] == 1.0);
             CHECK(vector[2] == 1.0);
@@ -145,18 +166,6 @@ void run_cuda_test(int32_t device_id) {
             FAIL("Unexpected pair: (" + std::to_string(pair_i) + ", " + std::to_string(pair_j) + ")");
         }
     }
-
-    // Clean up
-    vesin_free(&neighbors);
-
-    free(h_pairs);
-    free(h_shifts);
-    free(h_distances);
-    free(h_vectors);
-
-    check_cuda(cudaFree(d_points));
-    check_cuda(cudaFree(d_box));
-    check_cuda(cudaFree(d_periodic));
 }
 
 TEST_CASE("Test CUDA") {
@@ -165,15 +174,23 @@ TEST_CASE("Test CUDA") {
     check_cuda(cudaGetDeviceCount(&n_devices));
     REQUIRE(n_devices > 0);
 
-    // start multiple threads to test concurrent execution
+    // start multiple threads at the same time on all devices, to test
+    // concurrent execution. Each thread writes to its own entry in `results`.
+    auto results = std::vector<DeviceResults>(10);
     auto threads = std::vector<std::thread>();
-    for (int32_t thread_id = 0; thread_id < 10; ++thread_id) {
-        std::thread t(run_cuda_test, thread_id % n_devices);
-        threads.push_back(std::move(t));
+    for (size_t thread_id = 0; thread_id < results.size(); ++thread_id) {
+        auto device_id = static_cast<int32_t>(thread_id) % n_devices;
+        threads.emplace_back([&results, thread_id, device_id]() {
+            results[thread_id] = compute_on_device(device_id);
+        });
     }
 
     for (auto& t : threads) {
         t.join();
+    }
+
+    for (const auto& thread_results : results) {
+        check_device_results(thread_results);
     }
 }
 

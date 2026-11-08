@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 #include <algorithm>
 #include <limits>
@@ -157,9 +158,32 @@ void check_shape(std::string_view name, ffi::Span<const int64_t> shape, std::vec
     }
 }
 
-/// Run the calculation, writing the pairs and shifts directly in the XLA
-/// buffers. This returns the number of pairs in the neighbor list, which can be
-/// larger than the capacity of the buffers; their content is then unspecified.
+/// Set the entries of `buffer` starting at `start` to zero
+template <typename Buffer>
+void zero_entries(Buffer& buffer, size_t start, VesinDevice device, void* stream) {
+    auto n_entries = static_cast<size_t>(buffer->dimensions()[0]);
+    if (start >= n_entries) {
+        return;
+    }
+
+    auto entry_size = buffer->size_bytes() / n_entries;
+    auto* data = static_cast<char*>(buffer->untyped_data()) + start * entry_size;
+    auto size = (n_entries - start) * entry_size;
+    if (device.type == VesinCUDA) {
+        GPULITE_CUDART_CALL(cudaMemsetAsync(data, 0, size, static_cast<cudaStream_t>(stream)));
+    } else {
+        std::memset(data, 0, size);
+    }
+}
+
+/// Run the calculation, writing the pairs, shifts, and (if the buffers are not
+/// empty) distances and vectors directly in the XLA buffers. This returns the
+/// number of pairs in the neighbor list, which can be larger than the capacity
+/// of the buffers.
+///
+/// The entries after the end of the neighbor list (all entries if it does not
+/// fit in the buffers) are padding: they are set to zero for shifts, distances
+/// and vectors, and left unspecified for pairs.
 size_t compute_neighbors(
     VesinDevice device,
     void* stream,
@@ -168,6 +192,8 @@ size_t compute_neighbors(
     ffi::BufferR1<ffi::PRED> periodic,
     ffi::Result<ffi::BufferR2<ffi::U64>>& pairs,
     ffi::Result<ffi::BufferR2<ffi::S32>>& shifts,
+    ffi::Result<ffi::BufferR1<ffi::F64>>& distances,
+    ffi::Result<ffi::BufferR2<ffi::F64>>& vectors,
     const ffi::Dictionary& attributes
 ) {
     check_shape("points", points.dimensions(), {-1, 3});
@@ -177,6 +203,13 @@ size_t compute_neighbors(
     auto capacity = pairs->dimensions()[0];
     check_shape("pairs", pairs->dimensions(), {capacity, 2});
     check_shape("shifts", shifts->dimensions(), {capacity, 3});
+
+    // distances and vectors are only computed if requested, i.e. if the
+    // corresponding buffers are not empty
+    auto return_distances = distances->dimensions()[0] != 0;
+    auto return_vectors = vectors->dimensions()[0] != 0;
+    check_shape("distances", distances->dimensions(), {return_distances ? capacity : 0});
+    check_shape("vectors", vectors->dimensions(), {return_vectors ? capacity : 0, 3});
 
     auto n_threads = get_attribute<int64_t>(attributes, "n_threads");
     if (n_threads < 0 || n_threads > std::numeric_limits<int32_t>::max()) {
@@ -191,6 +224,8 @@ size_t compute_neighbors(
     options.skin = get_attribute<double>(attributes, "skin");
     options.n_threads = static_cast<int32_t>(n_threads);
     options.return_shifts = true;
+    options.return_distances = return_distances;
+    options.return_vectors = return_vectors;
     options.pre_allocated_outputs = true;
     options.cuda_stream = stream;
 
@@ -199,6 +234,8 @@ size_t compute_neighbors(
     auto* neighbors = pooled.get();
     neighbors->pairs = reinterpret_cast<size_t (*)[2]>(pairs->typed_data());
     neighbors->shifts = reinterpret_cast<int32_t (*)[3]>(shifts->typed_data());
+    neighbors->distances = return_distances ? distances->typed_data() : nullptr;
+    neighbors->vectors = return_vectors ? reinterpret_cast<double (*)[3]>(vectors->typed_data()) : nullptr;
     neighbors->length = static_cast<size_t>(capacity);
 
     const char* error_message = nullptr;
@@ -216,12 +253,20 @@ size_t compute_neighbors(
     // the XLA buffers must not stay in the pool
     neighbors->pairs = nullptr;
     neighbors->shifts = nullptr;
+    neighbors->distances = nullptr;
+    neighbors->vectors = nullptr;
 
     if (status != EXIT_SUCCESS && status != VESIN_OUTPUT_TOO_SMALL) {
         throw std::runtime_error(error_message);
     }
 
-    return neighbors->length;
+    auto n_pairs = neighbors->length;
+    auto padding_start = n_pairs <= static_cast<size_t>(capacity) ? n_pairs : 0;
+    zero_entries(shifts, padding_start, device, stream);
+    zero_entries(distances, padding_start, device, stream);
+    zero_entries(vectors, padding_start, device, stream);
+
+    return n_pairs;
 }
 
 int32_t clamp_to_int32(size_t value) {
@@ -247,12 +292,14 @@ ffi::Error neighbors_cpu(
     ffi::BufferR1<ffi::PRED> periodic,
     ffi::Result<ffi::BufferR2<ffi::U64>> pairs,
     ffi::Result<ffi::BufferR2<ffi::S32>> shifts,
+    ffi::Result<ffi::BufferR1<ffi::F64>> distances,
+    ffi::Result<ffi::BufferR2<ffi::F64>> vectors,
     ffi::Result<ffi::BufferR0<ffi::S32>> n_pairs,
     ffi::Dictionary attributes
 ) {
     return catch_exceptions([&]() {
         auto length = compute_neighbors(
-            {VesinCPU, 0}, nullptr, points, box, periodic, pairs, shifts, attributes
+            {VesinCPU, 0}, nullptr, points, box, periodic, pairs, shifts, distances, vectors, attributes
         );
         *n_pairs->typed_data() = clamp_to_int32(length);
     });
@@ -265,6 +312,8 @@ ffi::Error neighbors_cuda(
     ffi::BufferR1<ffi::PRED> periodic,
     ffi::Result<ffi::BufferR2<ffi::U64>> pairs,
     ffi::Result<ffi::BufferR2<ffi::S32>> shifts,
+    ffi::Result<ffi::BufferR1<ffi::F64>> distances,
+    ffi::Result<ffi::BufferR2<ffi::F64>> vectors,
     ffi::Result<ffi::BufferR0<ffi::S32>> n_pairs,
     ffi::Dictionary attributes
 ) {
@@ -274,7 +323,7 @@ ffi::Error neighbors_cuda(
         auto device = VesinDevice{VesinCUDA, pointer.device};
 
         auto length = clamp_to_int32(compute_neighbors(
-            device, stream, points, box, periodic, pairs, shifts, attributes
+            device, stream, points, box, periodic, pairs, shifts, distances, vectors, attributes
         ));
 
         // `length` is in pageable host memory, so CUDA copies it to a staging
@@ -295,6 +344,8 @@ auto bind_neighbors(Binding binding) {
         .template Arg<ffi::BufferR1<ffi::PRED>>() // periodic
         .template Ret<ffi::BufferR2<ffi::U64>>()  // pairs
         .template Ret<ffi::BufferR2<ffi::S32>>()  // shifts
+        .template Ret<ffi::BufferR1<ffi::F64>>()  // distances
+        .template Ret<ffi::BufferR2<ffi::F64>>()  // vectors
         .template Ret<ffi::BufferR0<ffi::S32>>()  // n_pairs
         .Attrs();
 }

@@ -71,19 +71,19 @@ Gradients
 ---------
 
 The neighbor list itself (pairs and periodic shifts) is not differentiable, but
-the distances and distance vectors are re-computed from the points and box with
-JAX operations. They can be differentiated with respect to both the points and
-the box (e.g. to compute forces and stress), to any order and in both forward
-and reverse mode.
+the distances and distance vectors can be differentiated with respect to both
+the points and the box (e.g. to compute forces and stress), to any order and in
+both forward and reverse mode. The distances and vectors are computed by vesin,
+and only the derivatives re-compute the vectors with JAX operations, so there is
+no additional cost when they are not differentiated.
 
 Precision
 ---------
 
 The neighbor list works with ``float32`` and ``float64`` inputs, and does not
-require enabling ``jax_enable_x64``. The pairs are always found with ``float64``
-arithmetic, while the distances and vectors are computed in the dtype of the
-inputs. With ``float32`` inputs, some distances can thus be slightly above the
-cutoff.
+require enabling ``jax_enable_x64``. vesin always runs with ``float64``
+arithmetic, and the distances and vectors are then converted to the dtype of the
+inputs.
 
 GPU
 ---

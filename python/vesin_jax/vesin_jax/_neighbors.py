@@ -169,10 +169,9 @@ class NeighborList:
         the entries are padding, and the calculation should be run again with a
         larger ``max_pairs``.
 
-        The distances and vectors are computed from the points and box with JAX
-        operations, and can be differentiated with respect to both. The indexes and
-        shifts are always ``int32`` arrays, and the distances and vectors use the
-        same dtype as ``points``.
+        The distances and vectors can be differentiated with respect to the points
+        and the box. The indexes and shifts are always ``int32`` arrays, and the
+        distances and vectors use the same dtype as ``points``.
 
         :param points: positions of all points in the system, as an array of shape
             ``(n_points, 3)``
@@ -227,13 +226,17 @@ class NeighborList:
         if n_points == 0:
             pairs = jnp.zeros((max_pairs, 2), dtype=jnp.int32)
             shifts = jnp.zeros((max_pairs, 3), dtype=jnp.int32)
+            distances = jnp.zeros((max_pairs,), dtype=points.dtype)
+            vectors = jnp.zeros((max_pairs, 3), dtype=points.dtype)
             n_pairs = jnp.zeros((), dtype=jnp.int32)
         else:
-            pairs, shifts, n_pairs = _neighbors_p.bind(
+            pairs, shifts, distances, vectors, n_pairs = _neighbors_p.bind(
                 jax.lax.stop_gradient(points),
                 jax.lax.stop_gradient(box),
                 periodic,
                 max_pairs=max_pairs,
+                return_distances="d" in quantities,
+                return_vectors="D" in quantities,
                 cutoff=self._cutoff,
                 full_list=self._full_list,
                 sorted=self._sorted,
@@ -243,31 +246,15 @@ class NeighborList:
                 state=self._state,
             )
 
-        # entries after `n_pairs` (or all of them when the arrays are too small)
-        # are padding, which we set to known values
-        valid = (jnp.arange(max_pairs) < n_pairs) & (n_pairs <= max_pairs)
-        pairs = jnp.where(valid[:, None], pairs, n_points)
-        shifts = jnp.where(valid[:, None], shifts, 0)
+            # the padding entries of the shifts, distances and vectors are set to
+            # zero by the native code, but the pairs are left unspecified
+            valid = (jnp.arange(max_pairs) < n_pairs) & (n_pairs <= max_pairs)
+            pairs = jnp.where(valid[:, None], pairs, n_points)
 
-        if "d" in quantities or "D" in quantities:
-            if n_points == 0:
-                vectors = jnp.zeros((max_pairs, 3), dtype=points.dtype)
-            else:
-                # re-compute the vectors with differentiable operations, using
-                # in-bounds indexes for the padding entries
-                first = jnp.where(valid, pairs[:, 0], 0)
-                second = jnp.where(valid, pairs[:, 1], 0)
-                cell_shifts = jnp.matmul(
-                    shifts.astype(points.dtype),
-                    box,
-                    precision=jax.lax.Precision.HIGHEST,
+            if "d" in quantities or "D" in quantities:
+                distances, vectors = _differentiable(
+                    points, box, pairs, shifts, valid, distances, vectors
                 )
-                vectors = points[second] - points[first] + cell_shifts
-                vectors = jnp.where(valid[:, None], vectors, 0.0)
-
-            # the double `where` avoids NaN in the gradient of the padding
-            squared = jnp.sum(vectors**2, axis=1)
-            distances = jnp.where(valid, jnp.sqrt(jnp.where(valid, squared, 1.0)), 0.0)
 
         results = []
         for q in quantities:
@@ -288,22 +275,73 @@ class NeighborList:
         return tuple(results)
 
 
+@jax.custom_jvp
+def _differentiable(points, box, pairs, shifts, valid, distances, vectors):
+    """Make the ``distances`` and ``vectors`` computed by vesin differentiable
+    with respect to ``points`` and ``box``."""
+    return distances, vectors
+
+
+@_differentiable.defjvp
+def _differentiable_jvp(primals, tangents):
+    points, box, pairs, shifts, valid, distances, vectors = primals
+    points_dot, box_dot = tangents[:2]
+
+    # calling the function itself (and not returning `distances` and `vectors`
+    # directly) makes higher order derivatives work
+    outputs = _differentiable(*primals)
+
+    # the derivatives use the vectors re-computed with JAX operations, so that
+    # they can be differentiated again. The padding entries use in-bounds
+    # indexes, and are then set to zero.
+    first = jnp.where(valid, pairs[:, 0], 0)
+    second = jnp.where(valid, pairs[:, 1], 0)
+    cell_shifts = shifts.astype(points.dtype)
+    matmul = functools.partial(jnp.matmul, precision=jax.lax.Precision.HIGHEST)
+
+    vectors = points[second] - points[first] + matmul(cell_shifts, box)
+    vectors = jnp.where(valid[:, None], vectors, 0.0)
+    vectors_dot = points_dot[second] - points_dot[first] + matmul(cell_shifts, box_dot)
+    vectors_dot = jnp.where(valid[:, None], vectors_dot, 0.0)
+
+    if distances.shape[0] == 0:
+        distances_dot = jnp.zeros_like(distances)
+    else:
+        # the double `where` avoids NaN in the derivatives of the padding
+        squared = jnp.where(valid, jnp.sum(vectors**2, axis=1), 1.0)
+        distances_dot = jnp.where(
+            valid, jnp.sum(vectors * vectors_dot, axis=1) / jnp.sqrt(squared), 0.0
+        )
+
+    if outputs[1].shape[0] == 0:
+        vectors_dot = jnp.zeros_like(outputs[1])
+
+    return outputs, (distances_dot, vectors_dot)
+
+
 # The calculation itself is a JAX primitive, lowered to a call to the XLA FFI
 # handlers of the native library. From the points, box and periodic flags, it
 # returns the pairs `int32[max_pairs, 2]`, their periodic shifts
-# `int32[max_pairs, 3]` and the number of pairs in the neighbor list `int32[]`.
-# Only the first `n_pairs` entries of the pairs and shifts are valid, and none
-# of them if `n_pairs > max_pairs`. This primitive is not differentiable.
+# `int32[max_pairs, 3]`, the distances and vectors (with zero entries if they
+# are not requested), and the number of pairs in the neighbor list `int32[]`.
+# Only the first `n_pairs` entries are part of the neighbor list, and none of
+# them if `n_pairs > max_pairs`. This primitive is not differentiable.
 _neighbors_p = Primitive("vesin_neighbors")
 _neighbors_p.multiple_results = True
 _neighbors_p.def_impl(functools.partial(xla.apply_primitive, _neighbors_p))
 
 
 @_neighbors_p.def_abstract_eval
-def _neighbors_abstract_eval(points, box, periodic, *, max_pairs, **kwargs):
+def _neighbors_abstract_eval(
+    points, box, periodic, *, max_pairs, return_distances, return_vectors, **kwargs
+):
+    n_distances = max_pairs if return_distances else 0
+    n_vectors = max_pairs if return_vectors else 0
     return (
         jax.core.ShapedArray((max_pairs, 2), np.int32),
         jax.core.ShapedArray((max_pairs, 3), np.int32),
+        jax.core.ShapedArray((n_distances,), points.dtype),
+        jax.core.ShapedArray((n_vectors, 3), points.dtype),
         jax.core.ShapedArray((), np.int32),
     )
 
@@ -321,6 +359,8 @@ def _neighbors_lowering(
     periodic,
     *,
     max_pairs,
+    return_distances,
+    return_vectors,
     cutoff,
     full_list,
     sorted,
@@ -329,24 +369,29 @@ def _neighbors_lowering(
     n_threads,
     state,
 ):
-    # vesin uses float64 points and returns the pairs as `size_t`. XLA supports
+    # vesin uses float64 values and returns the pairs as `size_t`. XLA supports
     # these types even when jax runs without `jax_enable_x64`, so we convert
     # from and to the types seen by users inside the compiled code.
     points_aval, box_aval, _ = ctx.avals_in
-    if points_aval.dtype != np.float64:
+    dtype = points_aval.dtype
+    if dtype != np.float64:
         points = hlo.convert(_tensor_type(points_aval.shape, np.float64), points)
         box = hlo.convert(_tensor_type(box_aval.shape, np.float64), box)
 
+    distances_shape = (max_pairs if return_distances else 0,)
+    vectors_shape = (max_pairs if return_vectors else 0, 3)
     lowering = jax.ffi.ffi_lowering(
         FFI_TARGET,
         result_types=[
             _tensor_type((max_pairs, 2), np.uint64),
             _tensor_type((max_pairs, 3), np.int32),
+            _tensor_type(distances_shape, np.float64),
+            _tensor_type(vectors_shape, np.float64),
             _tensor_type((), np.int32),
         ],
     )
 
-    pairs, shifts, n_pairs = lowering(
+    pairs, shifts, distances, vectors, n_pairs = lowering(
         ctx,
         points,
         box,
@@ -361,7 +406,11 @@ def _neighbors_lowering(
     )
 
     pairs = hlo.convert(_tensor_type((max_pairs, 2), np.int32), pairs)
-    return [pairs, shifts, n_pairs]
+    if dtype != np.float64:
+        distances = hlo.convert(_tensor_type(distances_shape, dtype), distances)
+        vectors = hlo.convert(_tensor_type(vectors_shape, dtype), vectors)
+
+    return [pairs, shifts, distances, vectors, n_pairs]
 
 
 mlir.register_lowering(_neighbors_p, _neighbors_lowering, platform="cpu")
@@ -385,7 +434,7 @@ def _neighbors_batching(args, dims, **params):
 
     batched = [a for a, d in zip(args, dims, strict=True) if d is not None]
     outputs = jax.lax.map(single_system, batched)
-    return outputs, (0, 0, 0)
+    return outputs, (0, 0, 0, 0, 0)
 
 
 batching.primitive_batchers[_neighbors_p] = _neighbors_batching

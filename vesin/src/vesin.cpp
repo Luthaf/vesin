@@ -9,6 +9,7 @@
 
 #include "vesin.h"
 
+#include "./outputs.hpp"
 #include "./cpu/neighbors.hpp"
 #include "./cuda/neighbors.hpp"
 
@@ -53,6 +54,11 @@ extern "C" int32_t vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    if (neighbors == nullptr) {
+        *error_message = "`neighbors` can not be a NULL pointer";
+        return EXIT_FAILURE;
+    }
+
     if (n_points == 0) {
         neighbors->length = 0;
         return EXIT_SUCCESS;
@@ -65,11 +71,6 @@ extern "C" int32_t vesin_neighbors(
 
     if (box == nullptr) {
         *error_message = "`cell` can not be a NULL pointer";
-        return EXIT_FAILURE;
-    }
-
-    if (neighbors == nullptr) {
-        *error_message = "`neighbors` can not be a NULL pointer";
         return EXIT_FAILURE;
     }
 
@@ -159,6 +160,11 @@ extern "C" int32_t vesin_neighbors(
         } else {
             throw std::runtime_error("unknown device " + std::to_string(device.type));
         }
+    } catch (const vesin::OutputTooSmall& e) {
+        neighbors->length = e.n_pairs;
+        LAST_ERROR = e.what();
+        *error_message = LAST_ERROR.c_str();
+        return VESIN_OUTPUT_TOO_SMALL;
     } catch (const std::bad_alloc&) {
         LAST_ERROR = "failed to allocate memory";
         *error_message = LAST_ERROR.c_str();

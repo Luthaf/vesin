@@ -32,7 +32,8 @@ struct OutputPointers {
 ///
 /// Without `options.pre_allocated_outputs`, the arrays must be exactly the
 /// ones vesin left there. With it, all the arrays requested in `options` must
-/// be set, and must not be arrays allocated by vesin.
+/// be set (unless their capacity in `neighbors.length` is zero), and must not
+/// be arrays allocated by vesin.
 inline void check_output_arrays(
     const VesinNeighborList& neighbors,
     const OutputPointers& allocated,
@@ -47,7 +48,7 @@ inline void check_output_arrays(
     for (size_t i = 0; i < 4; i++) {
         auto name = std::string(names[i]);
         if (options.pre_allocated_outputs) {
-            if (requested[i] && current_ptrs[i] == nullptr) {
+            if (requested[i] && current_ptrs[i] == nullptr && neighbors.length != 0) {
                 throw std::runtime_error(
                     "`options.pre_allocated_outputs` is set, but `neighbors." + name + "` is NULL"
                 );
@@ -70,12 +71,25 @@ inline void check_output_arrays(
     }
 }
 
+/// Error for pre-allocated output arrays which are too small. This is reported
+/// to the caller as `VESIN_OUTPUT_TOO_SMALL`, together with the number of pairs
+/// the calculation needs.
+class OutputTooSmall: public std::runtime_error {
+public:
+    OutputTooSmall(size_t capacity, size_t n_pairs):
+        std::runtime_error(
+            "the pre-allocated output arrays can hold " + std::to_string(capacity) +
+            " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
+        ),
+        n_pairs(n_pairs) {}
+
+    /// Number of pairs needed by the calculation
+    size_t n_pairs;
+};
+
 /// Error for pre-allocated output arrays which are too small
-inline std::runtime_error pre_allocated_too_small(size_t capacity, size_t n_pairs) {
-    return std::runtime_error(
-        "the pre-allocated output arrays can hold " + std::to_string(capacity) +
-        " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
-    );
+inline OutputTooSmall pre_allocated_too_small(size_t capacity, size_t n_pairs) {
+    return OutputTooSmall(capacity, n_pairs);
 }
 
 } // namespace vesin

@@ -29,11 +29,13 @@ struct System {
         {0.0, 0.0, 4.0},
     };
     bool periodic[3] = {true, true, true};
+    /// Status returned by the last calculation
+    int32_t status = EXIT_SUCCESS;
 
     /// Run the calculation, returning the error message or an empty string
     std::string compute(VesinNeighborList& neighbors, VesinOptions options) {
         const char* error_message = nullptr;
-        auto status = vesin_neighbors(
+        status = vesin_neighbors(
             reinterpret_cast<const double (*)[3]>(points.data()),
             points.size(),
             box,
@@ -164,17 +166,29 @@ TEST_CASE("Pre-allocated output arrays") {
             REQUIRE(system.compute(neighbors, options).empty());
             CHECK(Results(neighbors, options) == expected);
 
-            // too small
+            // too small, vesin reports the number of pairs it needs
             arrays.set(neighbors, n_pairs - 1);
             CHECK(system.compute(neighbors, options) == (
                 "the pre-allocated output arrays can hold " + std::to_string(n_pairs - 1) +
                 " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
             ));
+            CHECK(system.status == VESIN_OUTPUT_TOO_SMALL);
+            CHECK(neighbors.length == n_pairs);
+
+            // with zero capacity, the arrays can be NULL and are not used,
+            // which allows counting pairs
+            auto empty = VesinNeighborList();
+            CHECK(system.compute(empty, options) != "");
+            CHECK(system.status == VESIN_OUTPUT_TOO_SMALL);
+            CHECK(empty.length == n_pairs);
+            CHECK(empty.pairs == nullptr);
+            vesin_free(&empty);
 
             // one of the requested arrays is missing
             arrays.set(neighbors, capacity);
             neighbors.vectors = nullptr;
             CHECK(system.compute(neighbors, options) == "`options.pre_allocated_outputs` is set, but `neighbors.vectors` is NULL");
+            CHECK(system.status == EXIT_FAILURE);
 
             // arrays which are not requested do not need to be set
             options.return_vectors = false;

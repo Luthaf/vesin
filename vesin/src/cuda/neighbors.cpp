@@ -377,7 +377,7 @@ void vesin::cuda::neighbors(
     if (options.pre_allocated_outputs) {
         auto pointers = vesin::OutputPointers::from(neighbors);
         for (const void* ptr : {pointers.pairs, pointers.shifts, pointers.distances, pointers.vectors}) {
-            if (ptr != nullptr && get_device_id(ptr) != device_id) {
+            if (neighbors.length != 0 && ptr != nullptr && get_device_id(ptr) != device_id) {
                 throw std::runtime_error(
                     "the pre-allocated output arrays in `neighbors` must be "
                     "allocated on CUDA device " + std::to_string(device_id)

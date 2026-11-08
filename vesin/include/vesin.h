@@ -28,6 +28,12 @@
 #endif
 // clang-format on
 
+/// Status code returned by `vesin_neighbors()` when the output arrays given
+/// with `VesinOptions::pre_allocated_outputs` are too small to hold all the
+/// pairs. `VesinNeighborList::length` is then set to the number of pairs this
+/// calculation needs.
+#define VESIN_OUTPUT_TOO_SMALL 2
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -94,8 +100,14 @@ struct VesinOptions {
     /// (`pairs`, and `shifts`, `distances` or `vectors`) must be set in
     /// `VesinNeighborList` before the call, and its `length` must be set to the
     /// number of pairs these arrays can hold. vesin writes the pairs directly
-    /// in these arrays, and the calculation fails if they are too small. These
-    /// arrays stay owned by the caller, and are never released by vesin.
+    /// in these arrays. These arrays stay owned by the caller, and are never
+    /// released by vesin.
+    ///
+    /// If the arrays are too small, `vesin_neighbors()` returns
+    /// `VESIN_OUTPUT_TOO_SMALL` and sets `length` to the number of pairs this
+    /// calculation needs. The content of the arrays is then unspecified. When
+    /// `length` is zero, the arrays are not used and can be NULL, which can be
+    /// used to count the pairs before allocating the arrays.
     ///
     /// If this is `false` (the default), vesin allocates the output arrays
     /// itself, and re-uses them across calls. The pointers to these arrays must
@@ -227,6 +239,12 @@ void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 /// @param error_message Pointer to a `char*` that wil be set to the error
 ///     message if this function fails. This does not need to be freed when no
 ///     longer needed.
+///
+/// @returns `EXIT_SUCCESS` if the calculation succeeded,
+///     `VESIN_OUTPUT_TOO_SMALL` if the arrays given with
+///     `VesinOptions::pre_allocated_outputs` are too small (see the
+///     corresponding documentation), and another non-zero value for all other
+///     errors.
 int32_t VESIN_API vesin_neighbors(
     const double (*points)[3],
     size_t n_points,

@@ -10,6 +10,8 @@ Vesin's C API is defined in the ``vesin.h`` header. The main function is
 
 .. doxygenfunction:: vesin_free
 
+.. doxygendefine:: VESIN_OUTPUT_TOO_SMALL
+
 .. doxygenstruct:: VesinNeighborList
 
 .. doxygenstruct:: VesinOptions

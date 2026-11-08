@@ -28,7 +28,8 @@ void vesin::cuda::device_exclusive_scan(
     int32_t* d_block_totals,
     int32_t* d_block_offsets,
     int32_t* d_block_totals2,
-    size_t n
+    size_t n,
+    cudaStream_t stream
 ) {
     size_t n_scan_blocks = (n + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
     size_t n_scan_blocks_2 = (n_scan_blocks + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
@@ -45,6 +46,7 @@ void vesin::cuda::device_exclusive_scan(
     auto* scan_phase_3 = VESIN_SCAN_KERNEL(factory, exclusive_scan_phase_3);
 
     auto config = gpulite::LaunchConfig();
+    config.stream = stream;
     config.blockDim = dim3(VESIN_SCAN_THREADS);
 
     // Each block of 256 threads processes 1024 elements (4 per thread):

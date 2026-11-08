@@ -254,7 +254,8 @@ static size_t device_exclusive_prefix_sum(
     gpulite::KernelFactory& factory,
     CellListBuffersCUDA& cl,
     PinnedReadback* pinned,
-    size_t n_points
+    size_t n_points,
+    cudaStream_t stream
 ) {
     vesin::cuda::device_exclusive_scan(
         factory,
@@ -263,18 +264,19 @@ static size_t device_exclusive_prefix_sum(
         cl.d_block_totals,
         cl.d_block_offsets,
         cl.d_block_totals2,
-        n_points
+        n_points,
+        stream
     );
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &pinned->last_offset, &cl.d_write_offsets[n_points - 1],
-        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+        sizeof(int32_t), cudaMemcpyDeviceToHost, stream
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &pinned->last_count, &cl.d_counts[n_points - 1],
-        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+        sizeof(int32_t), cudaMemcpyDeviceToHost, stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(stream));
 
     int32_t h_last_offset = pinned->last_offset;
     int32_t h_last_count = pinned->last_count;
@@ -310,6 +312,7 @@ void vesin::cuda::cell_list_neighbors(
     auto& cl = extras->cell_list;
 
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
 
     // The bounding box is only ever read for non-periodic directions, skip the
     // work if everything is periodic
@@ -368,8 +371,8 @@ void vesin::cuda::cell_list_neighbors(
         cl.d_cell_out_of_reach
     );
 
-    GPULITE_CUDART_CALL(cudaMemset(cl.d_cell_counts, 0, sizeof(int32_t) * max_cells));
-    GPULITE_CUDART_CALL(cudaMemset(cl.d_cell_starts, 0, sizeof(int32_t) * max_cells));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(cl.d_cell_counts, 0, sizeof(int32_t) * max_cells, extras->stream));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(cl.d_cell_starts, 0, sizeof(int32_t) * max_cells, extras->stream));
 
     size_t THREADS_PER_BLOCK = 256;
     size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -406,12 +409,13 @@ void vesin::cuda::cell_list_neighbors(
         cl.d_cell_block_totals,
         cl.d_cell_block_offsets,
         cl.d_cell_block_totals2,
-        max_cells
+        max_cells,
+        extras->stream
     );
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         cl.d_cell_offsets, cl.d_cell_starts,
-        sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice, nullptr
+        sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice, extras->stream
     ));
 
     config.gridDim = dim3(num_blocks_points);
@@ -473,7 +477,7 @@ void vesin::cuda::cell_list_neighbors(
         n_pairs = n_points * options.padded_to;
     } else {
         // Device-side exclusive prefix sum of d_counts → d_write_offsets.
-        n_pairs = device_exclusive_prefix_sum(factory, cl, extras->pinned, n_points);
+        n_pairs = device_exclusive_prefix_sum(factory, cl, extras->pinned, n_points, extras->stream);
     }
 
     // Allocate the output buffers. We ask for a little more than the number of

@@ -11,6 +11,7 @@
 
 #include "./bruteforce.hpp"
 #include "./cell_list.hpp"
+#include "./device_guard.hpp"
 #include "./extra_data.hpp"
 #include "./neighbors.hpp"
 #include "./pick_algo.hpp"
@@ -99,7 +100,7 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
         return;
     }
 
-    GPULITE_CUDART_CALL(cudaSetDevice(neighbors.device.device_id));
+    auto device_guard = DeviceGuard(neighbors.device.device_id);
 
     // only release the arrays allocated by vesin, not the pre-allocated ones
     auto* extras = static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
@@ -287,7 +288,11 @@ void vesin::cuda::neighbors(
     assert(neighbors.device.type == VesinCUDA);
     check_cuda_is_available();
 
+    // all allocations and kernel launches below happen on the current device
+    auto device_guard = DeviceGuard(neighbors.device.device_id);
+
     auto* extras = vesin::cuda::get_cuda_extras(neighbors);
+    extras->stream = static_cast<cudaStream_t>(options.cuda_stream);
     vesin::check_output_arrays(neighbors, extras->allocated_outputs, options);
 
     if (options.pre_allocated_outputs) {

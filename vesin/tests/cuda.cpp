@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <thread>
@@ -369,6 +370,95 @@ TEST_CASE("CUDA pre-allocated output arrays") {
         }
     }
 
+    check_cuda(cudaFree(d_points));
+    check_cuda(cudaFree(d_box));
+    check_cuda(cudaFree(d_periodic));
+}
+
+static void CUDART_CB sleep_callback(void*) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+}
+
+TEST_CASE("CUDA streams") {
+    int32_t n_devices = 0;
+    check_cuda(cudaGetDeviceCount(&n_devices));
+    REQUIRE(n_devices > 0);
+    check_cuda(cudaSetDevice(0));
+
+    // 4x4x4 non-periodic lattice: with a cutoff of 1.1 there are 144 pairs
+    // between nearest neighbors (288 in a full list). The "decoy" points are
+    // too far apart to have any pair.
+    auto points = std::vector<double>();
+    auto decoy = std::vector<double>();
+    for (size_t x = 0; x < 4; x++) {
+        for (size_t y = 0; y < 4; y++) {
+            for (size_t z = 0; z < 4; z++) {
+                for (auto value : {x, y, z}) {
+                    points.push_back(static_cast<double>(value));
+                    decoy.push_back(10.0 * static_cast<double>(value));
+                }
+            }
+        }
+    }
+    size_t n_points = points.size() / 3;
+    double box[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+    bool periodic[3] = {false, false, false};
+
+    double (*d_points)[3] = nullptr;
+    double (*d_box)[3] = nullptr;
+    bool* d_periodic = nullptr;
+    check_cuda(cudaMalloc(&d_points, sizeof(double) * points.size()));
+    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
+    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
+    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
+    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+
+    // a non-blocking stream does not synchronize with the legacy default
+    // stream, so vesin only sees the real points if it uses this stream
+    cudaStream_t stream = nullptr;
+    check_cuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+
+    for (auto algorithm : {VesinBruteForce, VesinCellList}) {
+        for (double skin : {0.0, 0.3}) {
+            auto options = VesinOptions();
+            options.cutoff = 1.1;
+            options.full = true;
+            options.algorithm = algorithm;
+            options.skin = skin;
+            options.return_shifts = true;
+            options.cuda_stream = stream;
+
+            auto neighbors = VesinNeighborList();
+            const char* error_message = nullptr;
+            auto compute = [&]() {
+                auto status = vesin_neighbors(
+                    d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, options, &neighbors, &error_message
+                );
+                REQUIRE(status == EXIT_SUCCESS);
+            };
+
+            // compile the kernels before the actual test, otherwise the
+            // compilation can take longer than the delay below
+            check_cuda(cudaMemcpy(d_points, decoy.data(), sizeof(double) * decoy.size(), cudaMemcpyHostToDevice));
+            compute();
+            CHECK(neighbors.length == 0);
+            check_cuda(cudaStreamSynchronize(stream));
+
+            // the real points only arrive after a delay on `stream`
+            check_cuda(cudaLaunchHostFunc(stream, sleep_callback, nullptr));
+            check_cuda(cudaMemcpyAsync(
+                d_points, points.data(), sizeof(double) * points.size(), cudaMemcpyHostToDevice, stream
+            ));
+
+            compute();
+            CHECK(neighbors.length == 288);
+
+            check_cuda(cudaStreamSynchronize(stream));
+            vesin_free(&neighbors);
+        }
+    }
+
+    check_cuda(cudaStreamDestroy(stream));
     check_cuda(cudaFree(d_points));
     check_cuda(cudaFree(d_box));
     check_cuda(cudaFree(d_periodic));

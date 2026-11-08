@@ -49,6 +49,7 @@ BoxChecks vesin::cuda::check_box(
     // `analyze_box` is a single-thread kernel, there are only 18 numbers to
     // look at and everything downstream needs the answer before it can start
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
     config.gridDim = dim3(1);
     config.blockDim = dim3(1);
 
@@ -65,13 +66,13 @@ BoxChecks vesin::cuda::check_box(
     auto* pinned = extras->pinned;
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &pinned->all_periodic, extras->d_all_periodic,
-        sizeof(bool), cudaMemcpyDeviceToHost, nullptr
+        sizeof(bool), cudaMemcpyDeviceToHost, extras->stream
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         pinned->n_search, extras->d_n_search,
-        sizeof(int32_t) * 3, cudaMemcpyDeviceToHost, nullptr
+        sizeof(int32_t) * 3, cudaMemcpyDeviceToHost, extras->stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     results.all_periodic = pinned->all_periodic;
 
@@ -102,11 +103,12 @@ static bool run_brute_force(
 
     auto& factory = gpulite::KernelFactory::instance(neighbors.device.device_id);
 
-    GPULITE_CUDART_CALL(cudaMemset(extras->d_length_ptr, 0, sizeof(size_t)));
-    GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(extras->d_length_ptr, 0, sizeof(size_t), extras->stream));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(extras->d_overflow_flag, 0, sizeof(int32_t), extras->stream));
 
     size_t THREADS_PER_BLOCK = 128;
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
     config.gridDim = dim3((n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, n_points);
     config.blockDim = dim3(THREADS_PER_BLOCK);
 
@@ -173,16 +175,16 @@ static bool run_brute_force(
         extras->d_length_ptr,
         sizeof(size_t),
         cudaMemcpyDeviceToHost,
-        nullptr
+        extras->stream
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &extras->pinned->overflow,
         extras->d_overflow_flag,
         sizeof(int32_t),
         cudaMemcpyDeviceToHost,
-        nullptr
+        extras->stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     neighbors.length = extras->pinned->length;
 

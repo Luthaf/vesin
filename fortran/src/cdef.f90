@@ -92,6 +92,10 @@ module vesin_c
         !> Should vesin write the output in arrays pre-allocated by the caller?
         !! See the C API documentation for `VesinOptions`.
         logical(c_bool) :: pre_allocated_outputs = .false.
+
+        !> CUDA stream (`cudaStream_t`) to use for calculations on CUDA
+        !! devices. See the C API documentation for `VesinOptions`.
+        type(c_ptr) :: cuda_stream = c_null_ptr
     end type VesinOptions
 
     !> Used as return type from `vesin_neighbors()`.

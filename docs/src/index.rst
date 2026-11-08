@@ -342,6 +342,7 @@ Usage example
 
                 // calculation setup
                 VesinOptions options;
+                memset(&options, 0, sizeof(VesinOptions));
                 options.cutoff = 4.2;
                 options.full = true;
                 options.sorted = false;
@@ -402,7 +403,9 @@ Usage example
             );
 
         The data in the ``neighbors`` structure will be directly allocated on
-        the device.
+        the device. All the work happens on the CUDA stream given in
+        ``options.cuda_stream`` (the legacy default stream if this is
+        ``NULL``).
 
     .. tab-item:: |logo-fortran| Fortran
 

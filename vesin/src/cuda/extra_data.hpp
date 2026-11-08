@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <gpulite/gpulite.hpp>
+
 #include "vesin.h"
 
 #include "../outputs.hpp"
@@ -41,6 +43,10 @@ struct CudaNeighborListExtras {
 
     /// Is the current calculation using output arrays pre-allocated by the caller?
     bool pre_allocated_outputs = false;
+
+    /// CUDA stream used by the current calculation, from
+    /// `VesinOptions::cuda_stream`
+    cudaStream_t stream = nullptr;
 
     /// GPU-side pointer to the length of the neighbor list
     size_t* d_length_ptr = nullptr;

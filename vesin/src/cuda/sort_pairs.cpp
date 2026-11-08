@@ -184,12 +184,13 @@ void vesin::cuda::sort_pairs(
 
     const size_t sort_threads = 256;
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
     config.gridDim = dim3((neighbors.length + sort_threads - 1) / sort_threads);
     config.blockDim = dim3(sort_threads);
 
     // The pass below accumulates into `d_counts` with atomics, so it has to
     // start from zero on every call.
-    GPULITE_CUDART_CALL(cudaMemset(sort.d_counts, 0, sizeof(int32_t) * n_points));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(sort.d_counts, 0, sizeof(int32_t) * n_points, extras->stream));
 
     copy_and_count_kernel->launch(
         config,
@@ -215,7 +216,8 @@ void vesin::cuda::sort_pairs(
         sort.d_block_totals,
         sort.d_block_offsets,
         sort.d_block_totals2,
-        n_points
+        n_points,
+        extras->stream
     );
 
     scatter_kernel->launch(

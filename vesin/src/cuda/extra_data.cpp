@@ -86,6 +86,9 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
 
         this->pre_allocated_outputs = other.pre_allocated_outputs;
         other.pre_allocated_outputs = false;
+
+        this->stream = other.stream;
+        other.stream = nullptr;
     }
     return *this;
 }

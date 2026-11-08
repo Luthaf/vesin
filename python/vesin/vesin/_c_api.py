@@ -33,6 +33,7 @@ class VesinOptions(ctypes.Structure):
         ("return_distances", ctypes.c_bool),
         ("return_vectors", ctypes.c_bool),
         ("pre_allocated_outputs", ctypes.c_bool),
+        ("cuda_stream", ctypes.c_void_p),
     ]
 
 

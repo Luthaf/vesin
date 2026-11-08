@@ -101,6 +101,17 @@ struct VesinOptions {
     /// itself, and re-uses them across calls. The pointers to these arrays must
     /// not be modified by the caller.
     bool pre_allocated_outputs;
+
+    /// CUDA stream (`cudaStream_t`) to use for calculations on CUDA devices.
+    /// This is ignored for calculations on CPU.
+    ///
+    /// All the work on the GPU (kernels, memory copies, ...) is ordered on this
+    /// stream: the input data must be ready for work submitted to this stream,
+    /// and the outputs will be ready for later work submitted to it. vesin
+    /// might synchronize this stream during the calculation (e.g. to read back
+    /// the number of pairs). A NULL value (the default) uses the legacy default
+    /// stream.
+    void* cuda_stream;
 };
 
 /// Device on which the data can be

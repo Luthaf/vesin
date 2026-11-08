@@ -51,6 +51,18 @@ Calling :py:meth:`NeighborList.compute <vesin_jax.NeighborList.compute>` with
 ``max_pairs=0`` only computes the number of pairs, which can be used to pick an
 initial capacity.
 
+Verlet caching
+--------------
+
+With ``skin > 0``, vesin keeps a list of candidate pairs computed with ``cutoff +
+skin`` between calls, and only re-computes it when a point moved by more than
+``skin / 2`` (or the box changed too much). The returned neighbor list is always
+the exact one for ``cutoff``, so this does not change the results, only the cost
+of the calculation. This cache lives in vesin's native library, and each
+:py:class:`NeighborList <vesin_jax.NeighborList>` has its own: it works best
+when one ``NeighborList`` is used for a single system, for example along a
+molecular dynamics trajectory.
+
 Gradients
 ---------
 

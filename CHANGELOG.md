@@ -23,7 +23,7 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   used inside `jax.jit` and `jax.vmap`, on CPU and CUDA devices. Distances and
   vectors are differentiable with respect to the points and box. The neighbor
   list is returned in arrays with a fixed capacity, together with the actual
-  number of pairs.
+  number of pairs. Verlet caching is available with the `skin` option.
 - `vesin_torch.NeighborList` can now be used with `torch.compile`, including
   with `fullgraph=True`, and supports higher order derivatives.
 - `vesin_torch.NeighborList` can now be serialized with `pickle`,

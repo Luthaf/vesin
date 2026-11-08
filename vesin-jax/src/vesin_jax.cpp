@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -31,13 +32,15 @@ static_assert(sizeof(size_t) == sizeof(uint64_t), "vesin-jax requires a 64-bit s
 namespace {
 
 /// Pool of `VesinNeighborList`, used to re-use the memory allocated by vesin
-/// (scratch buffers, caches, ...) across calls. The entries are separated by
-/// device and CUDA stream: vesin can return while some work is still queued on
-/// the stream, so one entry can only be re-used by later work on the same
-/// stream. The entries currently used by a calculation are not in the pool.
+/// (scratch buffers, Verlet caches, ...) across calls. The entries are
+/// separated by state (one for each Python `NeighborList`, so they each get
+/// their own Verlet cache), device, and CUDA stream: vesin can return while
+/// some work is still queued on the stream, so one entry can only be re-used
+/// by later work on the same stream. The entries currently used by a
+/// calculation are not in the pool.
 class NeighborListPool {
 public:
-    using Key = std::tuple<int32_t, int32_t, void*>;
+    using Key = std::tuple<int64_t, int32_t, int32_t, void*>;
 
     /// Get the global pool. It is intentionally leaked, to never release CUDA
     /// memory after the CUDA libraries have been unloaded when exiting.
@@ -60,19 +63,47 @@ public:
 
     void release(const Key& key, VesinNeighborList* neighbors) {
         auto lock = std::lock_guard<std::mutex>(mutex_);
+        if (freed_states_.count(std::get<0>(key)) != 0) {
+            // the state was freed while this entry was in use
+            free_neighbors(neighbors);
+            return;
+        }
         available_[key].push_back(neighbors);
     }
 
+    /// Release all the memory used by the given state. The state can still be
+    /// used afterwards, but its entries are then released after each use.
+    void free_state(int64_t state) {
+        auto lock = std::lock_guard<std::mutex>(mutex_);
+        freed_states_.insert(state);
+        for (auto it = available_.begin(); it != available_.end();) {
+            if (std::get<0>(it->first) == state) {
+                for (auto* neighbors: it->second) {
+                    free_neighbors(neighbors);
+                }
+                it = available_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
 private:
+    static void free_neighbors(VesinNeighborList* neighbors) {
+        vesin_free(neighbors);
+        delete neighbors;
+    }
+
     std::mutex mutex_;
     std::map<Key, std::vector<VesinNeighborList*>> available_;
+    std::set<int64_t> freed_states_;
 };
 
 /// A `VesinNeighborList` taken from the pool for the duration of one calculation
 class PooledNeighborList {
 public:
-    PooledNeighborList(VesinDevice device, void* stream):
-        key_(device.type, device.device_id, stream),
+    PooledNeighborList(int64_t state, VesinDevice device, void* stream):
+        key_(state, device.type, device.device_id, stream),
         neighbors_(NeighborListPool::instance().acquire(key_)) {}
 
     ~PooledNeighborList() {
@@ -134,7 +165,9 @@ size_t compute_neighbors(
     bool full_list,
     bool sorted,
     std::string_view algorithm,
-    int64_t n_threads
+    double skin,
+    int64_t n_threads,
+    int64_t state
 ) {
     check_shape("points", points.dimensions(), {-1, 3});
     check_shape("box", box.dimensions(), {3, 3});
@@ -153,12 +186,13 @@ size_t compute_neighbors(
     options.full = full_list;
     options.sorted = sorted;
     options.algorithm = parse_algorithm(algorithm);
+    options.skin = skin;
     options.n_threads = static_cast<int32_t>(n_threads);
     options.return_shifts = true;
     options.pre_allocated_outputs = true;
     options.cuda_stream = stream;
 
-    auto neighbors = PooledNeighborList(device, stream);
+    auto neighbors = PooledNeighborList(state, device, stream);
     neighbors->pairs = reinterpret_cast<size_t (*)[2]>(pairs->typed_data());
     neighbors->shifts = reinterpret_cast<int32_t (*)[3]>(shifts->typed_data());
     neighbors->length = static_cast<size_t>(capacity);
@@ -201,11 +235,13 @@ ffi::Error neighbors_cpu(
     bool full_list,
     bool sorted,
     std::string_view algorithm,
-    int64_t n_threads
+    double skin,
+    int64_t n_threads,
+    int64_t state
 ) {
     try {
         auto length = compute_neighbors(
-            {VesinCPU, 0}, nullptr, points, box, periodic, pairs, shifts, cutoff, full_list, sorted, algorithm, n_threads
+            {VesinCPU, 0}, nullptr, points, box, periodic, pairs, shifts, cutoff, full_list, sorted, algorithm, skin, n_threads, state
         );
         *n_pairs->typed_data() = to_int32(length);
         return ffi::Error::Success();
@@ -228,7 +264,9 @@ ffi::Error neighbors_cuda(
     bool full_list,
     bool sorted,
     std::string_view algorithm,
-    int64_t n_threads
+    double skin,
+    int64_t n_threads,
+    int64_t state
 ) {
     try {
         cudaPointerAttributes attributes;
@@ -236,7 +274,7 @@ ffi::Error neighbors_cuda(
         auto device = VesinDevice{VesinCUDA, attributes.device};
 
         auto length = to_int32(compute_neighbors(
-            device, stream, points, box, periodic, pairs, shifts, cutoff, full_list, sorted, algorithm, n_threads
+            device, stream, points, box, periodic, pairs, shifts, cutoff, full_list, sorted, algorithm, skin, n_threads, state
         ));
 
         // `length` is in pageable memory, so it is copied to a staging area
@@ -270,7 +308,9 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<bool>("full_list")
         .Attr<bool>("sorted")
         .Attr<std::string_view>("algorithm")
+        .Attr<double>("skin")
         .Attr<int64_t>("n_threads")
+        .Attr<int64_t>("state")
 );
 
 extern "C" VESIN_JAX_EXPORT XLA_FFI_Error* vesin_jax_neighbors_cuda(XLA_FFI_CallFrame* call_frame);
@@ -289,5 +329,17 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<bool>("full_list")
         .Attr<bool>("sorted")
         .Attr<std::string_view>("algorithm")
+        .Attr<double>("skin")
         .Attr<int64_t>("n_threads")
+        .Attr<int64_t>("state")
 );
+
+/// Release the memory associated with the state of a `NeighborList`, called
+/// when the corresponding Python object is garbage-collected.
+extern "C" VESIN_JAX_EXPORT void vesin_jax_free_state(int64_t state) {
+    try {
+        NeighborListPool::instance().free_state(state);
+    } catch (...) {
+        // nothing we can do, the memory will be leaked
+    }
+}

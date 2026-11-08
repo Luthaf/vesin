@@ -10,6 +10,8 @@ _HERE = os.path.realpath(os.path.dirname(__file__))
 # name of the FFI target used by the `vesin_neighbors` primitive
 FFI_TARGET = "vesin_neighbors"
 
+_LIB = None
+
 
 def _lib_path():
     if sys.platform.startswith("darwin"):
@@ -32,7 +34,11 @@ def register_ffi_targets():
     Load the native library and register its handlers as XLA FFI targets for
     CPU and CUDA.
     """
+    global _LIB
     lib = ctypes.cdll.LoadLibrary(_lib_path())
+    lib.vesin_jax_free_state.argtypes = [ctypes.c_int64]
+    lib.vesin_jax_free_state.restype = None
+    _LIB = lib
 
     jax.ffi.register_ffi_target(
         FFI_TARGET,
@@ -44,3 +50,8 @@ def register_ffi_targets():
         jax.ffi.pycapsule(lib.vesin_jax_neighbors_cuda),
         platform="CUDA",
     )
+
+
+def free_state(state):
+    """Release the memory used by the state of a ``NeighborList``"""
+    _LIB.vesin_jax_free_state(state)

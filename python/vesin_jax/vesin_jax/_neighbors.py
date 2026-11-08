@@ -1,5 +1,8 @@
 import functools
+import itertools
+import math
 import operator
+import weakref
 from typing import Tuple
 
 import jax
@@ -9,8 +12,12 @@ from jax.extend.core import Primitive
 from jax.extend.mlir.dialects import stablehlo as hlo
 from jax.interpreters import batching, mlir, xla
 
-from ._c_lib import FFI_TARGET
+from ._c_lib import FFI_TARGET, free_state
 
+
+# Each `NeighborList` gets a separate state in the native library, holding the
+# memory allocated by vesin and its Verlet cache. The ids are never re-used.
+_STATE_IDS = itertools.count()
 
 # The primitive computing the neighbor list from the points, box and periodic
 # flags. It returns the pairs `int32[max_pairs, 2]`, their periodic shifts
@@ -48,7 +55,9 @@ def _neighbors_lowering(
     full_list,
     sorted,
     algorithm,
+    skin,
     n_threads,
+    state,
 ):
     # vesin uses float64 points and returns the pairs as `size_t`. XLA supports
     # these types even when jax runs without `jax_enable_x64`, so we convert
@@ -76,7 +85,9 @@ def _neighbors_lowering(
         full_list=bool(full_list),
         sorted=bool(sorted),
         algorithm=algorithm,
+        skin=np.float64(skin),
         n_threads=np.int64(n_threads),
+        state=np.int64(state),
     )
 
     pairs = hlo.convert(_tensor_type((max_pairs, 2), np.int32), pairs)
@@ -146,6 +157,7 @@ class NeighborList:
         full_list: bool,
         sorted: bool = False,
         algorithm: str = "auto",
+        skin: float = 0.0,
         n_threads: int = 0,
     ):
         """
@@ -157,6 +169,17 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"`` (only available on GPU), or ``"cell_list"``.
+        :param skin: skin size for Verlet caching. A positive value enables caching:
+            the pairs are searched with ``cutoff + skin``, and this list is re-used
+            until any point moves farther than ``skin/2``. The neighbor list returned
+            by :py:meth:`compute` is always the exact one for ``cutoff``, the cache
+            only makes the calculation faster. A negative value sets the skin to an
+            unspecified fraction of the cutoff that is optimal for the current
+            implementation. Zero disables caching (the default). Each
+            ``NeighborList`` has its own cache, which is best used for a single
+            system (e.g. along a trajectory): using the same ``NeighborList`` for
+            different systems (including with :py:func:`jax.vmap`) is correct, but
+            the cache will be rebuilt every time.
         :param n_threads: number of CPU threads to use. Must be 0 or a positive integer.
             If set to 0, Vesin uses ``OMP_NUM_THREADS`` when set to a positive integer,
             and otherwise the number of available CPU cores.
@@ -171,11 +194,20 @@ class NeighborList:
         if n_threads < 0:
             raise ValueError("n_threads must be zero or a positive integer")
 
+        if not math.isfinite(skin):
+            raise ValueError(f"skin must be a finite number, got {skin}")
+
         self._cutoff = float(cutoff)
         self._full_list = bool(full_list)
         self._sorted = bool(sorted)
         self._algorithm = str(algorithm)
+        self._skin = float(skin)
         self._n_threads = n_threads
+
+        self._state = next(_STATE_IDS)
+        # the memory is reclaimed by the OS at exit, freeing it would risk
+        # running after the CUDA libraries are unloaded
+        weakref.finalize(self, free_state, self._state).atexit = False
 
     @property
     def cutoff(self) -> float:
@@ -196,6 +228,11 @@ class NeighborList:
     def algorithm(self) -> str:
         """Algorithm used to compute this neighbor list."""
         return self._algorithm
+
+    @property
+    def skin(self) -> float:
+        """Skin size used for Verlet caching."""
+        return self._skin
 
     @property
     def n_threads(self) -> int:
@@ -302,7 +339,9 @@ class NeighborList:
                 full_list=self._full_list,
                 sorted=self._sorted,
                 algorithm=self._algorithm,
+                skin=self._skin,
                 n_threads=self._n_threads,
+                state=self._state,
             )
 
         # entries after `n_pairs` (or all of them when the arrays are too small)

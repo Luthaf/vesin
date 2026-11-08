@@ -32,6 +32,7 @@ classifiers = [
 
 [project.optional-dependencies]
 torch = ["vesin-torch"]
+jax = ["vesin-jax"]
 
 [project.urls]
 homepage = "https://github.com/Luthaf/vesin/"

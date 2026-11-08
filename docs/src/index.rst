@@ -82,6 +82,14 @@ Installation
 
             pip install vesin[torch]
 
+        **JAX:**
+
+        The JAX bindings can be installed with:
+
+        .. code-block:: bash
+
+            pip install vesin[jax]
+
     .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| CMake
         :sync: cxx
 
@@ -490,6 +498,44 @@ Usage example
                 quantities="ijSd"
             )
 
+    .. tab-item:: JAX
+
+        The entry point for the JAX API is the :py:class:`vesin_jax.NeighborList`
+        class, modeled after vesin's Python API. The calculation can be used
+        inside :py:func:`jax.jit` and :py:func:`jax.vmap`, on CPU and CUDA
+        devices, and the ``d`` (distances) and ``D`` (distance vectors) outputs
+        are differentiable with respect to the points and the box.
+
+        Since JAX needs to know the shape of all arrays when compiling the code,
+        the outputs have a fixed capacity of ``max_pairs`` pairs, and the actual
+        number of pairs is returned as the last output. All the entries are
+        padding when ``n_pairs > max_pairs``, see the :ref:`API reference
+        <jax-api>` for more information.
+
+        .. code-block:: Python
+
+            import jax
+            import jax.numpy as jnp
+            from vesin_jax import NeighborList
+
+            points = jnp.array([[0.0, 0.0, 0.0], [0.0, 1.3, 1.3]])
+            box = 3.2 * jnp.eye(3)
+
+            calculator = NeighborList(cutoff=4.2, full_list=True)
+
+            @jax.jit
+            def compute(points, box):
+                return calculator.compute(
+                    points=points,
+                    box=box,
+                    periodic=True,
+                    quantities="ijSd",
+                    max_pairs=256,
+                )
+
+            i, j, S, d, n_pairs = compute(points, box)
+            assert n_pairs <= 256
+
 
 API Reference
 -------------
@@ -505,6 +551,7 @@ API Reference
 
     python-api
     torch-api
+    jax-api
     c-api
     fortran-api
     metatomic

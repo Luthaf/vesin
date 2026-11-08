@@ -20,6 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 DEFAULT_PATHS = [
     os.path.join(ROOT, "vesin"),
     os.path.join(ROOT, "vesin-torch"),
+    os.path.join(ROOT, "vesin-jax"),
 ]
 
 EXTENSIONS = [".c", ".h", ".cc", ".cpp", ".hpp", ".cu", ".cuh"]

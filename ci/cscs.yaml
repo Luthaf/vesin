@@ -33,3 +33,5 @@ test tox:
     SLURM_NTASKS: 1
     SLURM_TIMELIMIT: '00:30:00'
     GIT_STRATEGY: fetch
+    # test vesin-jax on GPU
+    VESIN_TESTS_JAX_EXTRA: "[cuda12]"

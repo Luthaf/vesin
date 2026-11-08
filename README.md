@@ -16,6 +16,7 @@ system. We provide an interface for the following programing languages:
   directly by your own build system;
 - Python;
 - TorchScript, with both a C++ and Python interface;
+- JAX, with a neighbor list that can be compiled with `jax.jit`;
 
 ### Installation
 

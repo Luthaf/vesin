@@ -73,6 +73,7 @@ intersphinx_mapping = {
     "metatomic": ("https://docs.metatensor.org/metatomic/latest/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
+    "jax": ("https://docs.jax.dev/en/latest/", None),
     "ase": ("https://docs.ase-lib.org/", None),
 }
 

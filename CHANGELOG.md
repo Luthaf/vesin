@@ -38,6 +38,7 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 
 ### Removed
 
+- Support for Python 3.10. The minimal supported version is now Python 3.11.
 - The `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable and the
   `VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT` compile-time option. Neither is needed
   any more: when the CUDA brute force search finds more pairs than it reserved

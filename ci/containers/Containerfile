@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # https://docs.astral.sh/uv/guides/integration/docker/#installing-uv
-ADD https://astral.sh/uv/0.9.30/install.sh /uv-installer.sh
+ADD https://astral.sh/uv/0.13.7/install.sh /uv-installer.sh
 RUN sh /uv-installer.sh && rm /uv-installer.sh
 ENV PATH="/root/.local/bin:$PATH"
 

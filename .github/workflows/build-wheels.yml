@@ -45,14 +45,14 @@ jobs:
             os: windows-2022
             cibw-arch: AMD64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: install dependencies
         run: python -m pip install cibuildwheel twine
@@ -122,14 +122,14 @@ jobs:
           - {torch-version: '2.11', python-version: '3.14', cibw-python: 'cp314-*'}
           - {torch-version: '2.12', python-version: '3.14', cibw-python: 'cp314-*'}
           - {torch-version: '2.13', python-version: '3.14', cibw-python: 'cp314-*'}
-          - {torch-version: '2.14', python-version: '3.14', cibw-python: 'cp314-*'}
+          - {torch-version: '2.14', python-version: '3.15', cibw-python: 'cp315-*'}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -180,7 +180,7 @@ jobs:
             os: windows-2022
             cibw-arch: AMD64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download wheels
         uses: actions/download-artifact@v8
@@ -190,9 +190,9 @@ jobs:
           path: dist
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: install dependencies
         run: python -m pip install twine wheel
@@ -234,14 +234,14 @@ jobs:
     runs-on: ubuntu-24.04
     name: sdist
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: build sdist
         run: |
@@ -290,7 +290,7 @@ jobs:
 
       - name: upload to GitHub release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*
@@ -305,14 +305,14 @@ jobs:
       contents: write
     steps:
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: create single file build
         run: |
@@ -320,7 +320,7 @@ jobs:
 
       - name: upload to GitHub release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ./vesin/dist/vesin-single-build-v*.tar.gz

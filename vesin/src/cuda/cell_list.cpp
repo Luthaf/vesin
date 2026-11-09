@@ -179,71 +179,75 @@ CellListBuffersCUDA& CellListBuffersCUDA::operator=(CellListBuffersCUDA&& other)
     return *this;
 }
 
-void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
+void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells, cudaStream_t stream) {
     if (this->points_capacity < n_points) {
         // Free old point-related buffers
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_indices));
-        GPULITE_CUDART_CALL(cudaFree(this->d_particle_shifts));
-        GPULITE_CUDART_CALL(cudaFree(this->d_sorted_points));
-        GPULITE_CUDART_CALL(cudaFree(this->d_wrapped_positions));
-        GPULITE_CUDART_CALL(cudaFree(this->d_sorted_indices));
-        GPULITE_CUDART_CALL(cudaFree(this->d_sorted_shifts));
-        GPULITE_CUDART_CALL(cudaFree(this->d_sorted_cell_indices));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_indices, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_particle_shifts, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_sorted_points, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_wrapped_positions, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_sorted_indices, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_sorted_shifts, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_sorted_cell_indices, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_counts, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_write_offsets, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_block_totals, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_block_offsets, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_block_totals2, stream));
 
         // And allocate with the new capacity
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_indices, sizeof(int32_t) * n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_particle_shifts, sizeof(int32_t) * n_points * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_points, sizeof(double) * n_points * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_wrapped_positions, sizeof(double) * n_points * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_indices, sizeof(int32_t) * n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_shifts, sizeof(int32_t) * n_points * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_sorted_cell_indices, sizeof(int32_t) * n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_counts, sizeof(int32_t) * n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_write_offsets, sizeof(int32_t) * (n_points + 1)));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_indices, sizeof(int32_t) * n_points, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_particle_shifts, sizeof(int32_t) * n_points * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_sorted_points, sizeof(double) * n_points * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_wrapped_positions, sizeof(double) * n_points * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_sorted_indices, sizeof(int32_t) * n_points, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_sorted_shifts, sizeof(int32_t) * n_points * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_sorted_cell_indices, sizeof(int32_t) * n_points, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_counts, sizeof(int32_t) * n_points, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_write_offsets, sizeof(int32_t) * (n_points + 1), stream));
+
         size_t n_scan_blocks = (n_points + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals, sizeof(int32_t) * n_scan_blocks));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_offsets, sizeof(int32_t) * n_scan_blocks));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_block_totals, sizeof(int32_t) * n_scan_blocks, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_block_offsets, sizeof(int32_t) * n_scan_blocks, stream));
+
         size_t n_scan_blocks2 = (n_scan_blocks + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals2, sizeof(int32_t) * n_scan_blocks2));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_block_totals2, sizeof(int32_t) * n_scan_blocks2, stream));
+
         this->points_capacity = n_points;
     }
 
     if (this->cells_capacity < n_cells) {
         // Free old cell-related buffers
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_counts));
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_starts));
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_offsets));
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_totals));
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_offsets));
-        GPULITE_CUDART_CALL(cudaFree(this->d_cell_block_totals2));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_counts, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_starts, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_offsets, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_block_totals, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_block_offsets, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_cell_block_totals2, stream));
 
         // And allocate with the new capacity
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_counts, sizeof(int32_t) * n_cells));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_starts, sizeof(int32_t) * n_cells));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_offsets, sizeof(int32_t) * n_cells));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_counts, sizeof(int32_t) * n_cells, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_starts, sizeof(int32_t) * n_cells, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_offsets, sizeof(int32_t) * n_cells, stream));
 
         size_t n_cell_blocks = (n_cells + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_block_totals, sizeof(int32_t) * n_cell_blocks));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_block_offsets, sizeof(int32_t) * n_cell_blocks));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_block_totals, sizeof(int32_t) * n_cell_blocks, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_block_offsets, sizeof(int32_t) * n_cell_blocks, stream));
         size_t n_cell_blocks2 = (n_cell_blocks + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_cell_block_totals2, sizeof(int32_t) * n_cell_blocks2));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_block_totals2, sizeof(int32_t) * n_cell_blocks2, stream));
 
         this->cells_capacity = n_cells;
     }
 
     // Allocate cell grid parameter buffers (fixed size, only once)
     if (this->d_n_cells == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_cells, sizeof(int32_t) * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_search, sizeof(int32_t) * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_n_cells_total, sizeof(int32_t)));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_face_distances, sizeof(double) * 3));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_bounding_min, sizeof(double) * 3));
-        GPULITE_CUDART_CALL(cudaMalloc(
-            (void**)&this->d_cell_out_of_reach, sizeof(bool) * VESIN_MAX_OUT_OF_REACH_MASK
-        ));
-        GPULITE_CUDART_CALL(cudaMalloc(
-            (void**)&this->d_bbox_partials, sizeof(double) * 6 * MAX_BOUNDING_BOX_BLOCKS
-        ));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_n_cells, sizeof(int32_t) * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_n_search, sizeof(int32_t) * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_n_cells_total, sizeof(int32_t), stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_face_distances, sizeof(double) * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_bounding_min, sizeof(double) * 3, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_cell_out_of_reach, sizeof(bool) * VESIN_MAX_OUT_OF_REACH_MASK, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_bbox_partials, sizeof(double) * 6 * MAX_BOUNDING_BOX_BLOCKS, stream));
     }
 }
 
@@ -252,12 +256,14 @@ void CellListBuffersCUDA::allocate(size_t n_points, size_t n_cells) {
 // number of pairs.
 static size_t device_exclusive_prefix_sum(
     gpulite::KernelFactory& factory,
+    cudaStream_t stream,
     CellListBuffersCUDA& cl,
     PinnedReadback* pinned,
     size_t n_points
 ) {
     vesin::cuda::device_exclusive_scan(
         factory,
+        stream,
         cl.d_counts,
         cl.d_write_offsets,
         cl.d_block_totals,
@@ -268,13 +274,13 @@ static size_t device_exclusive_prefix_sum(
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &pinned->last_offset, &cl.d_write_offsets[n_points - 1],
-        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+        sizeof(int32_t), cudaMemcpyDeviceToHost, stream
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &pinned->last_count, &cl.d_counts[n_points - 1],
-        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+        sizeof(int32_t), cudaMemcpyDeviceToHost, stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(stream));
 
     int32_t h_last_offset = pinned->last_offset;
     int32_t h_last_count = pinned->last_count;
@@ -306,10 +312,11 @@ void vesin::cuda::cell_list_neighbors(
     size_t max_cells = std::max(n_points * MAX_CELLS_PER_PARTICLE, static_cast<size_t>(1));
     max_cells = std::min(DEFAULT_MAX_CELLS, max_cells);
 
-    extras->cell_list.allocate(n_points, max_cells);
+    extras->cell_list.allocate(n_points, max_cells, extras->stream);
     auto& cl = extras->cell_list;
 
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
 
     // The bounding box is only ever read for non-periodic directions, skip the
     // work if everything is periodic
@@ -368,8 +375,8 @@ void vesin::cuda::cell_list_neighbors(
         cl.d_cell_out_of_reach
     );
 
-    GPULITE_CUDART_CALL(cudaMemset(cl.d_cell_counts, 0, sizeof(int32_t) * max_cells));
-    GPULITE_CUDART_CALL(cudaMemset(cl.d_cell_starts, 0, sizeof(int32_t) * max_cells));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(cl.d_cell_counts, 0, sizeof(int32_t) * max_cells, extras->stream));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(cl.d_cell_starts, 0, sizeof(int32_t) * max_cells, extras->stream));
 
     size_t THREADS_PER_BLOCK = 256;
     size_t num_blocks_points = (n_points + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -401,6 +408,7 @@ void vesin::cuda::cell_list_neighbors(
     // Exclusive prefix sum of the per-cell counts.
     vesin::cuda::device_exclusive_scan(
         factory,
+        extras->stream,
         cl.d_cell_counts,
         cl.d_cell_starts,
         cl.d_cell_block_totals,
@@ -411,7 +419,7 @@ void vesin::cuda::cell_list_neighbors(
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         cl.d_cell_offsets, cl.d_cell_starts,
-        sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice, nullptr
+        sizeof(int32_t) * max_cells, cudaMemcpyDeviceToDevice, extras->stream
     ));
 
     config.gridDim = dim3(num_blocks_points);
@@ -473,7 +481,7 @@ void vesin::cuda::cell_list_neighbors(
         n_pairs = n_points * options.padded_to;
     } else {
         // Device-side exclusive prefix sum of d_counts → d_write_offsets.
-        n_pairs = device_exclusive_prefix_sum(factory, cl, extras->pinned, n_points);
+        n_pairs = device_exclusive_prefix_sum(factory, extras->stream, cl, extras->pinned, n_points);
     }
 
     // Allocate the output buffers. We ask for a little more than the number of

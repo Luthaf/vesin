@@ -64,6 +64,7 @@ void run_cuda_test(int32_t device_id) {
         d_box,
         d_periodic,
         {VesinDeviceKind::VesinCUDA, device_id},
+        nullptr,
         options,
         &neighbors,
         &error_message
@@ -220,7 +221,15 @@ TEST_CASE("Test CUDA Verlet skin cache") {
 
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        d_points, n_points, d_box, d_periodic, {VesinDeviceKind::VesinCUDA, device_id}, options, &neighbors, &error_message
+        d_points,
+        n_points,
+        d_box,
+        d_periodic,
+        {VesinDeviceKind::VesinCUDA, device_id},
+        nullptr,
+        options,
+        &neighbors,
+        &error_message
     );
     REQUIRE(error_message == nullptr);
     REQUIRE(status == EXIT_SUCCESS);
@@ -235,7 +244,15 @@ TEST_CASE("Test CUDA Verlet skin cache") {
     check_cuda(cudaMemcpy(d_points, moved_points, sizeof(double) * n_points * 3, cudaMemcpyHostToDevice));
 
     status = vesin_neighbors(
-        d_points, n_points, d_box, d_periodic, {VesinDeviceKind::VesinCUDA, device_id}, options, &neighbors, &error_message
+        d_points,
+        n_points,
+        d_box,
+        d_periodic,
+        {VesinDeviceKind::VesinCUDA, device_id},
+        nullptr,
+        options,
+        &neighbors,
+        &error_message
     );
     REQUIRE(error_message == nullptr);
     REQUIRE(status == EXIT_SUCCESS);
@@ -292,7 +309,15 @@ TEST_CASE("CUDA pre-allocated output arrays") {
     auto compute = [&](VesinNeighborList& neighbors, VesinOptions options) -> std::string {
         const char* error_message = nullptr;
         auto status = vesin_neighbors(
-            d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, options, &neighbors, &error_message
+            d_points,
+            n_points,
+            d_box,
+            d_periodic,
+            {VesinCUDA, 0},
+            nullptr,
+            options,
+            &neighbors,
+            &error_message
         );
         if (status != EXIT_SUCCESS) {
             return error_message;
@@ -369,6 +394,207 @@ TEST_CASE("CUDA pre-allocated output arrays") {
         }
     }
 
+    check_cuda(cudaFree(d_points));
+    check_cuda(cudaFree(d_box));
+    check_cuda(cudaFree(d_periodic));
+}
+
+// Copy all the outputs of `neighbors` to the host, sorted by pair to compare
+// algorithms producing them in an unspecified order
+static std::vector<std::array<double, 9>> all_outputs(const VesinNeighborList& neighbors, cudaStream_t stream) {
+    auto length = neighbors.length;
+    auto pairs = std::vector<size_t>(2 * length);
+    auto shifts = std::vector<int32_t>(3 * length);
+    auto distances = std::vector<double>(length);
+    auto vectors = std::vector<double>(3 * length);
+    check_cuda(cudaMemcpyAsync(pairs.data(), neighbors.pairs, sizeof(size_t[2]) * length, cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaMemcpyAsync(shifts.data(), neighbors.shifts, sizeof(int32_t[3]) * length, cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaMemcpyAsync(distances.data(), neighbors.distances, sizeof(double) * length, cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaMemcpyAsync(vectors.data(), neighbors.vectors, sizeof(double[3]) * length, cudaMemcpyDeviceToHost, stream));
+    check_cuda(cudaStreamSynchronize(stream));
+
+    auto outputs = std::vector<std::array<double, 9>>(length);
+    for (size_t i = 0; i < length; i++) {
+        outputs[i] = {
+            static_cast<double>(pairs[2 * i]),
+            static_cast<double>(pairs[2 * i + 1]),
+            static_cast<double>(shifts[3 * i]),
+            static_cast<double>(shifts[3 * i + 1]),
+            static_cast<double>(shifts[3 * i + 2]),
+            distances[i],
+            vectors[3 * i],
+            vectors[3 * i + 1],
+            vectors[3 * i + 2],
+        };
+    }
+    std::sort(outputs.begin(), outputs.end());
+    return outputs;
+}
+
+TEST_CASE("CUDA streams") {
+    int32_t n_devices = 0;
+    check_cuda(cudaGetDeviceCount(&n_devices));
+    REQUIRE(n_devices > 0);
+    check_cuda(cudaSetDevice(0));
+
+    // slightly perturbed cubic lattice of 6x6x6 points
+    size_t n_points = 6 * 6 * 6;
+    double* h_points = nullptr;
+    // pinned memory, so that the copies below are actually asynchronous
+    check_cuda(cudaMallocHost(&h_points, sizeof(double[3]) * n_points));
+    for (size_t i = 0; i < n_points; i++) {
+        h_points[3 * i + 0] = static_cast<double>(i % 6) + 0.01 * static_cast<double>(i % 7);
+        h_points[3 * i + 1] = static_cast<double>((i / 6) % 6) - 0.02 * static_cast<double>(i % 5);
+        h_points[3 * i + 2] = static_cast<double>(i / 36) + 0.03 * static_cast<double>(i % 3);
+    }
+    double box[3][3] = {{6.0, 0.0, 0.0}, {0.0, 6.0, 0.0}, {0.0, 0.0, 6.0}};
+    bool periodic[3] = {true, true, false};
+
+    double (*d_points)[3] = nullptr;
+    double (*d_box)[3] = nullptr;
+    bool* d_periodic = nullptr;
+    check_cuda(cudaMalloc(&d_points, sizeof(double[3]) * n_points));
+    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
+    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
+    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
+    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+
+    cudaStream_t user_stream = nullptr;
+    check_cuda(cudaStreamCreateWithFlags(&user_stream, cudaStreamNonBlocking));
+
+    // covers the brute force, the cell list, the Verlet filter (with skin >
+    // 0), sorting, and padding
+    for (auto algorithm : {VesinBruteForce, VesinCellList}) {
+        for (double skin : {0.0, 0.3}) {
+            for (bool sorted : {false, true}) {
+                for (size_t padded_to : {0, 40}) {
+                    auto options = VesinOptions();
+                    options.cutoff = 1.6;
+                    options.full = true;
+                    options.sorted = sorted;
+                    options.algorithm = algorithm;
+                    options.skin = skin;
+                    options.padded_to = padded_to;
+                    options.return_shifts = true;
+                    options.return_distances = true;
+                    options.return_vectors = true;
+
+                    auto compute = [&](void* stream) {
+                        auto cuda_stream = static_cast<cudaStream_t>(stream);
+                        // the points are only ready on `stream`, and only
+                        // after vesin starts if the copy is slow
+                        check_cuda(cudaMemsetAsync(d_points, 0, sizeof(double[3]) * n_points, cuda_stream));
+                        check_cuda(cudaMemcpyAsync(
+                            d_points, h_points, sizeof(double[3]) * n_points, cudaMemcpyHostToDevice, cuda_stream
+                        ));
+
+                        auto neighbors = VesinNeighborList();
+                        const char* error_message = nullptr;
+                        auto status = vesin_neighbors(
+                            d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, stream, options, &neighbors, &error_message
+                        );
+                        if (status != EXIT_SUCCESS) {
+                            FAIL(error_message);
+                        }
+                        // call a second time, to use the Verlet cache if any
+                        status = vesin_neighbors(
+                            d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, stream, options, &neighbors, &error_message
+                        );
+                        if (status != EXIT_SUCCESS) {
+                            FAIL(error_message);
+                        }
+
+                        auto outputs = all_outputs(neighbors, cuda_stream);
+                        vesin_free(&neighbors);
+                        return outputs;
+                    };
+
+                    auto reference = compute(nullptr);
+                    CHECK(!reference.empty());
+
+                    CHECK(compute(user_stream) == reference);
+                    // legacy default stream
+                    CHECK(compute(reinterpret_cast<void*>(1)) == reference);
+                    // per-thread default stream
+                    CHECK(compute(reinterpret_cast<void*>(2)) == reference);
+                }
+            }
+        }
+    }
+
+    check_cuda(cudaStreamDestroy(user_stream));
+    check_cuda(cudaFreeHost(h_points));
+    check_cuda(cudaFree(d_points));
+    check_cuda(cudaFree(d_box));
+    check_cuda(cudaFree(d_periodic));
+}
+
+TEST_CASE("CUDA current device") {
+    int32_t n_devices = 0;
+    check_cuda(cudaGetDeviceCount(&n_devices));
+    REQUIRE(n_devices > 0);
+
+    // the data lives on the last device, while the current device is the first
+    // one (they are the same when there is only one GPU)
+    int32_t data_device = n_devices - 1;
+    check_cuda(cudaSetDevice(data_device));
+
+    double points[][3] = {{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}, {2.0, 2.0, 2.0}};
+    size_t n_points = 3;
+    double box[3][3] = {{3.0, 0.0, 0.0}, {0.0, 3.0, 0.0}, {0.0, 0.0, 3.0}};
+    bool periodic[3] = {true, true, true};
+
+    double (*d_points)[3] = nullptr;
+    double (*d_box)[3] = nullptr;
+    bool* d_periodic = nullptr;
+    check_cuda(cudaMalloc(&d_points, sizeof(double[3]) * n_points));
+    check_cuda(cudaMalloc(&d_box, sizeof(double) * 9));
+    check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
+    check_cuda(cudaMemcpy(d_points, points, sizeof(double[3]) * n_points, cudaMemcpyHostToDevice));
+    check_cuda(cudaMemcpy(d_box, box, sizeof(double) * 9, cudaMemcpyHostToDevice));
+    check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
+
+    auto options = VesinOptions();
+    options.cutoff = 1.8;
+    options.full = true;
+    options.return_distances = true;
+
+    for (auto algorithm : {VesinBruteForce, VesinCellList}) {
+        for (double skin : {0.0, 0.3}) {
+            options.algorithm = algorithm;
+            options.skin = skin;
+
+            check_cuda(cudaSetDevice(0));
+
+            auto neighbors = VesinNeighborList();
+            const char* error_message = nullptr;
+            auto status = vesin_neighbors(
+                d_points, n_points, d_box, d_periodic, {VesinCUDA, data_device}, nullptr, options, &neighbors, &error_message
+            );
+            if (status != EXIT_SUCCESS) {
+                FAIL(error_message);
+            }
+
+            // each point has the two others as neighbors, at distance sqrt(3)
+            CHECK(neighbors.length == 6);
+            CHECK(neighbors.device.device_id == data_device);
+
+            cudaPointerAttributes attributes;
+            check_cuda(cudaPointerGetAttributes(&attributes, neighbors.pairs));
+            CHECK(attributes.device == data_device);
+
+            // the caller's current device is left untouched
+            int32_t current = -1;
+            check_cuda(cudaGetDevice(&current));
+            CHECK(current == 0);
+
+            vesin_free(&neighbors);
+            check_cuda(cudaGetDevice(&current));
+            CHECK(current == 0);
+        }
+    }
+
+    check_cuda(cudaSetDevice(data_device));
     check_cuda(cudaFree(d_points));
     check_cuda(cudaFree(d_box));
     check_cuda(cudaFree(d_periodic));

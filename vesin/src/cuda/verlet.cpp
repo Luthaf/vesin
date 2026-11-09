@@ -52,8 +52,14 @@ static double corner_point_displacements(
 }
 
 VerletCache::~VerletCache() {
+    // The work using these buffers must be finished at this point, see
+    // `vesin::cuda::free_neighbors`
     try {
-        this->free_buffers();
+        if (this->candidates_.device.type == VesinCUDA) {
+            vesin::cuda::free_neighbors(this->candidates_);
+        }
+        GPULITE_CUDART_CALL(cudaFree(this->d_ref_points_));
+        GPULITE_CUDART_CALL(cudaFree(this->d_rebuild_flag_));
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing VerletCache buffers: " << e.what() << std::endl;
     }
@@ -98,20 +104,21 @@ VerletCache& VerletCache::operator=(VerletCache&& other) noexcept {
     return *this;
 }
 
-void VerletCache::free_buffers() {
+void VerletCache::free_buffers(cudaStream_t stream) {
     if (this->candidates_.device.type == VesinCUDA) {
         vesin::cuda::free_neighbors(this->candidates_);
     }
 
     this->candidates_ = VesinNeighborList();
-    GPULITE_CUDART_CALL(cudaFree(this->d_ref_points_));
-    GPULITE_CUDART_CALL(cudaFree(this->d_rebuild_flag_));
+    GPULITE_CUDART_CALL(cudaFreeAsync(this->d_ref_points_, stream));
+    GPULITE_CUDART_CALL(cudaFreeAsync(this->d_rebuild_flag_, stream));
 
     this->d_ref_points_ = nullptr;
     this->d_rebuild_flag_ = nullptr;
     this->ref_points_capacity_ = 0;
     this->n_ref_points_ = 0;
     this->options_ = VesinOptions();
+    this->has_cache_ = false;
 }
 
 bool VerletCache::options_changed(VesinOptions options) const {
@@ -140,15 +147,15 @@ bool VerletCache::box_periodic_changed(const bool h_periodic[3]) const {
     return false;
 }
 
-void VerletCache::allocate_ref_buffers(size_t n_points) {
+void VerletCache::allocate_ref_buffers(size_t n_points, cudaStream_t stream) {
     if (this->ref_points_capacity_ < n_points) {
-        GPULITE_CUDART_CALL(cudaFree(this->d_ref_points_));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_ref_points_, sizeof(double) * n_points * 3));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_ref_points_, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_ref_points_, sizeof(double) * n_points * 3, stream));
         this->ref_points_capacity_ = n_points;
     }
 
     if (this->d_rebuild_flag_ == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_rebuild_flag_, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_rebuild_flag_, sizeof(int32_t), stream));
     }
 }
 
@@ -161,15 +168,16 @@ void VerletCache::rebuild_cache(
     VesinNeighborList& neighbors
 ) {
     auto device_id = neighbors.device.device_id;
-    auto* pinned = static_cast<CudaNeighborListExtras*>(neighbors.opaque)->pinned;
+    auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+    auto* pinned = extras->pinned;
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
-        pinned->box, d_box, sizeof(double) * 9, cudaMemcpyDeviceToHost, nullptr
+        pinned->box, d_box, sizeof(double) * 9, cudaMemcpyDeviceToHost, extras->stream
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
-        pinned->periodic, d_periodic, sizeof(bool) * 3, cudaMemcpyDeviceToHost, nullptr
+        pinned->periodic, d_periodic, sizeof(bool) * 3, cudaMemcpyDeviceToHost, extras->stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     const double* h_box = pinned->box;
     const bool* h_periodic = pinned->periodic;
@@ -193,7 +201,7 @@ void VerletCache::rebuild_cache(
     if (can_reuse) {
         auto& factory = gpulite::KernelFactory::instance(device_id);
 
-        GPULITE_CUDART_CALL(cudaMemset(this->d_rebuild_flag_, 0, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMemsetAsync(this->d_rebuild_flag_, 0, sizeof(int32_t), extras->stream));
 
         auto* kernel = factory.create<decltype(check_verlet_displacements)>(
             "check_verlet_displacements",
@@ -206,6 +214,7 @@ void VerletCache::rebuild_cache(
         size_t blocks = (n_points + threads - 1) / threads;
 
         auto config = gpulite::LaunchConfig();
+        config.stream = extras->stream;
         config.gridDim = dim3(std::max(blocks, static_cast<size_t>(1)));
         config.blockDim = dim3(threads);
 
@@ -223,9 +232,9 @@ void VerletCache::rebuild_cache(
 
         GPULITE_CUDART_CALL(cudaMemcpyAsync(
             &pinned->rebuild, this->d_rebuild_flag_,
-            sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+            sizeof(int32_t), cudaMemcpyDeviceToHost, extras->stream
         ));
-        GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+        GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
         if (pinned->rebuild == 0) {
             // Cache is still valid, no need to rebuild
@@ -255,17 +264,18 @@ void VerletCache::rebuild_cache(
         n_points,
         d_box,
         d_periodic,
+        extras->stream,
         build_options,
         this->candidates_
     );
 
-    this->allocate_ref_buffers(n_points);
+    this->allocate_ref_buffers(n_points, extras->stream);
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         this->d_ref_points_,
         d_points,
         sizeof(double) * n_points * 3,
         cudaMemcpyDeviceToDevice,
-        nullptr
+        extras->stream
     ));
 
     std::memcpy(this->ref_box_, h_box, sizeof(double) * 9);
@@ -294,8 +304,8 @@ void VerletCache::filter_neighbors(
 
     // The kernel below accumulates the number of pairs it kept with atomics, so
     // the counter has to start from zero on every call.
-    GPULITE_CUDART_CALL(cudaMemset(extras->d_length_ptr, 0, sizeof(size_t)));
-    GPULITE_CUDART_CALL(cudaMemset(extras->d_overflow_flag, 0, sizeof(int32_t)));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(extras->d_length_ptr, 0, sizeof(size_t), extras->stream));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(extras->d_overflow_flag, 0, sizeof(int32_t), extras->stream));
 
     size_t threads = 256;
     size_t blocks = (this->candidates_.length + threads - 1) / threads;
@@ -307,6 +317,7 @@ void VerletCache::filter_neighbors(
     );
 
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
     config.gridDim = dim3(std::max(blocks, static_cast<size_t>(1)));
     config.blockDim = dim3(threads);
 
@@ -342,7 +353,8 @@ void VerletCache::run(
     VesinNeighborList& neighbors
 ) {
     if (this->options_changed(options)) {
-        this->free_buffers();
+        auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
+        this->free_buffers(extras->stream);
     }
 
     this->rebuild_cache(d_points, n_points, d_box, d_periodic, options, neighbors);
@@ -362,16 +374,16 @@ void VerletCache::run(
         extras->d_length_ptr,
         sizeof(size_t),
         cudaMemcpyDeviceToHost,
-        nullptr
+        extras->stream
     ));
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &extras->pinned->overflow,
         extras->d_overflow_flag,
         sizeof(int32_t),
         cudaMemcpyDeviceToHost,
-        nullptr
+        extras->stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     neighbors.length = extras->pinned->length;
 

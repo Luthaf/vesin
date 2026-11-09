@@ -39,6 +39,7 @@ struct System {
             box,
             periodic,
             {VesinCPU, 0},
+            nullptr,
             options,
             &neighbors,
             &error_message

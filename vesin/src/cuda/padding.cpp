@@ -30,7 +30,7 @@ void vesin::cuda::reset_padding_overflow(VesinNeighborList& neighbors) {
     extras->pinned->padding_overflow = std::numeric_limits<int32_t>::max();
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         extras->d_padding_overflow, &extras->pinned->padding_overflow,
-        sizeof(int32_t), cudaMemcpyHostToDevice, nullptr
+        sizeof(int32_t), cudaMemcpyHostToDevice, extras->stream
     ));
 }
 
@@ -39,9 +39,9 @@ void vesin::cuda::check_padding_overflow(VesinNeighborList& neighbors, VesinOpti
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &extras->pinned->padding_overflow, extras->d_padding_overflow,
-        sizeof(int32_t), cudaMemcpyDeviceToHost, nullptr
+        sizeof(int32_t), cudaMemcpyDeviceToHost, extras->stream
     ));
-    GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
+    GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     auto point = extras->pinned->padding_overflow;
     if (point != std::numeric_limits<int32_t>::max()) {
@@ -64,15 +64,15 @@ void vesin::cuda::prepare_padding(
     vesin::cuda::allocate_output_buffers(neighbors, n_points * options.padded_to, options);
 
     if (extras->pairs_per_point_capacity < n_points) {
-        GPULITE_CUDART_CALL(cudaFree(extras->d_pairs_per_point));
+        GPULITE_CUDART_CALL(cudaFreeAsync(extras->d_pairs_per_point, extras->stream));
         extras->d_pairs_per_point = nullptr;
         extras->pairs_per_point_capacity = 0;
 
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_pairs_per_point, sizeof(int32_t) * n_points));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_pairs_per_point, sizeof(int32_t) * n_points, extras->stream));
         extras->pairs_per_point_capacity = n_points;
     }
 
-    GPULITE_CUDART_CALL(cudaMemset(extras->d_pairs_per_point, 0, sizeof(int32_t) * n_points));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(extras->d_pairs_per_point, 0, sizeof(int32_t) * n_points, extras->stream));
     vesin::cuda::reset_padding_overflow(neighbors);
 }
 
@@ -88,6 +88,7 @@ void vesin::cuda::finish_padding(
     auto n_slots = n_points * options.padded_to;
     size_t threads = 256;
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
     config.gridDim = dim3((n_slots + threads - 1) / threads);
     config.blockDim = dim3(threads);
 

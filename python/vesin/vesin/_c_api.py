@@ -58,6 +58,7 @@ def setup_functions(lib):
         POINTER(ctypes.c_double),  # box
         POINTER(ctypes.c_bool),  # periodic
         VesinDevice,  # device
+        ctypes.c_void_p,  # stream
         VesinOptions,  # options
         POINTER(VesinNeighborList),  # neighbors
         POINTER(ctypes.c_char_p),  # error_message

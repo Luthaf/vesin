@@ -268,6 +268,7 @@ contains
             box,                                &
             c_periodic,                         &
             VesinDevice(VesinCPU, 0),           &
+            c_null_ptr,                         &
             self%options,                       &
             self%c_neighbors,                   &
             c_errmsg                            &

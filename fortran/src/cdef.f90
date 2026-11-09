@@ -142,6 +142,7 @@ module vesin_c
             box,           &
             periodic,      &
             device,        &
+            stream,        &
             options,       &
             neighbors,     &
             error_message  &
@@ -166,6 +167,10 @@ module vesin_c
 
             !> Device where the `points` and `box` data is allocated.
             type(VesinDevice), value   :: device
+
+            !> Stream on which to run the calculation. This must be
+            !! `c_null_ptr` for CPU devices.
+            type(c_ptr), value         :: stream
 
             !> Options for the calculation
             type(VesinOptions), value  :: options

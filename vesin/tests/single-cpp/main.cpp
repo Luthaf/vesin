@@ -9,7 +9,7 @@ int main() {
     options.return_shifts = true;
 
     const char* error_message = nullptr;
-    vesin_neighbors(nullptr, 0, nullptr, nullptr, VesinDevice{VesinCPU, 0}, options, &neighbors, &error_message);
+    vesin_neighbors(nullptr, 0, nullptr, nullptr, VesinDevice{VesinCPU, 0}, nullptr, options, &neighbors, &error_message);
 
     vesin_free(&neighbors);
 }

@@ -64,6 +64,25 @@ def _device_from_array(array):
         return VesinDevice(VesinCPU, 0)
 
 
+def _stream_from_array(array):
+    """
+    Get the stream vesin should use for data in ``array``, i.e. the current
+    stream of the corresponding library for this device, or ``None`` on CPU.
+
+    :param array: numpy array, cupy array or torch tensor
+    :return: the stream as an integer, or ``None``
+    """
+    if HAS_CUPY and isinstance(array, cp.ndarray):
+        with array.device:
+            stream = cp.cuda.get_current_stream().ptr
+    elif HAS_TORCH and isinstance(array, torch.Tensor) and array.device.type == "cuda":
+        stream = torch.cuda.current_stream(array.device).cuda_stream
+    else:
+        return None
+
+    return stream if stream != 0 else None
+
+
 class NeighborList:
     """
     A neighbor list calculator.
@@ -333,6 +352,7 @@ class NeighborList:
             box_ptr,
             periodic_ptr,
             device,
+            _stream_from_array(points),
             options,
             ctypes.byref(self._neighbors),
             error_message,

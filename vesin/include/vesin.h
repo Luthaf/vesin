@@ -202,6 +202,14 @@ void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 /// to re-use memory allocations, and once it is no longer needed, users should
 /// call `vesin_free` to release the corresponding memory.
 ///
+/// `stream` is the CUDA stream on which to run the calculation. It must be set
+/// to `NULL` for CPU devices. For CUDA devices, `NULL` is the same as
+/// `cudaStreamLegacy`. All the device work (kernel launches, memory copies, …)
+/// happens in order on this stream: the inputs only need to be ready on this
+/// stream when calling this function, and the outputs are ready on this stream
+/// when it returns. This function might still synchronize and block on this
+/// stream at some point during the calculation.
+///
 /// @param points positions of all points in the system;
 /// @param n_points number of elements in the `points` array
 /// @param box bounding box for the system. If the system is non-periodic,
@@ -210,6 +218,7 @@ void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 /// @param periodic is the system using periodic boundary conditions? This
 //      should be an array of three booleans, one for each dimension.
 /// @param device device where the `points` and `box` data is allocated.
+/// @param stream stream on which to run the calculation
 /// @param options options for the calculation
 /// @param neighbors non-NULL pointer to `VesinNeighborList` that will be used
 ///     to store the computed list of neighbors.
@@ -222,6 +231,7 @@ int32_t VESIN_API vesin_neighbors(
     const double box[3][3],
     const bool periodic[3],
     VesinDevice device,
+    void* stream,
     struct VesinOptions options,
     struct VesinNeighborList* neighbors,
     const char** error_message

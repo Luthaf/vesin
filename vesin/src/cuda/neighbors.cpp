@@ -15,6 +15,7 @@
 #include "./neighbors.hpp"
 #include "./pick_algo.hpp"
 #include "./verlet.hpp"
+#include "./utils.hpp"
 
 #include "kernels/bruteforce.cuh"
 
@@ -61,18 +62,22 @@ static int32_t get_device_id(const void* ptr) {
     return -1;
 }
 
-static void free_output_buffers(VesinNeighborList& neighbors) {
+// Free the output arrays currently in `neighbors`
+static void free_output_buffers(VesinNeighborList& neighbors, cudaStream_t stream) {
     if ((neighbors.pairs != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.pairs), "pairs")) {
-        GPULITE_CUDART_CALL(cudaFree(neighbors.pairs));
+        GPULITE_CUDART_CALL(cudaFreeAsync(neighbors.pairs, stream));
     }
+
     if ((neighbors.shifts != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.shifts), "shifts")) {
-        GPULITE_CUDART_CALL(cudaFree(neighbors.shifts));
+        GPULITE_CUDART_CALL(cudaFreeAsync(neighbors.shifts, stream));
     }
+
     if ((neighbors.distances != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.distances), "distances")) {
-        GPULITE_CUDART_CALL(cudaFree(neighbors.distances));
+        GPULITE_CUDART_CALL(cudaFreeAsync(neighbors.distances, stream));
     }
+
     if ((neighbors.vectors != nullptr) && is_device_ptr(get_ptr_attributes(neighbors.vectors), "vectors")) {
-        GPULITE_CUDART_CALL(cudaFree(neighbors.vectors));
+        GPULITE_CUDART_CALL(cudaFreeAsync(neighbors.vectors, stream));
     }
 
     neighbors.pairs = nullptr;
@@ -81,12 +86,13 @@ static void free_output_buffers(VesinNeighborList& neighbors) {
     neighbors.vectors = nullptr;
 }
 
-// Free the output arrays allocated by vesin in previous calculations
-static void free_allocated_outputs(CudaNeighborListExtras* extras) {
-    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.pairs));
-    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.shifts));
-    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.distances));
-    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.vectors));
+// Free the output arrays allocated by vesin in previous calculations, in stream
+// order on `stream`
+static void free_allocated_outputs(CudaNeighborListExtras* extras, cudaStream_t stream) {
+    GPULITE_CUDART_CALL(cudaFreeAsync(extras->allocated_outputs.pairs, stream));
+    GPULITE_CUDART_CALL(cudaFreeAsync(extras->allocated_outputs.shifts, stream));
+    GPULITE_CUDART_CALL(cudaFreeAsync(extras->allocated_outputs.distances, stream));
+    GPULITE_CUDART_CALL(cudaFreeAsync(extras->allocated_outputs.vectors, stream));
     extras->allocated_outputs = vesin::OutputPointers();
     extras->pairs_capacity = 0;
 }
@@ -99,11 +105,23 @@ void vesin::cuda::free_neighbors(VesinNeighborList& neighbors) {
         return;
     }
 
-    GPULITE_CUDART_CALL(cudaSetDevice(neighbors.device.device_id));
+    auto device_guard = DeviceGuard(neighbors.device.device_id);
+
+    auto* extras = static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
+
+    // The stream of the last call might no longer exist, so everything
+    // below uses `cudaFree`. This does not wait for pending work using memory
+    // from `cudaMallocAsync`, so we have to wait for the end of the last
+    // calculation first.
+    if (extras->last_call != nullptr) {
+        GPULITE_CUDART_CALL(cudaEventSynchronize(extras->last_call));
+    }
 
     // only release the arrays allocated by vesin, not the pre-allocated ones
-    auto* extras = static_cast<vesin::cuda::CudaNeighborListExtras*>(neighbors.opaque);
-    free_allocated_outputs(extras);
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.pairs));
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.shifts));
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.distances));
+    GPULITE_CUDART_CALL(cudaFree(extras->allocated_outputs.vectors));
 
     delete extras;
     neighbors.opaque = nullptr;
@@ -157,7 +175,7 @@ static void check_cuda_is_available() {
 // independent of the pair capacity and are only ever allocated once.
 static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
     if (extras->d_length_ptr == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_length_ptr, sizeof(size_t)));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_length_ptr, sizeof(size_t), extras->stream));
     }
 
     if (extras->pinned == nullptr) {
@@ -169,15 +187,15 @@ static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
     }
 
     if (extras->d_all_periodic == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_all_periodic, sizeof(bool)));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_all_periodic, sizeof(bool), extras->stream));
     }
 
     if (extras->d_overflow_flag == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_overflow_flag, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_overflow_flag, sizeof(int32_t), extras->stream));
     }
 
     if (extras->d_padding_overflow == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&extras->d_padding_overflow, sizeof(int32_t)));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_padding_overflow, sizeof(int32_t), extras->stream));
     }
 }
 
@@ -208,23 +226,23 @@ void vesin::cuda::allocate_output_buffers(
         return;
     }
 
-    free_output_buffers(neighbors);
+    free_output_buffers(neighbors, extras->stream);
 
     size_t capacity = std::max(extras->pairs_capacity, n_pairs);
     extras->pairs_capacity = 0;
 
-    GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.pairs, sizeof(size_t) * capacity * 2));
+    GPULITE_CUDART_CALL(cudaMallocAsync((void**)&neighbors.pairs, sizeof(size_t) * capacity * 2, extras->stream));
 
     if (options.return_shifts) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.shifts, sizeof(int32_t) * capacity * 3));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&neighbors.shifts, sizeof(int32_t) * capacity * 3, extras->stream));
     }
 
     if (options.return_distances) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.distances, sizeof(double) * capacity));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&neighbors.distances, sizeof(double) * capacity, extras->stream));
     }
 
     if (options.return_vectors) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&neighbors.vectors, sizeof(double) * capacity * 3));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&neighbors.vectors, sizeof(double) * capacity * 3, extras->stream));
     }
 
     extras->pairs_capacity = capacity;
@@ -281,18 +299,47 @@ void vesin::cuda::neighbors(
     size_t n_points,
     const double d_box[3][3],
     const bool d_periodic[3],
+    void* stream,
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {
     assert(neighbors.device.type == VesinCUDA);
     check_cuda_is_available();
 
+    // Everything below (allocations, default streams, …) must happen on the
+    // device of the neighbor list, regardless of the caller's current device.
+    // We check below that this is also the device of the input data.
+    auto device_guard = DeviceGuard(neighbors.device.device_id);
+
     auto* extras = vesin::cuda::get_cuda_extras(neighbors);
+    extras->stream = static_cast<cudaStream_t>(stream);
+
+    // The previous calculation with this neighbor list might have used a
+    // different stream, and still be using the buffers in `extras` (or the
+    // outputs) on it. Make sure the work on the current stream only starts once
+    // the previous calculation is finished.
+    if (extras->last_call == nullptr) {
+        GPULITE_CUDART_CALL(cudaEventCreateWithFlags(&extras->last_call, cudaEventDisableTiming));
+    } else {
+        GPULITE_CUDART_CALL(cudaStreamWaitEvent(extras->stream, extras->last_call, cudaEventWaitDefault));
+    }
+
+    // Mark the end of this calculation on the current stream, for the next
+    // calculation to wait on. This also runs if the calculation fails.
+    struct LastCallGuard {
+        CudaNeighborListExtras* extras;
+        ~LastCallGuard() {
+            // errors are ignored, since we can not throw from a destructor
+            gpulite::CUDART::instance().cudaEventRecord(extras->last_call, extras->stream);
+        }
+    };
+    auto last_call_guard = LastCallGuard{extras};
+
     vesin::check_output_arrays(neighbors, extras->allocated_outputs, options);
 
     if (options.pre_allocated_outputs) {
         // the arrays allocated by vesin in previous calls are no longer needed
-        free_allocated_outputs(extras);
+        free_allocated_outputs(extras, extras->stream);
         // the capacity of the pre-allocated arrays is given by the caller
         extras->pairs_capacity = neighbors.length;
     } else if (extras->pre_allocated_outputs) {
@@ -389,7 +436,7 @@ void vesin::cuda::neighbors(
         );
     } else {
         // no skin, free any remaining verlet buffers from a previous call
-        extras->verlet_cache = VerletCache();
+        extras->verlet_cache.free_buffers(extras->stream);
 
         auto box_checks = vesin::cuda::check_box(neighbors, d_box, d_periodic, options.cutoff);
         if (use_cell_list(box_checks, n_points, options, device_id)) {

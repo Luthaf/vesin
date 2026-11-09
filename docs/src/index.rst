@@ -362,6 +362,7 @@ Usage example
                     box,
                     periodic,
                     {VesinCPU, 0},
+                    NULL,  // stream, must be NULL on CPU
                     options,
                     &neighbors,
                     &error_message,
@@ -396,13 +397,16 @@ Usage example
                 d_box,       // device pointer
                 d_periodic,  // device pointer
                 cuda_device,
+                stream,      // cudaStream_t, or NULL for the default stream
                 options,
                 &neighbors,
                 &error_message,
             );
 
         The data in the ``neighbors`` structure will be directly allocated on
-        the device.
+        the device. All the GPU work runs in order on ``stream``, so the inputs
+        only need to be ready on this stream, and the outputs are ready on it
+        when the function returns.
 
     .. tab-item:: |logo-fortran| Fortran
 

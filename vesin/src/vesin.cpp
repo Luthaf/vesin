@@ -45,6 +45,7 @@ extern "C" int32_t vesin_neighbors(
     const double box[3][3],
     const bool periodic[3],
     VesinDevice device,
+    void* stream,
     VesinOptions options,
     VesinNeighborList* neighbors,
     const char** error_message
@@ -108,6 +109,11 @@ extern "C" int32_t vesin_neighbors(
         return EXIT_FAILURE;
     }
 
+    if (device.type == VesinCPU && stream != nullptr) {
+        *error_message = "`stream` must be NULL for CPU devices";
+        return EXIT_FAILURE;
+    }
+
     if (neighbors->device.type == VesinUnknownDevice) {
         // initialize the device
         neighbors->device = device;
@@ -153,6 +159,7 @@ extern "C" int32_t vesin_neighbors(
                 n_points,
                 box,
                 periodic,
+                stream,
                 options,
                 *neighbors
             );

@@ -9,6 +9,9 @@
 #include <tuple>
 
 #include <torch/torch.h>
+#include <torch/version.h>
+
+#include <c10/core/impl/VirtualGuardImpl.h>
 
 #include <vesin.h>
 
@@ -21,6 +24,31 @@ VesinDevice torch_to_vesin_device(torch::Device device) {
         return {VesinCUDA, device.index()};
     } else {
         throw std::runtime_error("device " + device.str() + " is not supported in vesin");
+    }
+}
+
+/// Get the stream vesin should use to run on `device`, i.e. torch's current
+/// stream for this device. This is `nullptr` for CPU.
+void* torch_current_stream(torch::Device device) {
+    if (device.is_cuda()) {
+        auto guard_impl = c10::impl::VirtualGuardImpl(device.type());
+        auto stream = guard_impl.getStream(device);
+#if TORCH_VERSION_MAJOR > 2 || (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 11)
+        return stream.native_handle();
+#else
+        // Before torch 2.11, getting the `cudaStream_t` corresponding to a
+        // stream requires linking to libc10_cuda. Stream ID 0 is always the
+        // default stream, which is the legacy default stream for CUDA.
+        if (stream.id() == 0) {
+            return nullptr;
+        }
+        throw std::runtime_error(
+            "using non-default CUDA streams with vesin requires torch 2.11 or "
+            "later, you are using torch " TORCH_VERSION
+        );
+#endif
+    } else {
+        return nullptr;
     }
 }
 
@@ -203,6 +231,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         reinterpret_cast<const double (*)[3]>(box.data_ptr<double>()),
         periodic.data_ptr<bool>(),
         vesin_device,
+        torch_current_stream(points.device()),
         options,
         data,
         &error_message

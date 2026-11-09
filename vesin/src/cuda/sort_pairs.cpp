@@ -89,23 +89,24 @@ void SortBuffers::allocate(
     size_t n_points,
     bool return_shifts,
     bool return_distances,
-    bool return_vectors
+    bool return_vectors,
+    cudaStream_t stream
 ) {
     // The per-pair and per-point arrays are sized by different quantities and
     // grown independently, so that getting more pairs does not throw away a
     // per-point buffer that is still big enough, and vice versa.
     if (this->capacity < n_pairs) {
-        GPULITE_CUDART_CALL(cudaFree(this->d_pairs_tmp));
-        GPULITE_CUDART_CALL(cudaFree(this->d_shifts_tmp));
-        GPULITE_CUDART_CALL(cudaFree(this->d_distances_tmp));
-        GPULITE_CUDART_CALL(cudaFree(this->d_vectors_tmp));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_pairs_tmp, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_shifts_tmp, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_distances_tmp, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_vectors_tmp, stream));
         this->d_pairs_tmp = nullptr;
         this->d_shifts_tmp = nullptr;
         this->d_distances_tmp = nullptr;
         this->d_vectors_tmp = nullptr;
         this->capacity = 0;
 
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_pairs_tmp, sizeof(size_t) * n_pairs * 2));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_pairs_tmp, sizeof(size_t) * n_pairs * 2, stream));
         this->capacity = n_pairs;
     }
 
@@ -113,23 +114,23 @@ void SortBuffers::allocate(
     // which can be a later call than the one that set the capacity, so they are
     // sized from the capacity rather than from this call's `n_pairs`.
     if (return_shifts && this->d_shifts_tmp == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_shifts_tmp, sizeof(int32_t) * this->capacity * 3));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_shifts_tmp, sizeof(int32_t) * this->capacity * 3, stream));
     }
 
     if (return_distances && this->d_distances_tmp == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_distances_tmp, sizeof(double) * this->capacity));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_distances_tmp, sizeof(double) * this->capacity, stream));
     }
 
     if (return_vectors && this->d_vectors_tmp == nullptr) {
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_vectors_tmp, sizeof(double) * this->capacity * 3));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_vectors_tmp, sizeof(double) * this->capacity * 3, stream));
     }
 
     if (this->points_capacity < n_points) {
-        GPULITE_CUDART_CALL(cudaFree(this->d_counts));
-        GPULITE_CUDART_CALL(cudaFree(this->d_offsets));
-        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals));
-        GPULITE_CUDART_CALL(cudaFree(this->d_block_offsets));
-        GPULITE_CUDART_CALL(cudaFree(this->d_block_totals2));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_counts, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_offsets, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_block_totals, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_block_offsets, stream));
+        GPULITE_CUDART_CALL(cudaFreeAsync(this->d_block_totals2, stream));
         this->d_counts = nullptr;
         this->d_offsets = nullptr;
         this->d_block_totals = nullptr;
@@ -141,11 +142,11 @@ void SortBuffers::allocate(
         size_t n_blocks = (n_points + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
         size_t n_blocks_2 = (n_blocks + VESIN_SCAN_ELEMENTS_PER_BLOCK - 1) / VESIN_SCAN_ELEMENTS_PER_BLOCK;
 
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_counts, sizeof(int32_t) * n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_offsets, sizeof(int32_t) * n_points));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals, sizeof(int32_t) * n_blocks));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_offsets, sizeof(int32_t) * n_blocks));
-        GPULITE_CUDART_CALL(cudaMalloc((void**)&this->d_block_totals2, sizeof(int32_t) * n_blocks_2));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_counts, sizeof(int32_t) * n_points, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_offsets, sizeof(int32_t) * n_points, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_block_totals, sizeof(int32_t) * n_blocks, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_block_offsets, sizeof(int32_t) * n_blocks, stream));
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&this->d_block_totals2, sizeof(int32_t) * n_blocks_2, stream));
 
         this->points_capacity = n_points;
     }
@@ -176,7 +177,8 @@ void vesin::cuda::sort_pairs(
         n_points,
         options.return_shifts,
         options.return_distances,
-        options.return_vectors
+        options.return_vectors,
+        extras->stream
     );
 
     auto* copy_and_count_kernel = VESIN_SORT_PAIRS_KERNEL(factory, sort_pairs_copy_and_count);
@@ -184,12 +186,13 @@ void vesin::cuda::sort_pairs(
 
     const size_t sort_threads = 256;
     auto config = gpulite::LaunchConfig();
+    config.stream = extras->stream;
     config.gridDim = dim3((neighbors.length + sort_threads - 1) / sort_threads);
     config.blockDim = dim3(sort_threads);
 
     // The pass below accumulates into `d_counts` with atomics, so it has to
     // start from zero on every call.
-    GPULITE_CUDART_CALL(cudaMemset(sort.d_counts, 0, sizeof(int32_t) * n_points));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(sort.d_counts, 0, sizeof(int32_t) * n_points, extras->stream));
 
     copy_and_count_kernel->launch(
         config,
@@ -210,6 +213,7 @@ void vesin::cuda::sort_pairs(
 
     vesin::cuda::device_exclusive_scan(
         factory,
+        extras->stream,
         sort.d_counts,
         sort.d_offsets,
         sort.d_block_totals,

@@ -3,6 +3,8 @@
 
 #include <cstdint>
 
+#include <gpulite/gpulite.hpp>
+
 #include "vesin.h"
 
 namespace vesin::cuda {
@@ -19,6 +21,9 @@ public:
 
     VerletCache(const VerletCache&) = delete;
     VerletCache& operator=(const VerletCache&) = delete;
+
+    /// Free all the buffers and the cache, in stream order on `stream`
+    void free_buffers(cudaStream_t stream);
 
     /// Run the verlet calculation, recomputing the cache as needed
     void run(
@@ -45,9 +50,6 @@ private:
     // cached allocation for rebuild_flag
     int32_t* d_rebuild_flag_ = nullptr;
 
-    /// Free allocated buffers
-    void free_buffers();
-
     /// Did the options changed since the cache was built?
     bool options_changed(VesinOptions options) const;
     /// Did the box size/shape change since the cache was built?
@@ -55,7 +57,7 @@ private:
     /// Did the periodicity change since the cache was built?
     bool box_periodic_changed(const bool h_periodic[3]) const;
     /// Allocate the buffer for reference data
-    void allocate_ref_buffers(size_t n_points);
+    void allocate_ref_buffers(size_t n_points, cudaStream_t stream);
     void rebuild_cache(const double (*points)[3], size_t n_points, const double box[3][3], const bool periodic[3], VesinOptions options, VesinNeighborList& neighbors);
     void filter_neighbors(const double (*d_points)[3], size_t n_points, const double d_box[3][3], VesinOptions options, VesinNeighborList& neighbors) const;
 };

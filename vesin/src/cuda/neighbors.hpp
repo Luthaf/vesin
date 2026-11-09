@@ -28,6 +28,7 @@ void free_neighbors(VesinNeighborList& neighbors);
 /// @param n_points Number of points (atoms, particles, etc.).
 /// @param box 3×3 matrix defining the bounding box of the system.
 /// @param periodic Array of three booleans indicating periodicity in each dimension.
+/// @param stream CUDA stream (`cudaStream_t`) on which to run the calculation.
 /// @param options Struct holding parameters such as cutoff, symmetry, etc.
 /// @param neighbors Output neighbor list (device memory will be allocated as
 /// needed).
@@ -36,6 +37,7 @@ void neighbors(
     size_t n_points,
     const double box[3][3],
     const bool periodic[3],
+    void* stream,
     VesinOptions options,
     VesinNeighborList& neighbors
 );

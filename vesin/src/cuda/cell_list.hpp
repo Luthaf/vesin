@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <gpulite/gpulite.hpp>
+
 #include "vesin.h"
 
 namespace vesin::cuda {
@@ -63,7 +65,7 @@ struct CellListBuffersCUDA {
     // [MAX_BOUNDING_BOX_BLOCKS * 6] per-block partial bounding boxes
     double* d_bbox_partials = nullptr;
 
-    void allocate(size_t n_points, size_t n_cells);
+    void allocate(size_t n_points, size_t n_cells, cudaStream_t stream);
 
     CellListBuffersCUDA() = default;
     ~CellListBuffersCUDA();

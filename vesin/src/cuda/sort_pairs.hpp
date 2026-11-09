@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <gpulite/gpulite.hpp>
+
 #include "vesin.h"
 
 namespace vesin::cuda {
@@ -31,7 +33,8 @@ struct SortBuffers {
         size_t n_points,
         bool return_shifts,
         bool return_distances,
-        bool return_vectors
+        bool return_vectors,
+        cudaStream_t stream
     );
 
     SortBuffers() = default;

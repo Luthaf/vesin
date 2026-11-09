@@ -236,3 +236,80 @@ def test_padded_outputs_are_independent():
 
     assert torch.equal(d_1, expected)
     assert torch.allclose(d_2, 1.05 * expected)
+
+
+# vesin-torch can only access non-default CUDA streams with torch 2.11 or later
+TORCH_VERSION = tuple(int(v) for v in torch.__version__.split(".")[:2])
+TORCH_HAS_CUDA_STREAMS = TORCH_VERSION >= (2, 11) and torch.cuda.is_available()
+
+
+def random_system(device, scale=1.0):
+    generator = torch.Generator().manual_seed(0xDEADBEEF)
+    points = 5.0 * torch.rand((100, 3), dtype=torch.float64, generator=generator)
+    box = 5.0 * torch.eye(3, dtype=torch.float64)
+    return scale * points.to(device), box.to(device)
+
+
+def sort_pairs(i, j, S):
+    return sorted(zip(i.tolist(), j.tolist(), map(tuple, S.tolist()), strict=True))
+
+
+def delayed_copy(points):
+    """
+    Copy ``points`` into a new zero-initialized tensor, after making the current
+    stream wait for a while. Any code running on another stream will see the zeros
+    instead of the points.
+    """
+    lazy_points = torch.zeros_like(points)
+    torch.cuda.current_stream(points.device).wait_stream(
+        torch.cuda.default_stream(points.device)
+    )
+
+    # This should be long enough for the kernels to run on the wrong stream before the
+    # data is ready, if it ignores the current stream.
+    torch.cuda._sleep(200_000_000)
+    lazy_points.copy_(points)
+    return lazy_points
+
+
+@pytest.mark.skipif(not TORCH_HAS_CUDA_STREAMS, reason="CUDA streams not available")
+@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list"])
+def test_cuda_stream(algorithm):
+    points, box = random_system("cuda")
+    calculator = NeighborList(cutoff=2.0, full_list=True, algorithm=algorithm)
+    expected = sort_pairs(*calculator.compute(points, box, True, "ijS"))
+
+    stream = torch.cuda.Stream()
+    with torch.cuda.stream(stream):
+        lazy_points = delayed_copy(points)
+        i, j, S = calculator.compute(lazy_points, box, True, "ijS")
+        # use the outputs on the same stream, without explicit synchronization
+        actual = sort_pairs(i, j, S)
+
+    assert actual == expected
+
+
+@pytest.mark.skipif(not TORCH_HAS_CUDA_STREAMS, reason="CUDA streams not available")
+@pytest.mark.parametrize("skin", [0.0, 0.5])
+def test_cuda_multiple_streams(skin):
+    reference = NeighborList(cutoff=2.0, full_list=True)
+    calculator = NeighborList(cutoff=2.0, full_list=True, skin=skin)
+
+    # use the same calculator on different streams, one after the other. The
+    # points move a bit between calls, to check the Verlet cache when skin > 0.
+    for step in range(4):
+        points, box = random_system("cuda", scale=1.0 + 0.02 * step)
+        expected = sort_pairs(*reference.compute(points, box, True, "ijS"))
+
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            lazy_points = delayed_copy(points)
+            actual = sort_pairs(*calculator.compute(lazy_points, box, True, "ijS"))
+
+        assert actual == expected
+
+    # back on the default stream
+    points, box = random_system("cuda")
+    expected = sort_pairs(*reference.compute(points, box, True, "ijS"))
+    actual = sort_pairs(*calculator.compute(points, box, True, "ijS"))
+    assert actual == expected

@@ -11,15 +11,21 @@ using namespace vesin::cuda;
 CudaNeighborListExtras::~CudaNeighborListExtras() {
     try {
         GPULITE_CUDART_CALL(cudaFree(this->d_length_ptr));
+
         if (this->pinned != nullptr) {
             GPULITE_CUDART_CALL(cudaFreeHost(this->pinned));
         }
+
         GPULITE_CUDART_CALL(cudaFree(this->d_all_periodic));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
         GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
         GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
         GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
         GPULITE_CUDART_CALL(cudaFree(this->d_pairs_per_point));
+
+        if (this->last_call != nullptr) {
+            GPULITE_CUDART_CALL(cudaEventDestroy(this->last_call));
+        }
     } catch (const std::runtime_error& e) {
         std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
     }
@@ -34,15 +40,22 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
     if (this != &other) {
         try {
             GPULITE_CUDART_CALL(cudaFree(this->d_length_ptr));
+
             if (this->pinned != nullptr) {
                 GPULITE_CUDART_CALL(cudaFreeHost(this->pinned));
             }
+
             GPULITE_CUDART_CALL(cudaFree(this->d_all_periodic));
             GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
             GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
             GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
             GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
             GPULITE_CUDART_CALL(cudaFree(this->d_pairs_per_point));
+
+            if (this->last_call != nullptr) {
+                GPULITE_CUDART_CALL(cudaEventDestroy(this->last_call));
+            }
+
         } catch (const std::runtime_error& e) {
             std::cerr << "Error freeing CUDA buffers: " << e.what() << std::endl;
         }
@@ -86,6 +99,12 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
 
         this->pre_allocated_outputs = other.pre_allocated_outputs;
         other.pre_allocated_outputs = false;
+
+        this->stream = other.stream;
+        other.stream = nullptr;
+
+        this->last_call = other.last_call;
+        other.last_call = nullptr;
     }
     return *this;
 }

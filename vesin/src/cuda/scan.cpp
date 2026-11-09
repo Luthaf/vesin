@@ -23,6 +23,7 @@ static const char* CUDA_SCAN_CODE = reinterpret_cast<const char*>(CUDA_SCAN_HEX)
 // back of `n_cells_total`.
 void vesin::cuda::device_exclusive_scan(
     gpulite::KernelFactory& factory,
+    cudaStream_t stream,
     const int32_t* d_in,
     int32_t* d_out,
     int32_t* d_block_totals,
@@ -46,6 +47,7 @@ void vesin::cuda::device_exclusive_scan(
 
     auto config = gpulite::LaunchConfig();
     config.blockDim = dim3(VESIN_SCAN_THREADS);
+    config.stream = stream;
 
     // Each block of 256 threads processes 1024 elements (4 per thread):
     //   - Each thread loads and sums its 4 elements

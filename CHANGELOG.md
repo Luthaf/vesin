@@ -28,6 +28,14 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 - `VesinOptions::pre_allocated_outputs` in the C API, to write the neighbor
   list directly in output arrays allocated by the caller.
 
+### Changed
+
+- `vesin_neighbors()` in the C API takes a new `stream` argument, giving the
+  CUDA stream on which to run the calculation, or `nullptr` on CPU.
+- `vesin.NeighborList` and `vesin_torch.NeighborList` run CUDA calculations on
+  the current stream of cupy or torch. With `vesin_torch`, using a non-default
+  stream requires torch 2.11 or later.
+
 ### Removed
 
 - The `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable and the

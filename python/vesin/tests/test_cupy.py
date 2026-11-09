@@ -599,3 +599,93 @@ def test_gpu_padded_errors(gpu_algorithm):
     message = "point 0 has more neighbors than the requested `padded_to` \\(1\\)"
     with pytest.raises(RuntimeError, match=message):
         nl.compute(points, box, periodic, "ij")
+
+
+def cuda_sleep(cycles):
+    # the kernel is compiled for the current device
+    kernel = cp.RawKernel(
+        r"""
+extern "C" __global__ void sleep(long long cycles) {
+    long long start = clock64();
+    while (clock64() - start < cycles) {}
+}
+""",
+        "sleep",
+    )
+    kernel((1,), (1,), (cp.int64(cycles),))
+
+
+def random_system(scale=1.0):
+    rng = np.random.default_rng(0xDEADBEEF)
+    points = 5.0 * rng.random((100, 3))
+    box = 5.0 * np.eye(3)
+    return cp.asarray(scale * points), cp.asarray(box)
+
+
+def sorted_pairs(i, j, S):
+    return sorted(zip(i.tolist(), j.tolist(), map(tuple, S.tolist()), strict=True))
+
+
+def delayed_copy(points):
+    """
+    Copy ``points`` into a new zero-initialized array, after making the current
+    stream wait for a while. Any code running on another stream will see the zeros
+    instead of the points.
+    """
+    lazy_points = cp.zeros_like(points)
+    # make sure the data created on other streams is ready
+    cp.cuda.Device().synchronize()
+
+    # This should be long enough for the kernels to run on the wrong stream before the
+    # data is ready, if it ignores the current stream.
+    cuda_sleep(200_000_000)
+    lazy_points[...] = points
+    return lazy_points
+
+
+@pytest.mark.parametrize("algorithm", ["brute_force", "cell_list"])
+def test_cuda_stream(algorithm):
+    points, box = random_system()
+    calculator = NeighborList(cutoff=2.0, full_list=True, algorithm=algorithm)
+    expected = sorted_pairs(*calculator.compute(points, box, True, "ijS"))
+
+    with cp.cuda.Stream(non_blocking=True):
+        lazy_points = delayed_copy(points)
+        i, j, S = calculator.compute(lazy_points, box, True, "ijS")
+        # use the outputs on the same stream, without explicit synchronization
+        actual = sorted_pairs(i, j, S)
+
+    assert actual == expected
+
+
+@pytest.mark.parametrize("skin", [0.0, 0.5])
+def test_cuda_multiple_streams(skin):
+    reference = NeighborList(cutoff=2.0, full_list=True)
+    calculator = NeighborList(cutoff=2.0, full_list=True, skin=skin)
+
+    # use the same calculator on different streams, one after the other. The
+    # points move a bit between calls, to check the Verlet cache when skin > 0.
+    # Each stream is destroyed before the next call, so vesin must not rely on
+    # the stream of the previous call still existing.
+    for step in range(4):
+        points, box = random_system(scale=1.0 + 0.02 * step)
+        expected = sorted_pairs(*reference.compute(points, box, True, "ijS"))
+
+        stream = cp.cuda.Stream(non_blocking=True)
+        with stream:
+            lazy_points = delayed_copy(points)
+            actual = sorted_pairs(*calculator.compute(lazy_points, box, True, "ijS"))
+        del stream
+
+        assert actual == expected
+
+    # back on the default stream
+    points, box = random_system()
+    expected = sorted_pairs(*reference.compute(points, box, True, "ijS"))
+    actual = sorted_pairs(*calculator.compute(points, box, True, "ijS"))
+    assert actual == expected
+
+    # free the calculator after the last stream it used was destroyed
+    with cp.cuda.Stream(non_blocking=True):
+        calculator.compute(points, box, True, "ijS")
+    del calculator

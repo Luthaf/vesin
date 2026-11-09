@@ -88,6 +88,7 @@ static void check_neighbors(
         box,
         periodic,
         {VesinDeviceKind::VesinCPU, 0},
+        nullptr,
         options,
         &neighbors,
         &error_message
@@ -251,6 +252,7 @@ TEST_CASE("padded_to") {
         box,
         periodic,
         {VesinDeviceKind::VesinCPU, 0},
+        nullptr,
         options,
         &neighbors,
         &error_message
@@ -293,6 +295,7 @@ TEST_CASE("padded_to") {
         box,
         periodic,
         {VesinDeviceKind::VesinCPU, 0},
+        nullptr,
         options,
         &neighbors,
         &error_message
@@ -516,6 +519,7 @@ TEST_CASE("Slanted box") {
         box,
         periodic,
         {VesinDeviceKind::VesinCPU, 0},
+        nullptr,
         options,
         &neighbors,
         &error_message

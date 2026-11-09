@@ -11,9 +11,11 @@ namespace vesin::cuda {
 /// Device-side exclusive prefix sum of `d_in[n]` → `d_out[n]`.
 ///
 /// `d_block_totals` and `d_block_offsets` must each hold at least `ceil(n/1024)`
-/// elements, and `d_block_totals2` at least `ceil(n/1024^2)`.
+/// elements, and `d_block_totals2` at least `ceil(n/1024^2)`. All the kernels
+/// are launched on `stream`.
 void device_exclusive_scan(
     gpulite::KernelFactory& factory,
+    cudaStream_t stream,
     const int32_t* d_in,
     int32_t* d_out,
     int32_t* d_block_totals,

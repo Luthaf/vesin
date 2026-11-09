@@ -11,6 +11,7 @@ void vesin::cuda::neighbors(
     size_t n_points,
     const double box[3][3],
     const bool periodic[3],
+    void* stream,
     VesinOptions options,
     VesinNeighborList& neighbors
 ) {

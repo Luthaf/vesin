@@ -14,6 +14,7 @@
 
 #include "./neighbors.hpp"
 #include "./pick_algo.hpp"
+#include "./utils.hpp"
 
 #include "kernels/bruteforce.cuh"
 
@@ -74,29 +75,6 @@ static std::vector<double> calibration_lattice(const int32_t counts[3], double b
 
 namespace {
 
-/// Guard that sets the current device to `device_id` on construction and
-/// restores the previous device on destruction. This is used to ensure that the
-/// calibration runs on the correct device, as the `neighbors` function allocates
-/// memory on the current device and checks that the input pointers are on the
-/// same device.
-struct DeviceGuard {
-    int32_t previous = 0;
-    explicit DeviceGuard(int32_t device_id) {
-        GPULITE_CUDART_CALL(cudaGetDevice(&this->previous));
-        if (this->previous != device_id) {
-            GPULITE_CUDART_CALL(cudaSetDevice(device_id));
-        } else {
-            this->previous = -1;
-        }
-    }
-
-    ~DeviceGuard() {
-        if (this->previous >= 0) {
-            gpulite::CUDART::instance().cudaSetDevice(this->previous);
-        }
-    }
-};
-
 /// RAII wrapper for a device buffer allocated with `cudaMalloc` and freed with
 /// `cudaFree`.
 struct DeviceBuffer {
@@ -146,7 +124,7 @@ static double time_neighbors(
     auto n_points = points.size() / 3;
     bool periodic[3] = {true, true, true};
 
-    auto device_guard = DeviceGuard(device_id);
+    auto device_guard = vesin::cuda::DeviceGuard(device_id);
 
     // Allocate device buffers for the points, box, and periodicity flags.
     auto points_buffer = DeviceBuffer(sizeof(double) * points.size());
@@ -190,8 +168,10 @@ static double time_neighbors(
                 timings.clear();
             }
             auto start = std::chrono::steady_clock::now();
+            // The calibration only touches its own buffers, and runs on the
+            // legacy default stream regardless of the caller's stream.
             vesin::cuda::neighbors(
-                d_points, n_points, d_box, d_periodic, options, neighbors
+                d_points, n_points, d_box, d_periodic, /*stream=*/nullptr, options, neighbors
             );
             GPULITE_CUDART_CALL(cudaStreamSynchronize(nullptr));
             auto stop = std::chrono::steady_clock::now();

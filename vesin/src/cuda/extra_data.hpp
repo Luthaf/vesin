@@ -42,6 +42,12 @@ struct CudaNeighborListExtras {
     /// Is the current calculation using output arrays pre-allocated by the caller?
     bool pre_allocated_outputs = false;
 
+    /// Stream on which the current calculation runs, given by the caller
+    cudaStream_t stream = nullptr;
+    /// Event recorded at the end of the last call on its stream, to make sure
+    /// we finish one calculation before starting the next one
+    cudaEvent_t last_call = nullptr;
+
     /// GPU-side pointer to the length of the neighbor list
     size_t* d_length_ptr = nullptr;
     /// GPU-side output of `analyze_box`

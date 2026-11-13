@@ -28,6 +28,12 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 - `VesinOptions::pre_allocated_outputs` in the C API, to write the neighbor
   list directly in output arrays allocated by the caller.
 
+### Fixed
+
+- Debug builds no longer pass a null pointer to `memset` when resetting a
+  neighbor list that never stored a pair, which undefined behavior sanitizers
+  reported as an error.
+
 ### Changed
 
 - `vesin_neighbors()` in the C API takes a new `stream` argument, giving the

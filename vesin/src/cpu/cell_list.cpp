@@ -886,8 +886,12 @@ void GrowableNeighborList::reset() {
     // `length` can come from a previous calculation with pre-allocated outputs,
     // so we also limit this to the arrays we allocated
     auto size = std::min(this->neighbors.length, this->capacity);
-    // set all allocated data to a bit pattern that maps to NaN for double
-    std::memset(this->neighbors.pairs, 0b11111111, size * sizeof(size_t[2]));
+    // set all allocated data to a bit pattern that maps to NaN for double.
+    // `pairs` is still null if no pair was ever stored, and passing a null
+    // pointer to `memset` is undefined even for a size of zero.
+    if (this->neighbors.pairs != nullptr) {
+        std::memset(this->neighbors.pairs, 0b11111111, size * sizeof(size_t[2]));
+    }
 
     if (this->neighbors.shifts != nullptr) {
         std::memset(this->neighbors.shifts, 0b11111111, size * sizeof(int32_t[3]));

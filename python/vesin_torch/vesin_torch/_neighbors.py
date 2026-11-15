@@ -241,12 +241,25 @@ class NeighborList:
                 True,
             )
 
+            neighbors = pairs[:, 1]
+            if self._padded_to != 0:
+                # Padding has neighbor -1 and zero shift. A self-pair gives it
+                # a zero vector without indexing outside the points tensor.
+                neighbors = torch.where(neighbors < 0, pairs[:, 0], neighbors)
             vectors = (
-                points_f64.index_select(0, pairs[:, 1])
+                points_f64.index_select(0, neighbors)
                 - points_f64.index_select(0, pairs[:, 0])
                 + shifts.to(torch.float64) @ box_f64
             )
-            distances = torch.linalg.vector_norm(vectors, dim=1)
+            if self._padded_to != 0 and return_distances:
+                padding = pairs[:, 1] < 0
+                # The second derivative of the norm is undefined at zero.
+                safe_vectors = vectors.masked_fill(padding[:, None], 1.0)
+                distances = torch.linalg.vector_norm(safe_vectors, dim=1).masked_fill(
+                    padding, 0.0
+                )
+            else:
+                distances = torch.linalg.vector_norm(vectors, dim=1)
         else:
             pairs, shifts, distances, vectors = torch.ops.vesin.neighbors(
                 self._state,

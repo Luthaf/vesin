@@ -188,6 +188,39 @@ def test_pad_neighbors():
     assert torch.all(d[padding] == 0)
 
 
+@pytest.mark.parametrize("device", DEVICES)
+def test_padded_neighbors_autograd(device):
+    points = torch.tensor(
+        [[0.1, 0.2, 0.3], [2.8, 0.1, 0.2], [1.5, 1.5, 1.5]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+    box = (torch.eye(3, dtype=points.dtype, device=device) * 3).requires_grad_()
+    reference = NeighborList(cutoff=0.8, full_list=True)
+    padded = NeighborList(cutoff=0.8, full_list=True, padded_to=3)
+    j, vectors, distances = padded.compute(points, box, True, "jDd")
+    ref_vectors, ref_distances = reference.compute(points, box, True, "Dd")
+    assert torch.count_nonzero(j == -1) == 7
+    assert torch.count_nonzero(vectors[j == -1]) == 0
+    assert torch.count_nonzero(distances[j == -1]) == 0
+
+    def derivatives(vectors, distances):
+        energy = vectors.square().sum() + distances.sum()
+        forces = torch.autograd.grad(energy, (points, box), create_graph=True)
+        second = torch.autograd.grad(
+            sum(g.square().sum() for g in forces), (points, box)
+        )
+        return (*forces, *second)
+
+    for actual, expected in zip(
+        derivatives(vectors, distances),
+        derivatives(ref_vectors, ref_distances),
+        strict=True,
+    ):
+        torch.testing.assert_close(actual, expected)
+
+
 def test_pad_neighbors_errors():
     message = "`padded_to != None` requires `full_list = true`"
     with pytest.raises(ValueError, match=message):

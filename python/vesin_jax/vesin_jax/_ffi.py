@@ -6,6 +6,9 @@ def vesin_jax_compute(points, box, options):
     """
     Run ``vesin_jax_compute``, returning the pairs and shifts. ``options`` is a tuple of
     static parameters.
+
+    The pairs are ``int64`` if 64-bit arrays are enabled in JAX, and ``int32``
+    otherwise.
     """
     (
         state,
@@ -27,7 +30,9 @@ def vesin_jax_compute(points, box, options):
     compute = jax.ffi.ffi_call(
         "vesin_jax_compute",
         (
-            jax.ShapeDtypeStruct((n_pairs, 2), jnp.int64),
+            jax.ShapeDtypeStruct(
+                (n_pairs, 2), jax.dtypes.canonicalize_dtype(jnp.int64)
+            ),
             jax.ShapeDtypeStruct((n_pairs, 3), jnp.int32),
         ),
         has_side_effect=True,
@@ -75,7 +80,7 @@ def vesin_jax_compute_dynamic(points, box, options):
 
     compute = jax.ffi.ffi_call(
         "vesin_jax_compute_dynamic",
-        jax.ShapeDtypeStruct((1,), jnp.int64),
+        jax.ShapeDtypeStruct((1,), jax.dtypes.canonicalize_dtype(jnp.int64)),
         has_side_effect=True,
         vmap_method="sequential",
     )
@@ -112,7 +117,9 @@ def vesin_jax_copy_out(state, n_pairs):
     copy_out = jax.ffi.ffi_call(
         "vesin_jax_copy_out",
         (
-            jax.ShapeDtypeStruct((n_pairs_int, 2), jnp.int64),
+            jax.ShapeDtypeStruct(
+                (n_pairs_int, 2), jax.dtypes.canonicalize_dtype(jnp.int64)
+            ),
             jax.ShapeDtypeStruct((n_pairs_int, 3), jnp.int32),
         ),
         has_side_effect=True,

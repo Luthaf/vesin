@@ -4,20 +4,34 @@ import pytest
 from vesin_jax import NeighborList
 
 
-jax.config.update("jax_enable_x64", True)
+@pytest.fixture(autouse=True, params=[True, False], ids=["x64", "x32"])
+def x64(request):
+    """Run all tests both with and without 64-bit arrays in JAX"""
+    with jax.enable_x64(request.param):
+        yield request.param
 
-POINTS = jnp.array(
-    [
-        [0.0, 0.0, 0.0],
-        [0.0, 2.0, 0.0],
-        [0.0, 0.0, 2.0],
-        [-6.0, 0.0, 0.0],
-        [-6.0, -2.0, 0.0],
-        [-6.0, 0.0, -2.0],
-    ],
-    dtype=jnp.float64,
-)
-BOX = jnp.diag(jnp.array([54.0, 54.0, 54.0], dtype=jnp.float64))
+
+@pytest.fixture
+def points(x64):
+    return jnp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=jnp.float64 if x64 else jnp.float32,
+    )
+
+
+@pytest.fixture
+def box(x64):
+    return jnp.diag(
+        jnp.array([54.0, 54.0, 54.0], dtype=jnp.float64 if x64 else jnp.float32)
+    )
+
 
 DEVICES = jax.devices("cpu")
 try:
@@ -27,20 +41,20 @@ except RuntimeError:
     pass
 
 
-def test_jit():
+def test_jit(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
 
     def function(points, box):
         (distances,) = calculator.compute(points, box, periodic=True, quantities="d")
         return distances.sum()
 
-    expected = function(POINTS, BOX)
-    actual = jax.jit(function)(POINTS, BOX)
+    expected = function(points, box)
+    actual = jax.jit(function)(points, box)
 
     assert jnp.allclose(actual, expected)
 
 
-def test_jit_dynamic_fails():
+def test_jit_dynamic_fails(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=None)
 
     def function(points, box):
@@ -54,10 +68,10 @@ def test_jit_dynamic_fails():
         "number of pairs per point to use these functions"
     )
     with pytest.raises(RuntimeError, match=message):
-        compiled(POINTS, BOX)
+        compiled(points, box)
 
 
-def test_vmap():
+def test_vmap(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
 
     def function(points, box):
@@ -65,25 +79,25 @@ def test_vmap():
 
     # three systems with different neighbors: the reference one, one where all points
     # are too far apart, and one with some pairs crossing the periodic boundary
-    points = jnp.stack([POINTS, 1.2 * POINTS, POINTS])
-    box = jnp.stack([BOX, BOX, 7.0 * jnp.eye(3, dtype=jnp.float64)])
+    all_points = jnp.stack([points, 1.2 * points, points])
+    all_boxes = jnp.stack([box, box, 7.0 * jnp.eye(3, dtype=box.dtype)])
 
-    pairs, shifts, distances = jax.vmap(function)(points, box)
+    pairs, shifts, distances = jax.vmap(function)(all_points, all_boxes)
     assert pairs.shape == (3, 18, 2)
 
     n_pairs = (pairs[:, :, 1] >= 0).sum(axis=1)
     assert jnp.array_equal(n_pairs, jnp.array([8, 0, 10]))
 
     for s in range(3):
-        ref_pairs, ref_shifts, ref_distances = function(points[s], box[s])
+        ref_pairs, ref_shifts, ref_distances = function(all_points[s], all_boxes[s])
         assert jnp.array_equal(pairs[s], ref_pairs)
         assert jnp.array_equal(shifts[s], ref_shifts)
         assert jnp.allclose(distances[s], ref_distances)
 
     # the same box for all systems
-    pairs, shifts, distances = jax.vmap(function, in_axes=(0, None))(points, BOX)
+    pairs, shifts, distances = jax.vmap(function, in_axes=(0, None))(all_points, box)
     for s in range(3):
-        ref_pairs, ref_shifts, ref_distances = function(points[s], BOX)
+        ref_pairs, ref_shifts, ref_distances = function(all_points[s], box)
         assert jnp.array_equal(pairs[s], ref_pairs)
         assert jnp.array_equal(shifts[s], ref_shifts)
         assert jnp.allclose(distances[s], ref_distances)
@@ -94,16 +108,17 @@ def test_vmap():
         return distances.sum()
 
     grad_function = jax.grad(energy, argnums=(0, 1))
-    grad_points, grad_box = jax.vmap(grad_function)(points, box)
+    grad_points, grad_box = jax.vmap(grad_function)(all_points, all_boxes)
     for s in range(3):
-        expected_grad_points, expected_grad_box = grad_function(points[s], box[s])
+        expected = grad_function(all_points[s], all_boxes[s])
+        expected_grad_points, expected_grad_box = expected
         assert jnp.allclose(grad_points[s], expected_grad_points)
         assert jnp.allclose(grad_box[s], expected_grad_box)
 
 
-def test_vmap_dynamic_fails():
-    points = jnp.stack([POINTS, 1.2 * POINTS, POINTS])
-    box = jnp.stack([BOX, BOX, 7.0 * jnp.eye(3, dtype=jnp.float64)])
+def test_vmap_dynamic_fails(points, box):
+    all_points = jnp.stack([points, 1.2 * points, points])
+    all_boxes = jnp.stack([box, box, 7.0 * jnp.eye(3, dtype=box.dtype)])
 
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=None)
 
@@ -116,11 +131,11 @@ def test_vmap_dynamic_fails():
         "number of pairs per point to use these functions"
     )
     with pytest.raises(RuntimeError, match=message):
-        jax.vmap(function)(points, box)
+        jax.vmap(function)(all_points, all_boxes)
 
 
 @pytest.mark.parametrize("padded_to", [3, None])
-def test_grad(padded_to):
+def test_grad(padded_to, points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=padded_to)
 
     def function(points, box):
@@ -128,15 +143,15 @@ def test_grad(padded_to):
         return distances.sum()
 
     grad_function = jax.grad(function, argnums=(0, 1))
-    grad_points, grad_box = grad_function(POINTS, BOX)
+    grad_points, grad_box = grad_function(points, box)
 
-    (vectors,) = calculator.compute(POINTS, BOX, periodic=True, quantities="D")
-    pairs, shifts = calculator.compute(POINTS, BOX, periodic=True, quantities="PS")
+    (vectors,) = calculator.compute(points, box, periodic=True, quantities="D")
+    pairs, shifts = calculator.compute(points, box, periodic=True, quantities="PS")
 
     norm = jnp.linalg.norm(vectors, axis=1)
     unit = vectors / jnp.where(norm > 0, norm, 1.0)[:, None]
 
-    expected_grad_points = jnp.zeros_like(POINTS)
+    expected_grad_points = jnp.zeros_like(points)
     for pair, u in zip(pairs, unit, strict=True):
         i, j = int(pair[0]), int(pair[1])
         if j >= 0:
@@ -145,15 +160,15 @@ def test_grad(padded_to):
 
     assert jnp.allclose(grad_points, expected_grad_points)
 
-    expected_grad_box = shifts.astype(jnp.float64).T @ unit
+    expected_grad_box = shifts.astype(box.dtype).T @ unit
     assert jnp.allclose(grad_box, expected_grad_box)
 
 
 @pytest.mark.parametrize("padded_to", [3, None])
-def test_hessian(padded_to):
+def test_hessian(padded_to, points):
     # small box, so that the (0, 3) and (3, 0) pairs cross the periodic boundary and
     # the derivatives with respect to the box are not zero
-    box = 7.0 * jnp.eye(3, dtype=jnp.float64)
+    box = 7.0 * jnp.eye(3, dtype=points.dtype)
 
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=padded_to)
 
@@ -161,17 +176,17 @@ def test_hessian(padded_to):
         (distances,) = calculator.compute(points, box, periodic=True, quantities="d")
         return distances.sum()
 
-    hessian = jax.hessian(function, argnums=(0, 1))(POINTS, box)
+    hessian = jax.hessian(function, argnums=(0, 1))(points, box)
 
     # reference calculation, keeping the pairs and shifts fixed
     reference = NeighborList(cutoff=2.1, full_list=True)
-    i, j, S = reference.compute(POINTS, box, periodic=True, quantities="ijS")
+    i, j, S = reference.compute(points, box, periodic=True, quantities="ijS")
 
     def fixed_pairs_function(points, box):
-        vectors = points[j] - points[i] + S.astype(jnp.float64) @ box
+        vectors = points[j] - points[i] + S.astype(box.dtype) @ box
         return jnp.linalg.vector_norm(vectors, axis=1).sum()
 
-    expected = jax.hessian(fixed_pairs_function, argnums=(0, 1))(POINTS, box)
+    expected = jax.hessian(fixed_pairs_function, argnums=(0, 1))(points, box)
 
     for actual_block, expected_block in zip(
         jax.tree.leaves(hessian), jax.tree.leaves(expected), strict=True
@@ -194,10 +209,10 @@ def sort_pairs(pairs, shifts, distances):
 
 @pytest.mark.parametrize("device", DEVICES, ids=str)
 @pytest.mark.parametrize("padded_to", [3, None])
-def test_devices(device, padded_to):
+def test_devices(device, padded_to, points):
     cpu = jax.devices("cpu")[0]
     # small box, so that some pairs cross the periodic boundary
-    box = 7.0 * jnp.eye(3, dtype=jnp.float64)
+    box = 7.0 * jnp.eye(3, dtype=points.dtype)
 
     # the same calculator is used on all devices
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=padded_to)
@@ -209,7 +224,7 @@ def test_devices(device, padded_to):
         (distances,) = calculator.compute(points, box, periodic=True, quantities="d")
         return distances.sum()
 
-    points_cpu = jax.device_put(POINTS, cpu)
+    points_cpu = jax.device_put(points, cpu)
     box_cpu = jax.device_put(box, cpu)
     expected_pairs, expected_shifts, expected_distances = sort_pairs(
         *function(points_cpu, box_cpu)
@@ -218,7 +233,7 @@ def test_devices(device, padded_to):
         points_cpu, box_cpu
     )
 
-    points = jax.device_put(POINTS, device)
+    points = jax.device_put(points, device)
     box = jax.device_put(box, device)
 
     pairs, shifts, distances = function(points, box)

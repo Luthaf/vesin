@@ -5,26 +5,36 @@ import pytest
 from vesin_jax import NeighborList
 
 
-jax.config.update("jax_enable_x64", True)
-
-POINTS = jnp.array(
-    [
-        [0.0, 0.0, 0.0],
-        [0.0, 2.0, 0.0],
-        [0.0, 0.0, 2.0],
-        [-6.0, 0.0, 0.0],
-        [-6.0, -2.0, 0.0],
-        [-6.0, 0.0, -2.0],
-    ],
-    dtype=jnp.float64,
-)
-BOX = jnp.diag(jnp.array([54.0, 54.0, 54.0], dtype=jnp.float64))
+@pytest.fixture(autouse=True, params=[True, False], ids=["x64", "x32"])
+def x64(request):
+    """Run all tests both with and without 64-bit arrays in JAX"""
+    with jax.enable_x64(request.param):
+        yield request.param
 
 
-def test_errors():
-    points = jnp.array([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]], dtype=jnp.float64)
-    box = jnp.zeros((3, 3), dtype=jnp.float64)
+@pytest.fixture
+def points(x64):
+    return jnp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=jnp.float64 if x64 else jnp.float32,
+    )
 
+
+@pytest.fixture
+def box(x64):
+    return jnp.diag(
+        jnp.array([54.0, 54.0, 54.0], dtype=jnp.float64 if x64 else jnp.float32)
+    )
+
+
+def test_errors(points, box):
     calculator = NeighborList(cutoff=2.8, full_list=True)
 
     message = "unexpected character in `quantities`: Q"
@@ -33,7 +43,7 @@ def test_errors():
 
     message = "`points` and `box` must have the same dtype"
     with pytest.raises(RuntimeError, match=message):
-        calculator.compute(points, box.astype(jnp.float32), periodic=False)
+        calculator.compute(points, box.astype(jnp.float16), periodic=False)
 
     message = "n_threads must be zero or a positive integer"
     with pytest.raises(ValueError, match=message):
@@ -53,10 +63,9 @@ def test_errors():
 
 
 @pytest.mark.parametrize("quantities", ["ijS", "D", "d", "ijSDd"])
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
-def test_no_neighbors(quantities, dtype):
-    points = jnp.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=dtype)
-    box = jnp.eye(3, dtype=dtype)
+def test_no_neighbors(quantities):
+    points = jnp.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=jnp.float32)
+    box = jnp.eye(3, dtype=jnp.float32)
 
     calculator = NeighborList(cutoff=0.1, full_list=True)
     outputs = calculator.compute(points, box, True, quantities)
@@ -68,8 +77,12 @@ def test_no_neighbors(quantities, dtype):
     assert "d" not in quantities or list(outputs[quantities.index("d")].shape) == [0]
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
-def test_dtype(dtype):
+@pytest.mark.parametrize("dtype", [jnp.float16, jnp.float32, jnp.float64])
+def test_dtype(dtype, x64):
+    if dtype is jnp.float64 and not x64:
+        # can not use float64 if x64 is disabled
+        return
+
     box = jnp.eye(3, dtype=dtype) * 3.0
     points = jax.random.uniform(
         jax.random.key(0), (100, 3), dtype=dtype, minval=0.0, maxval=3.0
@@ -78,16 +91,17 @@ def test_dtype(dtype):
     calculator = NeighborList(cutoff=1, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 
-    assert i.dtype == jnp.int64
-    assert j.dtype == jnp.int64
+    index_dtype = jnp.int64 if x64 else jnp.int32
+    assert i.dtype == index_dtype
+    assert j.dtype == index_dtype
     assert s.dtype == jnp.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
 
 
-def test_neighbors():
+def test_neighbors(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True)
-    i, j, S, D, d = calculator.compute(POINTS, BOX, True, "ijSDd")
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
 
     assert len(i) == 8
     assert sorted(map(tuple, np.asarray(np.stack([i, j], axis=1)))) == [
@@ -104,9 +118,9 @@ def test_neighbors():
     assert np.allclose(d, np.linalg.norm(np.asarray(D), axis=1))
 
 
-def test_pad_neighbors():
+def test_pad_neighbors(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
-    i, j, S, D, d = calculator.compute(POINTS, BOX, True, "ijSDd")
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
 
     assert len(i) == 18
     assert len(j) == 18
@@ -122,7 +136,7 @@ def test_pad_neighbors():
 
     # non-padded pairs should match the unpadded calculation
     reference = NeighborList(cutoff=2.1, full_list=True)
-    ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(POINTS, BOX, True, "ijSDd")
+    ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(points, box, True, "ijSDd")
 
     keep = ~padding
     assert np.all(np.asarray(i)[keep] == np.asarray(ref_i))
@@ -132,14 +146,14 @@ def test_pad_neighbors():
     assert np.allclose(np.asarray(d)[keep], np.asarray(ref_d))
 
 
-def test_half_list():
+def test_half_list(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True)
-    i, j = calculator.compute(POINTS, BOX, True, "ij")
+    i, j = calculator.compute(points, box, True, "ij")
 
     assert len(i) == 8
 
     half = NeighborList(cutoff=2.1, full_list=False)
-    hi, hj = half.compute(POINTS, BOX, True, "ij")
+    hi, hj = half.compute(points, box, True, "ij")
 
     assert len(hi) == 4
     half_pairs = {(int(a), int(b)) for a, b in zip(hi, hj, strict=True)}

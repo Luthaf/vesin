@@ -1,13 +1,17 @@
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gpulite/gpulite.hpp>
 
@@ -17,8 +21,8 @@
 
 namespace ffi = xla::ffi;
 
-// The pairs are `int64_t` in JAX and `size_t` in vesin, and we copy or write
-// them directly from one to the other
+// The pairs are `int64_t` in JAX (with `jax_enable_x64`) and `size_t` in vesin,
+// and we copy or write them directly from one to the other
 static_assert(sizeof(size_t) == sizeof(int64_t), "vesin-jax requires 64-bit size_t");
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -130,32 +134,124 @@ extern "C" VESIN_JAX_EXPORT void vesin_jax_state_free(VesinJaxState* state) {
     delete state;
 }
 
-// ========================================================================== //
-
 /// Get the state from the corresponding attribute, which contains the address
 /// returned by `vesin_jax_state_create`
 static VesinJaxState* extract_state(int64_t state) {
     return reinterpret_cast<VesinJaxState*>(static_cast<uintptr_t>(state));
 }
 
-static ffi::Error check_inputs(
-    ffi::BufferR2<ffi::F64> points,
-    ffi::BufferR2<ffi::F64> box,
-    ffi::BufferR1<ffi::PRED> periodic
+// ========================================================================== //
+//                  Conversion between JAX and vesin types                    //
+// ========================================================================== //
+
+// Without `jax_enable_x64`, JAX only uses 32-bit arrays. The points and box
+// are then given as `float` and the pairs should be returned as `int32_t`,
+// while vesin works with `double` and `size_t`. The data is converted with the
+// functions below, either on the CPU or with the small CUDA kernels.
+
+static const char* CUDA_CONVERSION_CODE = R"(
+__global__ void vesin_jax_float_to_double(
+    const float* input,
+    double* output,
+    unsigned long long n
 ) {
-    if (points.dimensions()[1] != 3) {
-        return ffi::Error::InvalidArgument("`points` must be a [n_atoms x 3] array in vesin");
+    auto i = static_cast<unsigned long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i < n) {
+        output[i] = static_cast<double>(input[i]);
+    }
+}
+
+__global__ void vesin_jax_size_t_to_int32(
+    const unsigned long long* input,
+    int* output,
+    unsigned long long n
+) {
+    auto i = static_cast<unsigned long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i < n) {
+        // `SIZE_MAX = ~0ull` is used by vesin for padding pseudo-pairs
+        auto value = input[i];
+        output[i] = value == ~0ull ? -1 : static_cast<int>(value);
+    }
+}
+)";
+
+using FloatToDoubleKernel = void(const float*, double*, uint64_t);
+using SizeToInt32Kernel = void(const size_t*, int32_t*, uint64_t);
+
+/// Get the configuration to launch a conversion kernel on `n` elements
+static gpulite::LaunchConfig conversion_launch_config(void* stream, size_t n) {
+    const size_t THREADS_PER_BLOCK = 256;
+    auto config = gpulite::LaunchConfig();
+    config.stream = static_cast<cudaStream_t>(stream);
+    config.gridDim = dim3(static_cast<unsigned>((n + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK));
+    config.blockDim = dim3(THREADS_PER_BLOCK);
+    return config;
+}
+
+/// Temporary memory, which stays valid until the end of the current FFI call.
+/// On CUDA, the memory comes from XLA's allocator, and is ordered with respect
+/// to the stream of the call. XLA does not support `ffi::ScratchAllocator` on
+/// CPU, so we use memory allocated with `new` there instead.
+class Workspace {
+public:
+    /// Create a workspace using the XLA `scratch` allocator, or host memory if
+    /// `scratch` is `nullptr`
+    explicit Workspace(ffi::ScratchAllocator& scratch): scratch_(scratch) {}
+    explicit Workspace(): scratch_(std::nullopt) {}
+
+    /// Allocate `size` bytes of memory
+    void* allocate(size_t size) {
+        if (!scratch_) {
+            host_.emplace_back(new char[size]);
+            return host_.back().get();
+        }
+
+        auto ptr = scratch_->get().Allocate(size, alignof(std::max_align_t));
+        if (!ptr.has_value()) {
+            throw std::runtime_error("failed to allocate temporary memory for vesin-jax");
+        }
+        return ptr.value();
     }
 
-    if (box.dimensions()[0] != 3 || box.dimensions()[1] != 3) {
-        return ffi::Error::InvalidArgument("`box` must be a [3 x 3] array in vesin");
+private:
+    std::optional<std::reference_wrapper<ffi::ScratchAllocator>> scratch_;
+    std::vector<std::unique_ptr<char[]>> host_;
+};
+
+/// Get the data in `buffer` (which contains either `float` or `double`) as
+/// `double`, converting it in temporary memory if needed.
+static const double* as_double(
+    VesinDevice device,
+    void* stream,
+    Workspace& workspace,
+    ffi::AnyBuffer buffer
+) {
+    if (buffer.element_type() == ffi::F64) {
+        return buffer.typed_data<double>();
     }
 
-    if (periodic.dimensions()[0] != 3) {
-        return ffi::Error::InvalidArgument("`periodic` must be an array of 3 booleans in vesin");
+    assert(buffer.element_type() == ffi::F32);
+    auto n = buffer.element_count();
+    const auto* input = buffer.typed_data<float>();
+    auto* output = static_cast<double*>(workspace.allocate(n * sizeof(double)));
+
+    if (n == 0) {
+        return output;
     }
 
-    return ffi::Error::Success();
+    if (device.type == VesinCPU) {
+        for (size_t i = 0; i < n; i++) {
+            output[i] = static_cast<double>(input[i]);
+        }
+    } else {
+        auto& factory = gpulite::KernelFactory::instance(device.device_id);
+        auto* kernel = factory.create<FloatToDoubleKernel>(
+            "vesin_jax_float_to_double", CUDA_CONVERSION_CODE, "vesin_jax.cu", {}
+        );
+        kernel->launch(conversion_launch_config(stream, n), input, output, static_cast<uint64_t>(n));
+    }
+
+    return output;
 }
 
 /// Copy `size` bytes from `src` to `dst`, where `dst` is in the memory of
@@ -184,11 +280,108 @@ static void copy_to_device(
     }
 }
 
+/// Copy `n_pairs` pairs from `pairs` to the `output` buffer (containing either
+/// `int64_t` or `int32_t`), both in the memory of `device`.
+static void copy_pairs(
+    VesinDevice device,
+    void* stream,
+    ffi::Result<ffi::AnyBuffer>& output,
+    const size_t (*pairs)[2],
+    size_t n_pairs
+) {
+    if (output->element_type() == ffi::S64) {
+        copy_to_device(
+            device, stream, output->untyped_data(), pairs,
+            n_pairs * sizeof(size_t[2]), /*src_on_host=*/false
+        );
+        return;
+    }
+
+    assert(output->element_type() == ffi::S32);
+    auto n = 2 * n_pairs;
+    const auto* input = reinterpret_cast<const size_t*>(pairs);
+    auto* output_data = output->typed_data<int32_t>();
+
+    if (n == 0) {
+        return;
+    }
+
+    if (device.type == VesinCPU) {
+        for (size_t i = 0; i < n; i++) {
+            // `SIZE_MAX` is used by vesin for padding pseudo-pairs
+            output_data[i] = input[i] == SIZE_MAX ? -1 : static_cast<int32_t>(input[i]);
+        }
+    } else {
+        auto& factory = gpulite::KernelFactory::instance(device.device_id);
+        auto* kernel = factory.create<SizeToInt32Kernel>(
+            "vesin_jax_size_t_to_int32", CUDA_CONVERSION_CODE, "vesin_jax.cu", {}
+        );
+        kernel->launch(conversion_launch_config(stream, n), input, output_data, static_cast<uint64_t>(n));
+    }
+}
+
+// ========================================================================== //
+
+static ffi::Error check_inputs(
+    ffi::AnyBuffer points,
+    ffi::AnyBuffer box,
+    ffi::BufferR1<ffi::PRED> periodic
+) {
+    auto dtype = points.element_type();
+    if (dtype != ffi::F32 && dtype != ffi::F64) {
+        return ffi::Error::InvalidArgument("`points` must contain 32 or 64-bit floats in vesin");
+    }
+
+    if (box.element_type() != dtype) {
+        return ffi::Error::InvalidArgument("`points` and `box` must have the same dtype in vesin");
+    }
+
+    auto points_shape = points.dimensions();
+    if (points_shape.size() != 2 || points_shape[1] != 3) {
+        return ffi::Error::InvalidArgument("`points` must be a [n_atoms x 3] array in vesin");
+    }
+
+    auto box_shape = box.dimensions();
+    if (box_shape.size() != 2 || box_shape[0] != 3 || box_shape[1] != 3) {
+        return ffi::Error::InvalidArgument("`box` must be a [3 x 3] array in vesin");
+    }
+
+    if (periodic.dimensions()[0] != 3) {
+        return ffi::Error::InvalidArgument("`periodic` must be an array of 3 booleans in vesin");
+    }
+
+    return ffi::Error::Success();
+}
+
+/// Check that the `pairs` and `shifts` outputs can contain `n_pairs` pairs
+static ffi::Error check_outputs(
+    ffi::Result<ffi::AnyBuffer>& pairs,
+    ffi::Result<ffi::BufferR2<ffi::S32>>& shifts,
+    size_t n_pairs
+) {
+    auto dtype = pairs->element_type();
+    if (dtype != ffi::S32 && dtype != ffi::S64) {
+        return ffi::Error::Internal("`pairs` output buffer must contain 32 or 64-bit integers");
+    }
+
+    auto pairs_shape = pairs->dimensions();
+    if (pairs_shape.size() != 2 || pairs_shape[0] != n_pairs || pairs_shape[1] != 2) {
+        return ffi::Error::Internal("`pairs` output buffer has the wrong shape");
+    }
+
+    if (shifts->dimensions()[0] != n_pairs || shifts->dimensions()[1] != 3) {
+        return ffi::Error::Internal("`shifts` output buffer has the wrong shape");
+    }
+
+    return ffi::Error::Success();
+}
+
 static ffi::Error run_vesin(
     VesinDevice device,
     void* stream,
-    ffi::BufferR2<ffi::F64> points,
-    ffi::BufferR2<ffi::F64> box,
+    Workspace& workspace,
+    ffi::AnyBuffer points,
+    ffi::AnyBuffer box,
     ffi::BufferR1<ffi::PRED> periodic,
     double cutoff,
     bool full,
@@ -217,11 +410,14 @@ static ffi::Error run_vesin(
     options.return_vectors = false;
     options.pre_allocated_outputs = pre_allocated_outputs;
 
+    const auto* points_data = as_double(device, stream, workspace, points);
+    const auto* box_data = as_double(device, stream, workspace, box);
+
     const char* error_message = nullptr;
     auto status = vesin_neighbors(
-        reinterpret_cast<const double (*)[3]>(points.typed_data()),
+        reinterpret_cast<const double (*)[3]>(points_data),
         points.dimensions()[0],
-        reinterpret_cast<const double (*)[3]>(box.typed_data()),
+        reinterpret_cast<const double (*)[3]>(box_data),
         periodic.typed_data(),
         device,
         stream,
@@ -240,10 +436,11 @@ static ffi::Error run_vesin(
 static ffi::Error vesin_jax_compute_impl(
     VesinDevice device,
     void* stream,
-    ffi::BufferR2<ffi::F64> points,
-    ffi::BufferR2<ffi::F64> box,
+    Workspace& workspace,
+    ffi::AnyBuffer points,
+    ffi::AnyBuffer box,
     ffi::BufferR1<ffi::PRED> periodic,
-    ffi::Result<ffi::BufferR2<ffi::S64>> pairs,
+    ffi::Result<ffi::AnyBuffer> pairs,
     ffi::Result<ffi::BufferR2<ffi::S32>> shifts,
     int64_t state,
     double cutoff,
@@ -260,12 +457,9 @@ static ffi::Error vesin_jax_compute_impl(
     }
 
     auto expected_length = points.dimensions()[0] * static_cast<size_t>(padded_to);
-    if (pairs->dimensions()[0] != expected_length || pairs->dimensions()[1] != 2) {
-        return ffi::Error::Internal("`pairs` output buffer has the wrong shape");
-    }
-
-    if (shifts->dimensions()[0] != expected_length || shifts->dimensions()[1] != 3) {
-        return ffi::Error::Internal("`shifts` output buffer has the wrong shape");
+    error = check_outputs(pairs, shifts, expected_length);
+    if (error.failure()) {
+        return error;
     }
 
     auto& data = extract_state(state)->get(device);
@@ -275,14 +469,20 @@ static ffi::Error vesin_jax_compute_impl(
     // With padding, the number of pairs is known before the calculation, so
     // vesin can write directly in the output buffers allocated by XLA. The
     // `SIZE_MAX` index of padding pseudo-pairs becomes -1 when read as
-    // `int64_t`.
-    neighbors.pairs = reinterpret_cast<size_t (*)[2]>(pairs->typed_data());
+    // `int64_t`. If the pairs are `int32_t`, vesin writes them to temporary
+    // memory instead, and they are converted afterward.
+    auto pairs_are_int64 = pairs->element_type() == ffi::S64;
+    if (pairs_are_int64) {
+        neighbors.pairs = reinterpret_cast<size_t (*)[2]>(pairs->untyped_data());
+    } else {
+        neighbors.pairs = static_cast<size_t (*)[2]>(workspace.allocate(expected_length * sizeof(size_t[2])));
+    }
     neighbors.shifts = reinterpret_cast<int32_t (*)[3]>(shifts->typed_data());
     neighbors.length = expected_length;
 
     error = run_vesin(
-        device, stream, points, box, periodic, cutoff, full, sorted, padded_to,
-        skin, algorithm, n_threads, /*pre_allocated_outputs=*/true, &neighbors
+        device, stream, workspace, points, box, periodic, cutoff, full, sorted,
+        padded_to, skin, algorithm, n_threads, /*pre_allocated_outputs=*/true, &neighbors
     );
 
     if (error.failure()) {
@@ -296,16 +496,21 @@ static ffi::Error vesin_jax_compute_impl(
         );
     }
 
+    if (!pairs_are_int64) {
+        copy_pairs(device, stream, pairs, neighbors.pairs, neighbors.length);
+    }
+
     return ffi::Error::Success();
 }
 
 static ffi::Error vesin_jax_compute_dynamic_impl(
     VesinDevice device,
     void* stream,
-    ffi::BufferR2<ffi::F64> points,
-    ffi::BufferR2<ffi::F64> box,
+    Workspace& workspace,
+    ffi::AnyBuffer points,
+    ffi::AnyBuffer box,
     ffi::BufferR1<ffi::PRED> periodic,
-    ffi::Result<ffi::BufferR1<ffi::S64>> n_pairs,
+    ffi::Result<ffi::AnyBuffer> n_pairs,
     int64_t state,
     double cutoff,
     bool full,
@@ -319,12 +524,17 @@ static ffi::Error vesin_jax_compute_dynamic_impl(
         return error;
     }
 
+    if (n_pairs->element_count() != 1) {
+        return ffi::Error::Internal("`n_pairs` output buffer has the wrong shape");
+    }
+
     auto& data = extract_state(state)->get(device);
     auto lock = data.lock();
 
     error = run_vesin(
-        device, stream, points, box, periodic, cutoff, full, sorted, /*padded_to=*/0,
-        skin, algorithm, n_threads, /*pre_allocated_outputs=*/false, &data.neighbors
+        device, stream, workspace, points, box, periodic, cutoff, full, sorted,
+        /*padded_to=*/0, skin, algorithm, n_threads, /*pre_allocated_outputs=*/false,
+        &data.neighbors
     );
     if (error.failure()) {
         return error;
@@ -333,8 +543,23 @@ static ffi::Error vesin_jax_compute_dynamic_impl(
     // the neighbor list is kept inside the state, it will be copied to the
     // output buffers by a later call to `vesin_jax_copy_out`, once the number
     // of pairs is known
-    auto length = static_cast<int64_t>(data.neighbors.length);
-    copy_to_device(device, stream, n_pairs->typed_data(), &length, sizeof(int64_t), /*src_on_host=*/true);
+    auto length = data.neighbors.length;
+    if (n_pairs->element_type() == ffi::S64) {
+        auto length_64 = static_cast<int64_t>(length);
+        copy_to_device(device, stream, n_pairs->untyped_data(), &length_64, sizeof(int64_t), /*src_on_host=*/true);
+    } else if (n_pairs->element_type() == ffi::S32) {
+        if (length > static_cast<size_t>(INT32_MAX)) {
+            return ffi::Error::Internal(
+                "the neighbor list contains too many pairs (" + std::to_string(length) +
+                ") to be used without 64-bit arrays, please enable them with "
+                "`jax.config.update('jax_enable_x64', True)`"
+            );
+        }
+        auto length_32 = static_cast<int32_t>(length);
+        copy_to_device(device, stream, n_pairs->untyped_data(), &length_32, sizeof(int32_t), /*src_on_host=*/true);
+    } else {
+        return ffi::Error::Internal("`n_pairs` output buffer must contain 32 or 64-bit integers");
+    }
 
     return ffi::Error::Success();
 }
@@ -344,8 +569,9 @@ static ffi::Error vesin_jax_compute_dynamic_impl(
 static ffi::Error vesin_jax_copy_out_impl(
     VesinDevice device,
     void* stream,
-    ffi::BufferR1<ffi::S64> /* n_pairs */,
-    ffi::Result<ffi::BufferR2<ffi::S64>> pairs,
+    Workspace& /* workspace */,
+    ffi::AnyBuffer /* n_pairs */,
+    ffi::Result<ffi::AnyBuffer> pairs,
     ffi::Result<ffi::BufferR2<ffi::S32>> shifts,
     int64_t state
 ) {
@@ -353,19 +579,13 @@ static ffi::Error vesin_jax_copy_out_impl(
     auto lock = data.lock();
     const auto& neighbors = data.neighbors;
 
-    if (pairs->dimensions()[0] != neighbors.length || pairs->dimensions()[1] != 2) {
-        return ffi::Error::Internal("`pairs` output buffer has the wrong shape");
-    }
-
-    if (shifts->dimensions()[0] != neighbors.length || shifts->dimensions()[1] != 3) {
-        return ffi::Error::Internal("`shifts` output buffer has the wrong shape");
+    auto error = check_outputs(pairs, shifts, neighbors.length);
+    if (error.failure()) {
+        return error;
     }
 
     // there is no padding here, so all the pairs can be copied as-is
-    copy_to_device(
-        device, stream, pairs->typed_data(), neighbors.pairs,
-        neighbors.length * sizeof(size_t[2]), /*src_on_host=*/false
-    );
+    copy_pairs(device, stream, pairs, neighbors.pairs, neighbors.length);
     copy_to_device(
         device, stream, shifts->typed_data(), neighbors.shifts,
         neighbors.length * sizeof(int32_t[3]), /*src_on_host=*/false
@@ -383,7 +603,8 @@ template <typename Impl>
 static constexpr auto on_cpu(Impl impl) {
     return [impl](auto... args) -> ffi::Error {
         try {
-            return impl(VesinDevice{VesinCPU, 0}, nullptr, args...);
+            auto workspace = Workspace();
+            return impl(VesinDevice{VesinCPU, 0}, nullptr, workspace, args...);
         } catch (const std::exception& e) {
             return ffi::Error::Internal(e.what());
         }
@@ -399,9 +620,10 @@ static auto cpu_binding() {
 /// running on the stream and device given by XLA
 template <typename Impl>
 static constexpr auto on_cuda(Impl impl) {
-    return [impl](cudaStream_t stream, int32_t device_id, auto... args) -> ffi::Error {
+    return [impl](cudaStream_t stream, int32_t device_id, ffi::ScratchAllocator scratch, auto... args) -> ffi::Error {
         try {
-            return impl(VesinDevice{VesinCUDA, device_id}, stream, args...);
+            auto workspace = Workspace(scratch);
+            return impl(VesinDevice{VesinCUDA, device_id}, stream, workspace, args...);
         } catch (const std::exception& e) {
             return ffi::Error::Internal(e.what());
         }
@@ -412,16 +634,17 @@ static constexpr auto on_cuda(Impl impl) {
 static auto cuda_binding() {
     return ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
-        .Ctx<ffi::DeviceOrdinal>();
+        .Ctx<ffi::DeviceOrdinal>()
+        .Ctx<ffi::ScratchAllocator>();
 }
 
 template <typename Binding>
 static auto compute_binding(Binding binding) {
     return std::move(binding)
-        .template Arg<ffi::BufferR2<ffi::F64>>()
-        .template Arg<ffi::BufferR2<ffi::F64>>()
+        .template Arg<ffi::AnyBuffer>()
+        .template Arg<ffi::AnyBuffer>()
         .template Arg<ffi::BufferR1<ffi::PRED>>()
-        .template Ret<ffi::BufferR2<ffi::S64>>()
+        .template Ret<ffi::AnyBuffer>()
         .template Ret<ffi::BufferR2<ffi::S32>>()
         .template Attr<int64_t>("state")
         .template Attr<double>("cutoff")
@@ -436,10 +659,10 @@ static auto compute_binding(Binding binding) {
 template <typename Binding>
 static auto compute_dynamic_binding(Binding binding) {
     return std::move(binding)
-        .template Arg<ffi::BufferR2<ffi::F64>>()
-        .template Arg<ffi::BufferR2<ffi::F64>>()
+        .template Arg<ffi::AnyBuffer>()
+        .template Arg<ffi::AnyBuffer>()
         .template Arg<ffi::BufferR1<ffi::PRED>>()
-        .template Ret<ffi::BufferR1<ffi::S64>>()
+        .template Ret<ffi::AnyBuffer>()
         .template Attr<int64_t>("state")
         .template Attr<double>("cutoff")
         .template Attr<bool>("full")
@@ -452,8 +675,8 @@ static auto compute_dynamic_binding(Binding binding) {
 template <typename Binding>
 static auto copy_out_binding(Binding binding) {
     return std::move(binding)
-        .template Arg<ffi::BufferR1<ffi::S64>>()
-        .template Ret<ffi::BufferR2<ffi::S64>>()
+        .template Arg<ffi::AnyBuffer>()
+        .template Ret<ffi::AnyBuffer>()
         .template Ret<ffi::BufferR2<ffi::S32>>()
         .template Attr<int64_t>("state");
 }

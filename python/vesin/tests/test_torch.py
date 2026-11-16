@@ -298,8 +298,8 @@ def test_dtype(dtype, device):
     calculator = NeighborList(cutoff=1, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 
-    assert i.dtype == torch.uint64
-    assert j.dtype == torch.uint64
+    assert i.dtype == torch.int64
+    assert j.dtype == torch.int64
     assert s.dtype == torch.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
@@ -313,8 +313,8 @@ def test_integer_input_float_outputs(device):
     calculator = NeighborList(cutoff=2, full_list=True)
     i, j, D, d = calculator.compute(points, box, False, "ijDd")
 
-    assert i.dtype == torch.uint64
-    assert j.dtype == torch.uint64
+    assert i.dtype == torch.int64
+    assert j.dtype == torch.int64
     assert D.dtype == torch.float64
     assert d.dtype == torch.float64
     assert d.cpu().tolist() == pytest.approx([1.0, 1.0])

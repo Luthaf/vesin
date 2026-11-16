@@ -213,7 +213,8 @@ class NeighborList:
             view inside this class, and will be invalidated whenever this class is
             garbage collected or used to run a new calculation.
 
-        :return: tuple of arrays as indicated by ``quantities``.
+        :return: tuple of arrays as indicated by ``quantities``. The indexes of the
+            points (``"i"``, ``"j"`` and ``"P"``) are ``int64`` arrays.
         """
         use_cupy = HAS_CUPY and isinstance(points, cp.ndarray)
         use_torch = HAS_TORCH and isinstance(points, torch.Tensor)
@@ -223,6 +224,7 @@ class NeighborList:
             as_array_fn = _cupy_asarray
             to_dtype_fn = _cupy_to_dtype
             float64_dtype = cp.float64
+            int64_dtype = cp.int64
             bool_dtype = cp.bool_
             empty_array_fn = _cupy_empty
             ptr_to_array_fn = _ptr_to_cupy
@@ -232,6 +234,7 @@ class NeighborList:
             as_array_fn = _torch_asarray
             to_dtype_fn = _torch_to_dtype
             float64_dtype = torch.float64
+            int64_dtype = torch.int64
             bool_dtype = torch.bool
             empty_array_fn = _torch_empty
             ptr_to_array_fn = _ptr_to_torch
@@ -242,6 +245,7 @@ class NeighborList:
             as_array_fn = _numpy_asarray
             to_dtype_fn = _numpy_to_dtype
             float64_dtype = np.float64
+            int64_dtype = np.int64
             bool_dtype = np.bool_
             empty_array_fn = _numpy_empty
             ptr_to_array_fn = _ptr_to_numpy
@@ -335,7 +339,11 @@ class NeighborList:
                 setattr(self._neighbors, name, ctypes.cast(ptr, field_type))
                 return array
 
+            # vesin stores pairs as `size_t`, and we return them as `int64` views
+            # of the same memory (without copying the data). This makes the
+            # `SIZE_MAX` index of padding pseudo-pairs read as -1.
             pairs = allocate("pairs", (capacity, 2), ctypes.c_size_t)
+            pairs = pairs.view(int64_dtype)
             shifts = distances = vectors = None
             if options.return_shifts:
                 shifts = allocate("shifts", (capacity, 3), ctypes.c_int32)
@@ -378,7 +386,7 @@ class NeighborList:
         elif n_pairs == 0:
             # Empty results -- use initial_dtype for floating-point arrays so
             # the caller gets the same dtype they passed in.
-            pairs = empty_array_fn((0, 2), dtype=ctypes.c_size_t, device_like=points)
+            pairs = empty_array_fn((0, 2), dtype=int64_dtype, device_like=points)
             shifts = empty_array_fn((0, 3), dtype=ctypes.c_int32, device_like=points)
             distances = empty_array_fn(
                 (0,), dtype=output_float_dtype, device_like=points
@@ -389,13 +397,14 @@ class NeighborList:
             copy_owned = copy
         else:
             copy_owned = copy
+            # same as above, view the `size_t` pairs as `int64` without copying
             pairs = ptr_to_array_fn(
                 self._neighbors.pairs,
                 shape=(n_pairs, 2),
                 dtype=ctypes.c_size_t,
                 owner=self._neighbors,
                 device=self._neighbors.device,
-            )
+            ).view(int64_dtype)
             if "S" in quantities:
                 shifts = ptr_to_array_fn(
                     self._neighbors.shifts,

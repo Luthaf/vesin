@@ -151,13 +151,18 @@ class NeighborList:
         - ``"d"`` to get the distance between points in the pair
         - ``"D"`` to get the distance vector between points in the pair
 
-        The distances and distance vectors are always recomputed from the pairs
-        and shifts with JAX operations, making the calculation differentiable
-        with respect to ``points`` and ``box``.
+        The distances and distance vectors are always recomputed from the pairs and
+        shifts with JAX operations, making the calculation differentiable with respect
+        to ``points`` and ``box``, and are returned with the same dtype as ``points``.
+
+        The pairs indexes are returned as ``int64`` arrays if 64-bit support is enabled
+        in JAX (``jax.config.update("jax_enable_x64", True)``), and ``int32`` arrays
+        otherwise. The shifts are always returned as ``int32`` arrays. The neighbor list
+        itself is always computed with ``float64`` precision.
 
         :param points: positions of all points in the system
-        :param box: bounding box of the system, as a 3x3 matrix. Ignored if the
-            system is not periodic, but must still be provided.
+        :param box: bounding box of the system, as a 3x3 matrix. Ignored if the system
+            is not periodic, but must still be provided.
         :param periodic: should we use periodic boundary conditions? This can be a
             single boolean to enable/disable periodic boundary conditions in all
             directions, or a sequence of three booleans (one for each direction).
@@ -165,16 +170,12 @@ class NeighborList:
 
         :return: tuple of :py:class:`jax.Array` as indicated by ``quantities``.
         """
-        if not jax.config.jax_enable_x64:
-            raise RuntimeError(
-                "vesin-jax requires 64-bit arrays, please enable them with "
-                "`jax.config.update('jax_enable_x64', True)`"
-            )
-
         for q in quantities:
             if q not in "ijPSdD":
                 raise ValueError(f"unexpected character in `quantities`: {q}")
 
+        points = jnp.asarray(points)
+        box = jnp.asarray(box)
         if box.dtype != points.dtype:
             raise RuntimeError(
                 "`points` and `box` must have the same dtype, "
@@ -190,10 +191,6 @@ class NeighborList:
             )
         periodic_x, periodic_y, periodic_z = (bool(p) for p in periodic)
 
-        initial_dtype = points.dtype
-        points = jnp.asarray(points, dtype=jnp.float64)
-        box = jnp.asarray(box, dtype=jnp.float64)
-
         options = (
             self._state,
             periodic_x,
@@ -208,10 +205,17 @@ class NeighborList:
             self._n_threads,
         )
 
-        if self._padded_to is not None:
-            pairs, shifts = vesin_jax_compute(points, box, options)
+        # the C++ code accepts float32 and float64 arrays, and converts them to
+        # float64 if needed. Other floating point types are given as float32.
+        if points.dtype in (jnp.float32, jnp.float64):
+            ffi_points, ffi_box = points, box
         else:
-            n_pairs = vesin_jax_compute_dynamic(points, box, options)
+            ffi_points, ffi_box = points.astype(jnp.float32), box.astype(jnp.float32)
+
+        if self._padded_to is not None:
+            pairs, shifts = vesin_jax_compute(ffi_points, ffi_box, options)
+        else:
+            n_pairs = vesin_jax_compute_dynamic(ffi_points, ffi_box, options)
             pairs, shifts = vesin_jax_copy_out(self._state, n_pairs)
 
         pairs = jnp.asarray(pairs)
@@ -223,9 +227,7 @@ class NeighborList:
         j_index = jnp.where(mask, pairs[:, 1], 0)
 
         # r_ij = r_j - r_i + S @ H
-        vectors = (
-            points[j_index] - points[pairs[:, 0]] + shifts.astype(jnp.float64) @ box
-        )
+        vectors = points[j_index] - points[pairs[:, 0]] + shifts.astype(box.dtype) @ box
         vectors = jnp.where(mask[:, None], vectors, 0.0)
         distances = jnp.linalg.vector_norm(vectors, axis=1)
 
@@ -240,8 +242,8 @@ class NeighborList:
             elif q == "S":
                 results.append(shifts)
             elif q == "d":
-                results.append(distances.astype(initial_dtype))
+                results.append(distances)
             elif q == "D":
-                results.append(vectors.astype(initial_dtype))
+                results.append(vectors)
 
         return tuple(results)

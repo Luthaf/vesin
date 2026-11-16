@@ -252,6 +252,128 @@ def test_pad_neighbors_errors():
     assert j.tolist() == [-1]
 
 
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("full_list", [True, False])
+def test_fixed_n_pairs(device, full_list):
+    points = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=torch.float64,
+        device=device,
+    )
+    box = torch.diag(
+        torch.tensor([54.0, 54.0, 54.0], dtype=torch.float64, device=device)
+    )
+
+    calculator = NeighborList(
+        cutoff=2.1, full_list=full_list, sorted=True, fixed_n_pairs=20
+    )
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert i.shape == (20,)
+    assert j.shape == (20,)
+    assert S.shape == (20, 3)
+    assert D.shape == (20, 3)
+    assert d.shape == (20,)
+
+    # the actual pairs come first, followed by padding
+    n_pairs = 8 if full_list else 4
+    padding = j == -1
+    assert not torch.any(padding[:n_pairs])
+    assert torch.all(padding[n_pairs:])
+
+    assert torch.all(i[padding] == -1)
+    assert torch.all(S[padding] == 0)
+    assert torch.all(D[padding] == 0)
+    assert torch.all(d[padding] == 0)
+
+    # actual pairs should match the calculation without padding
+    reference = NeighborList(cutoff=2.1, full_list=full_list, sorted=True)
+    ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(points, box, True, "ijSDd")
+
+    assert torch.equal(i[:n_pairs], ref_i)
+    assert torch.equal(j[:n_pairs], ref_j)
+    assert torch.equal(S[:n_pairs], ref_S)
+    assert torch.equal(D[:n_pairs], ref_D)
+    assert torch.equal(d[:n_pairs], ref_d)
+
+    # exactly enough room for all pairs
+    calculator = NeighborList(
+        cutoff=2.1, full_list=full_list, sorted=True, fixed_n_pairs=n_pairs
+    )
+    i, j = calculator.compute(points, box, True, "ij")
+    assert torch.equal(i, ref_i)
+    assert torch.equal(j, ref_j)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_fixed_n_pairs_autograd(device):
+    points = torch.tensor(
+        [[0.1, 0.2, 0.3], [2.8, 0.1, 0.2], [1.5, 1.5, 1.5]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+    box = (torch.eye(3, dtype=points.dtype, device=device) * 3).requires_grad_()
+    reference = NeighborList(cutoff=0.8, full_list=True)
+    padded = NeighborList(cutoff=0.8, full_list=True, fixed_n_pairs=10)
+    i, j, vectors, distances = padded.compute(points, box, True, "ijDd")
+    ref_vectors, ref_distances = reference.compute(points, box, True, "Dd")
+    assert torch.count_nonzero(i == -1) == 8
+    assert torch.count_nonzero(j == -1) == 8
+    assert torch.count_nonzero(vectors[j == -1]) == 0
+    assert torch.count_nonzero(distances[j == -1]) == 0
+
+    def derivatives(vectors, distances):
+        energy = vectors.square().sum() + distances.sum()
+        forces = torch.autograd.grad(energy, (points, box), create_graph=True)
+        second = torch.autograd.grad(
+            sum(g.square().sum() for g in forces), (points, box)
+        )
+        return (*forces, *second)
+
+    for actual, expected in zip(
+        derivatives(vectors, distances),
+        derivatives(ref_vectors, ref_distances),
+        strict=True,
+    ):
+        torch.testing.assert_close(actual, expected)
+
+
+def test_fixed_n_pairs_errors():
+    message = "`fixed_n_pairs` must be positive or None, got 0"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, fixed_n_pairs=0)
+
+    message = "`padded_to` and `fixed_n_pairs` can not be used together"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, padded_to=3, fixed_n_pairs=10)
+
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+    )
+    box = torch.eye(3, dtype=torch.float64)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=4)
+    message = (
+        "the pre-allocated output arrays can hold 4 pairs, "
+        "but this calculation needs 6 pairs"
+    )
+    with pytest.raises(RuntimeError, match=message):
+        nl.compute(points, box, periodic=False)
+
+    # the same calculator can still be used after an error
+    i, j = nl.compute(points[:1], box, periodic=False)
+    assert i.tolist() == [-1, -1, -1, -1]
+    assert j.tolist() == [-1, -1, -1, -1]
+
+
 def test_padded_outputs_are_independent():
     # with padding, vesin writes directly in tensors allocated for each call
     points = torch.tensor(

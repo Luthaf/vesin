@@ -243,12 +243,14 @@ static const double* as_double(
         for (size_t i = 0; i < n; i++) {
             output[i] = static_cast<double>(input[i]);
         }
-    } else {
+    } else if (device.type == VesinCUDA) {
         auto& factory = gpulite::KernelFactory::instance(device.device_id);
         auto* kernel = factory.create<FloatToDoubleKernel>(
             "vesin_jax_float_to_double", CUDA_CONVERSION_CODE, "vesin_jax.cu", {}
         );
         kernel->launch(conversion_launch_config(stream, n), input, output, static_cast<uint64_t>(n));
+    } else {
+        throw std::runtime_error("vesin-jax only supports CPU and CUDA devices");
     }
 
     return output;
@@ -271,12 +273,29 @@ static void copy_to_device(
 
     if (device.type == VesinCPU) {
         std::memcpy(dst, src, size);
-    } else {
+    } else if (device.type == VesinCUDA) {
         // When copying from pageable host memory, `cudaMemcpyAsync` returns
         // once `src` has been copied to a staging buffer, so it does not need
         // to outlive this call.
         auto kind = src_on_host ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToDevice;
         GPULITE_CUDART_CALL(cudaMemcpyAsync(dst, src, size, kind, static_cast<cudaStream_t>(stream)));
+    } else {
+        throw std::runtime_error("vesin-jax only supports CPU and CUDA devices");
+    }
+}
+
+/// Set `size` bytes starting at `dst` (in the memory of `device`) to `value`
+static void fill_bytes(VesinDevice device, void* stream, void* dst, int value, size_t size) {
+    if (size == 0) {
+        return;
+    }
+
+    if (device.type == VesinCPU) {
+        std::memset(dst, value, size);
+    } else if (device.type == VesinCUDA) {
+        GPULITE_CUDART_CALL(cudaMemsetAsync(dst, value, size, static_cast<cudaStream_t>(stream)));
+    } else {
+        throw std::runtime_error("vesin-jax only supports CPU and CUDA devices");
     }
 }
 
@@ -311,12 +330,14 @@ static void copy_pairs(
             // `SIZE_MAX` is used by vesin for padding pseudo-pairs
             output_data[i] = input[i] == SIZE_MAX ? -1 : static_cast<int32_t>(input[i]);
         }
-    } else {
+    } else if (device.type == VesinCUDA) {
         auto& factory = gpulite::KernelFactory::instance(device.device_id);
         auto* kernel = factory.create<SizeToInt32Kernel>(
             "vesin_jax_size_t_to_int32", CUDA_CONVERSION_CODE, "vesin_jax.cu", {}
         );
         kernel->launch(conversion_launch_config(stream, n), input, output_data, static_cast<uint64_t>(n));
+    } else {
+        throw std::runtime_error("vesin-jax only supports CPU and CUDA devices");
     }
 }
 
@@ -447,6 +468,7 @@ static ffi::Error vesin_jax_compute_impl(
     bool full,
     bool sorted,
     int64_t padded_to,
+    int64_t fixed_n_pairs,
     double skin,
     int64_t algorithm,
     int64_t n_threads
@@ -456,8 +478,17 @@ static ffi::Error vesin_jax_compute_impl(
         return error;
     }
 
-    auto expected_length = points.dimensions()[0] * static_cast<size_t>(padded_to);
-    error = check_outputs(pairs, shifts, expected_length);
+    // exactly one of `padded_to` and `fixed_n_pairs` is set, and gives the
+    // number of pairs in the outputs
+    assert((padded_to > 0) != (fixed_n_pairs > 0));
+    size_t capacity = 0;
+    if (padded_to > 0) {
+        capacity = points.dimensions()[0] * static_cast<size_t>(padded_to);
+    } else {
+        capacity = static_cast<size_t>(fixed_n_pairs);
+    }
+
+    error = check_outputs(pairs, shifts, capacity);
     if (error.failure()) {
         return error;
     }
@@ -466,8 +497,8 @@ static ffi::Error vesin_jax_compute_impl(
     auto lock = data.lock();
     auto& neighbors = data.neighbors;
 
-    // With padding, the number of pairs is known before the calculation, so
-    // vesin can write directly in the output buffers allocated by XLA. The
+    // The maximal number of pairs is known before the calculation, so vesin
+    // can write directly in the output buffers allocated by XLA. The
     // `SIZE_MAX` index of padding pseudo-pairs becomes -1 when read as
     // `int64_t`. If the pairs are `int32_t`, vesin writes them to temporary
     // memory instead, and they are converted afterward.
@@ -475,10 +506,10 @@ static ffi::Error vesin_jax_compute_impl(
     if (pairs_are_int64) {
         neighbors.pairs = reinterpret_cast<size_t (*)[2]>(pairs->untyped_data());
     } else {
-        neighbors.pairs = static_cast<size_t (*)[2]>(workspace.allocate(expected_length * sizeof(size_t[2])));
+        neighbors.pairs = static_cast<size_t (*)[2]>(workspace.allocate(capacity * sizeof(size_t[2])));
     }
     neighbors.shifts = reinterpret_cast<int32_t (*)[3]>(shifts->typed_data());
-    neighbors.length = expected_length;
+    neighbors.length = capacity;
 
     error = run_vesin(
         device, stream, workspace, points, box, periodic, cutoff, full, sorted,
@@ -489,16 +520,34 @@ static ffi::Error vesin_jax_compute_impl(
         return error;
     }
 
-    if (neighbors.length != expected_length) {
+    if (padded_to > 0 && neighbors.length != capacity) {
         return ffi::Error::Internal(
             "vesin returned an unexpected number of pairs: expected " +
-            std::to_string(expected_length) + ", got " + std::to_string(neighbors.length)
+            std::to_string(capacity) + ", got " + std::to_string(neighbors.length)
         );
     }
 
     if (!pairs_are_int64) {
         copy_pairs(device, stream, pairs, neighbors.pairs, neighbors.length);
     }
+
+    // With `fixed_n_pairs`, vesin only wrote the first `length` pairs. The
+    // remaining ones are filled with `(-1, -1)` pseudo-pairs (all bits set to
+    // 1 in two's complement) and zero shifts.
+    auto n_padding = capacity - neighbors.length;
+    auto pair_size = 2 * ffi::ByteWidth(pairs->element_type());
+    fill_bytes(
+        device, stream,
+        static_cast<char*>(pairs->untyped_data()) + neighbors.length * pair_size,
+        0xFF,
+        n_padding * pair_size
+    );
+    fill_bytes(
+        device, stream,
+        shifts->typed_data() + 3 * neighbors.length,
+        0,
+        n_padding * sizeof(int32_t[3])
+    );
 
     return ffi::Error::Success();
 }
@@ -651,6 +700,7 @@ static auto compute_binding(Binding binding) {
         .template Attr<bool>("full")
         .template Attr<bool>("sorted")
         .template Attr<int64_t>("padded_to")
+        .template Attr<int64_t>("fixed_n_pairs")
         .template Attr<double>("skin")
         .template Attr<int64_t>("algorithm")
         .template Attr<int64_t>("n_threads");

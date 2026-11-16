@@ -48,6 +48,56 @@ def test_compile_forward_no_graph_break(full_list, backend):
 
 
 @pytest.mark.parametrize("backend", ["eager", "inductor", "aot_eager"])
+@pytest.mark.parametrize("full_list", [True, False])
+def test_compile_forward_fixed_n_pairs(backend, full_list):
+    calculator = NeighborList(cutoff=2.1, full_list=full_list, fixed_n_pairs=20)
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.calculator = calculator
+
+        def forward(self, points, box):
+            (i, j, distances) = self.calculator.compute(
+                points=points,
+                box=box,
+                periodic=torch.tensor(True),
+                quantities="ijd",
+            )
+            return i, j, distances.sum()
+
+    model = Model()
+    compiled = torch.compile(model, backend=backend, fullgraph=True)
+
+    points = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=torch.float64,
+    )
+    box = torch.diag(torch.tensor([54.0, 54.0, 54.0], dtype=torch.float64))
+
+    expected_i, expected_j, expected = model(points, box)
+    actual_i, actual_j, actual = compiled(points, box)
+
+    assert torch.equal(actual_i, expected_i)
+    assert torch.equal(actual_j, expected_j)
+    assert torch.allclose(actual, expected)
+
+    # the actual pairs come first, followed by `(-1, -1)` padding pseudo-pairs
+    n_pairs = 8 if full_list else 4
+    assert actual_i.shape == (20,)
+    assert torch.all(actual_i[n_pairs:] == -1)
+    assert torch.all(actual_j[n_pairs:] == -1)
+    assert torch.all(actual_j[:n_pairs] >= 0)
+
+
+@pytest.mark.parametrize("backend", ["eager", "inductor", "aot_eager"])
 def test_compile_forward_padded(backend):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
 
@@ -226,13 +276,18 @@ def _system(n_points):
     return points, box
 
 
-@pytest.mark.parametrize("padded_to", [None, 3])
-def test_export_dynamic_shapes(padded_to):
+@pytest.mark.parametrize(
+    "options",
+    [{}, {"padded_to": 3}, {"fixed_n_pairs": 50}],
+    ids=["dynamic", "padded_to", "fixed_n_pairs"],
+)
+def test_export_dynamic_shapes(options):
     """
     Check that when using a padded neighbor list, the output shapes are correctly
-    marked as padded_to * n_points, and not left as a dynamic value.
+    marked as padded_to * n_points (or fixed_n_pairs), and not left as a
+    dynamic value.
     """
-    calculator = NeighborList(cutoff=1.1, full_list=True, padded_to=padded_to)
+    calculator = NeighborList(cutoff=1.1, full_list=True, **options)
 
     class Model(torch.nn.Module):
         def __init__(self):
@@ -264,15 +319,19 @@ def test_export_dynamic_shapes(padded_to):
             pairs_shape = node.meta["val"][0].shape[0]
     assert pairs_shape is not None
 
-    if padded_to is None:
-        # the number of pairs is data-dependent, the fake implementation marks
-        # it as a dynamic size unrelated to the inputs (unbacked symint)
-        assert re.fullmatch(r"u\d+", str(pairs_shape))
-    else:
+    if "padded_to" in options:
         # padding makes the output size input-dependent: exactly `padded_to *
         # n_points` pairs, expressed in terms of the `points` dynamic size
         # (backed symint)
+        padded_to = options["padded_to"]
         assert re.fullmatch(rf"{padded_to}\*s\d+", str(pairs_shape))
+    elif "fixed_n_pairs" in options:
+        # the number of pairs does not depend on the inputs
+        assert pairs_shape == options["fixed_n_pairs"]
+    else:
+        # the number of pairs is data-dependent, the fake implementation marks
+        # it as a dynamic size unrelated to the inputs (unbacked symint)
+        assert re.fullmatch(r"u\d+", str(pairs_shape))
 
     for n_points in [4, 8]:
         points, box = _system(n_points)
@@ -283,5 +342,7 @@ def test_export_dynamic_shapes(padded_to):
         assert torch.equal(actual_j, expected_j)
         assert torch.equal(actual_distances, expected_distances)
 
-        if padded_to is not None:
-            assert actual_i.shape == (padded_to * n_points,)
+        if "padded_to" in options:
+            assert actual_i.shape == (options["padded_to"] * n_points,)
+        elif "fixed_n_pairs" in options:
+            assert actual_i.shape == (options["fixed_n_pairs"],)

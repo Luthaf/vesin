@@ -12,6 +12,7 @@ class NeighborList:
         full_list: bool,
         sorted: bool = False,
         padded_to: Optional[int] = None,
+        fixed_n_pairs: Optional[int] = None,
         algorithm: str = "auto",
         skin: float = 0.0,
         n_threads: int = 0,
@@ -27,6 +28,10 @@ class NeighborList:
             pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
             Computing the list fails if a point has more neighbors than this. If set to
             ``None``, no padding is applied.
+        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs
+            in total, adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and
+            vector after the actual pairs. Computing the list fails if there are more
+            pairs than this. This can not be used together with ``padded_to``.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
@@ -60,6 +65,19 @@ class NeighborList:
             if not self._full_list:
                 raise ValueError("`padded_to != None` requires `full_list = true`")
 
+        self._fixed_n_pairs = 0
+        if fixed_n_pairs is not None:
+            if fixed_n_pairs <= 0:
+                raise ValueError(
+                    f"`fixed_n_pairs` must be positive or None, got {fixed_n_pairs}"
+                )
+
+            if padded_to is not None:
+                raise ValueError(
+                    "`padded_to` and `fixed_n_pairs` can not be used together"
+                )
+            self._fixed_n_pairs = fixed_n_pairs
+
         self._state = torch.classes.vesin.State()
 
     @property
@@ -85,6 +103,13 @@ class NeighborList:
         return self._padded_to
 
     @property
+    def fixed_n_pairs(self) -> Optional[int]:
+        """Total number of pairs the neighbor list is padded to, or ``None``."""
+        if self._fixed_n_pairs == 0:
+            return None
+        return self._fixed_n_pairs
+
+    @property
     def algorithm(self) -> str:
         """Algorithm used to compute this neighbor list."""
         return self._algorithm
@@ -107,6 +132,7 @@ class NeighborList:
             "full_list": self._full_list,
             "sorted": self._sorted,
             "padded_to": self._padded_to,
+            "fixed_n_pairs": self._fixed_n_pairs,
             "algorithm": self._algorithm,
             "skin": self._skin,
             "n_threads": self._n_threads,
@@ -129,6 +155,10 @@ class NeighborList:
         padded_to = state["padded_to"]
         assert isinstance(padded_to, int)
         self._padded_to = padded_to
+
+        fixed_n_pairs = state["fixed_n_pairs"]
+        assert isinstance(fixed_n_pairs, int)
+        self._fixed_n_pairs = fixed_n_pairs
 
         algorithm = state["algorithm"]
         assert isinstance(algorithm, str)
@@ -232,6 +262,7 @@ class NeighborList:
                 self._full_list,
                 self._sorted,
                 self._padded_to,
+                self._fixed_n_pairs,
                 self._algorithm,
                 self._skin,
                 self._n_threads,
@@ -241,17 +272,22 @@ class NeighborList:
                 True,
             )
 
-            neighbors = pairs[:, 1]
-            if self._padded_to != 0:
-                # Padding has neighbor -1 and zero shift. A self-pair gives it
-                # a zero vector without indexing outside the points tensor.
-                neighbors = torch.where(neighbors < 0, pairs[:, 0], neighbors)
+            first = pairs[:, 0]
+            second = pairs[:, 1]
+            has_padding = self._padded_to != 0 or self._fixed_n_pairs != 0
+            if has_padding:
+                # Padding pseudo-pairs are `(i, -1)` or `(-1, -1)`, with zero shift.
+                # Replacing them with `(0, 0)` gives them a zero vector without
+                # indexing outside the points tensor.
+                padding = second < 0
+                first = first.masked_fill(padding, 0)
+                second = second.masked_fill(padding, 0)
             vectors = (
-                points_f64.index_select(0, neighbors)
-                - points_f64.index_select(0, pairs[:, 0])
+                points_f64.index_select(0, second)
+                - points_f64.index_select(0, first)
                 + shifts.to(torch.float64) @ box_f64
             )
-            if self._padded_to != 0 and return_distances:
+            if has_padding and return_distances:
                 padding = pairs[:, 1] < 0
                 # The second derivative of the norm is undefined at zero.
                 safe_vectors = vectors.masked_fill(padding[:, None], 1.0)
@@ -270,6 +306,7 @@ class NeighborList:
                 self._full_list,
                 self._sorted,
                 self._padded_to,
+                self._fixed_n_pairs,
                 self._algorithm,
                 self._skin,
                 self._n_threads,

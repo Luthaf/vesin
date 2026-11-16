@@ -16,9 +16,8 @@ setup(
         f"vesin @ file://{ROOT}/python/vesin",
     ],
     extras_require={
-        "torch": [
-            f"vesin-torch @ file://{ROOT}/python/vesin_torch",
-        ]
+        "torch": [f"vesin-torch @ file://{ROOT}/python/vesin_torch"],
+        "jax": [f"vesin-jax @ file://{ROOT}/python/vesin_jax"],
     },
     packages=[],
 )

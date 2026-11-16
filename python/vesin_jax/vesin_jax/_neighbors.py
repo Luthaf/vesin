@@ -18,11 +18,13 @@ class NeighborList:
     """
     A neighbor list calculator that can be used with JAX.
 
-    The calculation is compatible with ``jax.jit`` when ``padded_to`` is set: the number
-    of pairs is then a known, static shape (``n_points * padded_to``), with missing
-    pairs padded with pseudo-pairs ``(i, -1)`` carrying a zero shift. If ``padded_to``
-    is ``None``, the number of pairs is dynamic, and the calculation only works outside
-    of ``jax.jit`` and ``jax.vmap``.
+    The calculation is compatible with :py:func:`jax.jit` and :py:func:`jax.vmap` when
+    ``padded_to`` is set to a positive integer. The number of pairs is then a known,
+    static shape (``n_points * padded_to``), with missing pairs padded with pseudo-pairs
+    ``(i, -1)`` carrying a zero shift.
+
+    If ``padded_to`` is ``None``, the number of pairs is dynamic, and the calculation
+    only works outside of :py:func:`jax.jit` and :py:func:`jax.vmap`.
     """
 
     def __init__(

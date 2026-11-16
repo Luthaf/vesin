@@ -61,6 +61,22 @@ def test_errors(points, box):
     with pytest.raises(ValueError, match=message):
         NeighborList(cutoff=1.0, full_list=True, padded_to=-1)
 
+    message = "`fixed_n_pairs` must be positive or None, got 0"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, fixed_n_pairs=0)
+
+    message = "`padded_to` and `fixed_n_pairs` can not be used together"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, padded_to=3, fixed_n_pairs=10)
+
+    calculator = NeighborList(cutoff=2.1, full_list=True, fixed_n_pairs=1)
+    message = (
+        "the pre-allocated output arrays can hold 1 pairs, "
+        "but this calculation needs 8 pairs"
+    )
+    with pytest.raises(RuntimeError, match=message):
+        calculator.compute(points, box, periodic=False)
+
 
 @pytest.mark.parametrize("quantities", ["ijS", "D", "d", "ijSDd"])
 def test_no_neighbors(quantities):
@@ -144,6 +160,42 @@ def test_pad_neighbors(points, box):
     assert np.all(np.asarray(S)[keep] == np.asarray(ref_S))
     assert np.allclose(np.asarray(D)[keep], np.asarray(ref_D))
     assert np.allclose(np.asarray(d)[keep], np.asarray(ref_d))
+
+
+@pytest.mark.parametrize("full_list", [True, False])
+def test_fixed_n_pairs(points, box, full_list):
+    calculator = NeighborList(cutoff=2.1, full_list=full_list, fixed_n_pairs=20)
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert len(i) == 20
+    assert len(j) == 20
+
+    # the actual pairs come first, followed by padding
+    n_pairs = 8 if full_list else 4
+    padding = np.asarray(j) == -1
+    assert not np.any(padding[:n_pairs])
+    assert np.all(padding[n_pairs:])
+
+    assert np.all(np.asarray(i)[padding] == -1)
+    assert np.all(np.asarray(S)[padding] == 0)
+    assert np.all(np.asarray(D)[padding] == 0)
+    assert np.all(np.asarray(d)[padding] == 0)
+
+    # actual pairs should match the calculation without padding
+    reference = NeighborList(cutoff=2.1, full_list=full_list)
+    ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(points, box, True, "ijSDd")
+
+    assert np.all(np.asarray(i)[:n_pairs] == np.asarray(ref_i))
+    assert np.all(np.asarray(j)[:n_pairs] == np.asarray(ref_j))
+    assert np.all(np.asarray(S)[:n_pairs] == np.asarray(ref_S))
+    assert np.allclose(np.asarray(D)[:n_pairs], np.asarray(ref_D))
+    assert np.allclose(np.asarray(d)[:n_pairs], np.asarray(ref_d))
+
+    # exactly enough room for all pairs
+    calculator = NeighborList(cutoff=2.1, full_list=full_list, fixed_n_pairs=n_pairs)
+    i, j = calculator.compute(points, box, True, "ij")
+    assert np.all(np.asarray(i) == np.asarray(ref_i))
+    assert np.all(np.asarray(j) == np.asarray(ref_j))
 
 
 def test_half_list(points, box):

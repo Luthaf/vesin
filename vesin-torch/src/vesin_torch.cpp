@@ -115,13 +115,15 @@ VesinAlgorithm algorithm_from_string(const std::string& algorithm) {
 
 /// Compute the neighbor list with the given `options`, without any autograd
 /// integration. Pairs are always returned, the other outputs are empty tensors
-/// if not requested in `options`.
+/// if not requested in `options`. If `fixed_n_pairs` is positive, the
+/// outputs always contain this many pairs, padded with `(-1, -1)` pseudo-pairs.
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_neighbors(
     VesinNeighborList* data,
     torch::Tensor points,
     torch::Tensor box,
     torch::Tensor periodic,
     VesinOptions options,
+    int64_t fixed_n_pairs,
     bool copy
 ) {
     // check input data
@@ -194,19 +196,25 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
     auto int32_options = torch::TensorOptions().device(device).dtype(torch::kInt32);
     auto double_options = torch::TensorOptions().device(device).dtype(torch::kDouble);
 
-    // With padding, the number of pairs is known before the calculation, so
-    // vesin can write directly in tensors allocated by torch. The pairs are
-    // stored as `int64_t` in torch and `size_t` in vesin, which requires both
-    // types to have the same size.
-    options.pre_allocated_outputs = options.padded_to > 0 && n_points > 0 && sizeof(size_t) == sizeof(int64_t);
+    // With padding or a fixed number of pairs, the maximal number of pairs is known
+    // before the calculation, so vesin can write directly in tensors allocated
+    // by torch. The pairs are stored as `int64_t` in torch and `size_t` in
+    // vesin, which requires both types to have the same size.
+    auto capacity = fixed_n_pairs;
+    if (options.padded_to > 0) {
+        capacity = static_cast<int64_t>(n_points * options.padded_to);
+    }
+
+    if ((fixed_n_pairs > 0 || options.padded_to > 0) && sizeof(size_t) != sizeof(int64_t)) {
+        C10_THROW_ERROR(ValueError, "`fixed_n_pairs` and `padded_to` require 64-bit platforms");
+    }
+    options.pre_allocated_outputs = capacity > 0;
 
     auto pairs = torch::empty({0, 2}, int64_options);
     auto shifts = torch::empty({0, 3}, int32_options);
     auto distances = torch::empty({0}, double_options);
     auto vectors = torch::empty({0, 3}, double_options);
     if (options.pre_allocated_outputs) {
-        auto capacity = static_cast<int64_t>(n_points * options.padded_to);
-
         pairs = torch::empty({capacity, 2}, int64_options);
         data->pairs = reinterpret_cast<size_t (*)[2]>(pairs.data_ptr<int64_t>());
         if (options.return_shifts) {
@@ -242,7 +250,25 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
     }
 
     if (options.pre_allocated_outputs) {
-        assert(pairs.size(0) == static_cast<int64_t>(data->length));
+        if (fixed_n_pairs > 0) {
+            // vesin only wrote the first `length` pairs, the remaining ones
+            // are filled with `(-1, -1)` pseudo-pairs and zero shifts,
+            // distances and vectors
+            auto start = static_cast<int64_t>(data->length);
+            auto n_padding = capacity - start;
+            pairs.narrow(0, start, n_padding).fill_(-1);
+            if (options.return_shifts) {
+                shifts.narrow(0, start, n_padding).zero_();
+            }
+            if (options.return_distances) {
+                distances.narrow(0, start, n_padding).zero_();
+            }
+            if (options.return_vectors) {
+                vectors.narrow(0, start, n_padding).zero_();
+            }
+        } else {
+            assert(pairs.size(0) == static_cast<int64_t>(data->length));
+        }
         return {pairs, shifts, distances, vectors};
     }
 
@@ -292,6 +318,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
     bool full_list,
     bool sorted,
     int64_t padded_to,
+    int64_t fixed_n_pairs,
     std::string algorithm,
     double skin,
     int64_t n_threads,
@@ -324,6 +351,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
         std::move(box),
         std::move(periodic),
         options,
+        fixed_n_pairs,
         copy
     );
 }
@@ -354,7 +382,8 @@ TORCH_LIBRARY(vesin, m) {
     m.def(
         "neighbors("
             "__torch__.torch.classes.vesin.State state, Tensor points, Tensor box, Tensor periodic, "
-            "float cutoff, bool full_list, bool sorted, int padded_to, str algorithm, float skin, int n_threads, "
+            "float cutoff, bool full_list, bool sorted, int padded_to, int fixed_n_pairs, "
+            "str algorithm, float skin, int n_threads, "
             "bool return_shifts, bool return_distances, bool return_vectors, bool copy"
         ") -> (Tensor pairs, Tensor shifts, Tensor distances, Tensor vectors)"
     );

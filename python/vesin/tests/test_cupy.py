@@ -578,6 +578,25 @@ def test_verlet_trajectory_changing_box_mixed_pbc():
         compare_nl_results(direct, verlet)
 
 
+def test_fixed_n_pairs():
+    points = cp.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    box = cp.eye(3, dtype=cp.float64)
+
+    calculator = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=10)
+    P, S, D, d = calculator.compute(points, box, False, "PSDd")
+
+    assert isinstance(P, cp.ndarray)
+    assert P.dtype == cp.int64
+    assert P.shape == (10, 2)
+
+    # the 6 actual pairs come first, followed by padding
+    assert cp.all(P[:6] >= 0)
+    assert cp.all(P[6:] == -1)
+    assert cp.all(S[6:] == 0)
+    assert cp.all(D[6:] == 0)
+    assert cp.all(d[6:] == 0)
+
+
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force", "verlet"])
 def test_gpu_padded_errors(gpu_algorithm):
     if gpu_algorithm == "verlet":

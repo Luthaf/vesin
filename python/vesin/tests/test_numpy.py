@@ -686,6 +686,93 @@ def test_pad_neighbors_errors():
     np.testing.assert_array_equal(j, [-1])
 
 
+@pytest.mark.parametrize("full_list", [True, False])
+def test_fixed_n_pairs(full_list):
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ]
+    )
+    box = np.diag([54.0, 54.0, 54.0])
+
+    calculator = NeighborList(
+        cutoff=2.1, full_list=full_list, sorted=True, fixed_n_pairs=20
+    )
+    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
+
+    assert i.shape == (20,)
+    assert j.shape == (20,)
+    assert S.shape == (20, 3)
+    assert D.shape == (20, 3)
+    assert d.shape == (20,)
+
+    # the actual pairs come first, followed by padding
+    n_pairs = 8 if full_list else 4
+    padding = j == -1
+    assert not np.any(padding[:n_pairs])
+    assert np.all(padding[n_pairs:])
+
+    assert np.all(i[padding] == -1)
+    assert np.all(S[padding] == 0)
+    assert np.all(D[padding] == 0.0)
+    assert np.all(d[padding] == 0.0)
+
+    # actual pairs should match the calculation without padding
+    reference = NeighborList(cutoff=2.1, full_list=full_list, sorted=True)
+    ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(points, box, True, "ijSDd")
+
+    np.testing.assert_array_equal(i[:n_pairs], ref_i)
+    np.testing.assert_array_equal(j[:n_pairs], ref_j)
+    np.testing.assert_array_equal(S[:n_pairs], ref_S)
+    np.testing.assert_array_equal(D[:n_pairs], ref_D)
+    np.testing.assert_array_equal(d[:n_pairs], ref_d)
+
+    # exactly enough room for all pairs
+    calculator = NeighborList(
+        cutoff=2.1, full_list=full_list, sorted=True, fixed_n_pairs=n_pairs
+    )
+    i, j = calculator.compute(points, box, True, "ij")
+    np.testing.assert_array_equal(i, ref_i)
+    np.testing.assert_array_equal(j, ref_j)
+
+    # no points at all, only padding
+    i, j, S = calculator.compute(np.zeros((0, 3)), box, True, "ijS")
+    np.testing.assert_array_equal(i, -np.ones(n_pairs))
+    np.testing.assert_array_equal(j, -np.ones(n_pairs))
+    np.testing.assert_array_equal(S, np.zeros((n_pairs, 3)))
+
+
+def test_fixed_n_pairs_errors():
+    message = "`fixed_n_pairs` must be positive or None, got 0"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, fixed_n_pairs=0)
+
+    message = "`padded_to` and `fixed_n_pairs` can not be used together"
+    with pytest.raises(ValueError, match=message):
+        NeighborList(cutoff=1.0, full_list=True, padded_to=3, fixed_n_pairs=10)
+
+    points = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    box = np.eye(3)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=4)
+    message = (
+        "the pre-allocated output arrays can hold 4 pairs, "
+        "but this calculation needs 6 pairs"
+    )
+    with pytest.raises(RuntimeError, match=message):
+        nl.compute(points, box, periodic=False)
+
+    # the same calculator can still be used after an error
+    i, j = nl.compute(points[:1], box, periodic=False)
+    np.testing.assert_array_equal(i, [-1, -1, -1, -1])
+    np.testing.assert_array_equal(j, [-1, -1, -1, -1])
+
+
 def test_padded_outputs_are_independent():
     # with padding, vesin writes directly in arrays allocated for each call
     points = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])

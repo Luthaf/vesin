@@ -20,12 +20,14 @@ def test_pickle():
         cutoff=1.1,
         full_list=False,
         sorted=True,
+        fixed_n_pairs=20,
         algorithm="cell_list",
         skin=0.1,
         n_threads=2,
     )
     loaded = pickle.loads(pickle.dumps(calculator))
 
+    assert loaded.fixed_n_pairs == 20
     assert calculator.cutoff == loaded.cutoff
     assert calculator.full_list == loaded.full_list
     assert calculator.sorted == loaded.sorted

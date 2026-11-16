@@ -320,6 +320,30 @@ def test_integer_input_float_outputs(device):
     assert d.cpu().tolist() == pytest.approx([1.0, 1.0])
 
 
+@pytest.mark.parametrize("device", DEVICES)
+def test_fixed_n_pairs(device):
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]],
+        dtype=torch.float64,
+        device=device,
+    )
+    box = torch.eye(3, dtype=torch.float64, device=device)
+
+    calculator = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=10)
+    P, S, D, d = calculator.compute(points, box, False, "PSDd")
+
+    assert P.dtype == torch.int64
+    assert P.shape == (10, 2)
+    assert P.device == points.device
+
+    # the 6 actual pairs come first, followed by padding
+    assert torch.all(P[:6] >= 0)
+    assert torch.all(P[6:] == -1)
+    assert torch.all(S[6:] == 0)
+    assert torch.all(D[6:] == 0)
+    assert torch.all(d[6:] == 0)
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 @pytest.mark.parametrize("device", DEVICES)
 def test_dtype_empty_neighbors(dtype, device):

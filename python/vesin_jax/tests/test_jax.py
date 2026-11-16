@@ -33,6 +33,14 @@ def box(x64):
     )
 
 
+# options giving a static number of pairs, compatible with jax.jit and jax.vmap
+STATIC_OPTIONS = [{"padded_to": 3}, {"fixed_n_pairs": 20}]
+STATIC_OPTIONS_IDS = ["padded_to", "fixed_n_pairs"]
+
+# all the ways of computing the neighbor list, including with a dynamic number of pairs
+ALL_OPTIONS = STATIC_OPTIONS + [{}]
+ALL_OPTIONS_IDS = STATIC_OPTIONS_IDS + ["dynamic"]
+
 DEVICES = jax.devices("cpu")
 try:
     DEVICES += jax.devices("cuda")
@@ -41,12 +49,13 @@ except RuntimeError:
     pass
 
 
-def test_jit(points, box):
-    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
+@pytest.mark.parametrize("options", STATIC_OPTIONS, ids=STATIC_OPTIONS_IDS)
+def test_jit(points, box, options):
+    calculator = NeighborList(cutoff=2.1, full_list=True, **options)
 
     def function(points, box):
-        (distances,) = calculator.compute(points, box, periodic=True, quantities="d")
-        return distances.sum()
+        i, d = calculator.compute(points, box, periodic=True, quantities="id")
+        return d.sum()
 
     expected = function(points, box)
     actual = jax.jit(function)(points, box)
@@ -65,14 +74,16 @@ def test_jit_dynamic_fails(points, box):
     message = (
         "the number of pairs in the neighbor list is only known after the calculation, "
         "which is not compatible with jax.jit, or jax.vmap. Set `padded_to` to a fixed "
-        "number of pairs per point to use these functions"
+        "number of pairs per point, or `fixed_n_pairs` to a fixed total "
+        "number of pairs to use these functions"
     )
     with pytest.raises(RuntimeError, match=message):
         compiled(points, box)
 
 
-def test_vmap(points, box):
-    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
+@pytest.mark.parametrize("options", STATIC_OPTIONS, ids=STATIC_OPTIONS_IDS)
+def test_vmap(points, box, options):
+    calculator = NeighborList(cutoff=2.1, full_list=True, **options)
 
     def function(points, box):
         return calculator.compute(points, box, periodic=True, quantities="PSd")
@@ -83,7 +94,10 @@ def test_vmap(points, box):
     all_boxes = jnp.stack([box, box, 7.0 * jnp.eye(3, dtype=box.dtype)])
 
     pairs, shifts, distances = jax.vmap(function)(all_points, all_boxes)
-    assert pairs.shape == (3, 18, 2)
+    if "padded_to" in options:
+        assert pairs.shape == (3, 18, 2)
+    else:
+        assert pairs.shape == (3, 20, 2)
 
     n_pairs = (pairs[:, :, 1] >= 0).sum(axis=1)
     assert jnp.array_equal(n_pairs, jnp.array([8, 0, 10]))
@@ -128,15 +142,16 @@ def test_vmap_dynamic_fails(points, box):
     message = (
         "the number of pairs in the neighbor list is only known after the calculation, "
         "which is not compatible with jax.jit, or jax.vmap. Set `padded_to` to a fixed "
-        "number of pairs per point to use these functions"
+        "number of pairs per point, or `fixed_n_pairs` to a fixed total "
+        "number of pairs to use these functions"
     )
     with pytest.raises(RuntimeError, match=message):
         jax.vmap(function)(all_points, all_boxes)
 
 
-@pytest.mark.parametrize("padded_to", [3, None])
-def test_grad(padded_to, points, box):
-    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=padded_to)
+@pytest.mark.parametrize("options", ALL_OPTIONS, ids=ALL_OPTIONS_IDS)
+def test_grad(options, points, box):
+    calculator = NeighborList(cutoff=2.1, full_list=True, **options)
 
     def function(points, box):
         (distances,) = calculator.compute(points, box, periodic=True, quantities="d")
@@ -164,13 +179,13 @@ def test_grad(padded_to, points, box):
     assert jnp.allclose(grad_box, expected_grad_box)
 
 
-@pytest.mark.parametrize("padded_to", [3, None])
-def test_hessian(padded_to, points):
+@pytest.mark.parametrize("options", ALL_OPTIONS, ids=ALL_OPTIONS_IDS)
+def test_hessian(options, points):
     # small box, so that the (0, 3) and (3, 0) pairs cross the periodic boundary and
     # the derivatives with respect to the box are not zero
     box = 7.0 * jnp.eye(3, dtype=points.dtype)
 
-    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=padded_to)
+    calculator = NeighborList(cutoff=2.1, full_list=True, **options)
 
     def function(points, box):
         (distances,) = calculator.compute(points, box, periodic=True, quantities="d")
@@ -208,14 +223,14 @@ def sort_pairs(pairs, shifts, distances):
 
 
 @pytest.mark.parametrize("device", DEVICES, ids=str)
-@pytest.mark.parametrize("padded_to", [3, None])
-def test_devices(device, padded_to, points):
+@pytest.mark.parametrize("options", ALL_OPTIONS, ids=ALL_OPTIONS_IDS)
+def test_devices(device, options, points):
     cpu = jax.devices("cpu")[0]
     # small box, so that some pairs cross the periodic boundary
     box = 7.0 * jnp.eye(3, dtype=points.dtype)
 
     # the same calculator is used on all devices
-    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=padded_to)
+    calculator = NeighborList(cutoff=2.1, full_list=True, **options)
 
     def function(points, box):
         return calculator.compute(points, box, periodic=True, quantities="PSd")
@@ -250,7 +265,7 @@ def test_devices(device, padded_to, points):
     assert jnp.allclose(jax.device_put(grad_points, cpu), expected_grad_points)
     assert jnp.allclose(jax.device_put(grad_box, cpu), expected_grad_box)
 
-    if padded_to is not None:
+    if options:
         pairs, shifts, distances = jax.jit(function)(points, box)
         assert pairs.devices() == {device}
 

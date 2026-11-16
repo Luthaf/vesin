@@ -19,14 +19,20 @@ def vesin_jax_compute(points, box, options):
         full,
         sorted,
         padded_to,
+        fixed_n_pairs,
         skin,
         algorithm,
         n_threads,
     ) = options
 
-    assert padded_to > 0
+    # exactly one of these must be set
+    assert (padded_to > 0) != (fixed_n_pairs > 0)
 
-    n_pairs = points.shape[0] * padded_to
+    if padded_to > 0:
+        n_pairs = points.shape[0] * padded_to
+    else:
+        n_pairs = fixed_n_pairs
+
     compute = jax.ffi.ffi_call(
         "vesin_jax_compute",
         (
@@ -47,6 +53,7 @@ def vesin_jax_compute(points, box, options):
         full=full,
         sorted=sorted,
         padded_to=padded_to,
+        fixed_n_pairs=fixed_n_pairs,
         skin=skin,
         algorithm=algorithm,
         n_threads=n_threads,
@@ -71,12 +78,14 @@ def vesin_jax_compute_dynamic(points, box, options):
         full,
         sorted,
         padded_to,
+        fixed_n_pairs,
         skin,
         algorithm,
         n_threads,
     ) = options
 
     assert padded_to == 0
+    assert fixed_n_pairs == 0
 
     compute = jax.ffi.ffi_call(
         "vesin_jax_compute_dynamic",
@@ -110,7 +119,8 @@ def vesin_jax_copy_out(state, n_pairs):
         raise RuntimeError(
             "the number of pairs in the neighbor list is only known after the "
             "calculation, which is not compatible with jax.jit, or jax.vmap. "
-            "Set `padded_to` to a fixed number of pairs per point to use these "
+            "Set `padded_to` to a fixed number of pairs per point, or "
+            "`fixed_n_pairs` to a fixed total number of pairs to use these "
             "functions."
         )
 

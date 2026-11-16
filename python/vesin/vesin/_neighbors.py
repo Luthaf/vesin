@@ -95,6 +95,7 @@ class NeighborList:
         full_list: bool,
         sorted: bool = False,
         padded_to: Optional[int] = None,
+        fixed_n_pairs: Optional[int] = None,
         skin: float = 0.0,
         algorithm: str = "auto",
         n_threads: int = 0,
@@ -112,6 +113,10 @@ class NeighborList:
             pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
             Computing the list fails if a point has more neighbors than this. If set to
             ``None``, no padding is applied.
+        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs
+            in total, adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and
+            vector after the actual pairs. Computing the list fails if there are more
+            pairs than this. This can not be used together with ``padded_to``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
             neighbor list until any atom moves farther than ``skin/2`` from its
             reference coordinates. A negative value sets the skin to an unspecified
@@ -139,6 +144,20 @@ class NeighborList:
             if not self.full_list:
                 raise ValueError("`padded_to != None` requires `full_list = true`")
 
+        self._fixed_n_pairs = 0
+        if fixed_n_pairs is not None:
+            fixed_n_pairs = int(fixed_n_pairs)
+            if fixed_n_pairs <= 0:
+                raise ValueError(
+                    f"`fixed_n_pairs` must be positive or None, got {fixed_n_pairs}"
+                )
+
+            if padded_to is not None:
+                raise ValueError(
+                    "`padded_to` and `fixed_n_pairs` can not be used together"
+                )
+            self._fixed_n_pairs = fixed_n_pairs
+
         self.algorithm = algorithm
         self.n_threads = int(n_threads)
         if self.n_threads < 0:
@@ -156,6 +175,13 @@ class NeighborList:
         if self._padded_to == 0:
             return None
         return self._padded_to
+
+    @property
+    def fixed_n_pairs(self) -> Optional[int]:
+        """Total number of pairs the neighbor list is padded to, or ``None``."""
+        if self._fixed_n_pairs == 0:
+            return None
+        return self._fixed_n_pairs
 
     @property
     def algorithm(self) -> str:
@@ -324,13 +350,17 @@ class NeighborList:
                     ctypes.sizeof(self._neighbors),
                 )
 
-        # With padding, the number of pairs is known before the calculation, so
-        # vesin can write directly in arrays allocated here.
+        # With padding or a fixed number of pairs, the maximal number of pairs is known
+        # before the calculation, so vesin can write directly in arrays allocated
+        # here.
         n_points = points.shape[0]
-        pre_allocated = options.padded_to > 0 and n_points > 0
+        if options.padded_to > 0:
+            capacity = n_points * options.padded_to
+        else:
+            capacity = self._fixed_n_pairs
+        pre_allocated = capacity > 0
         options.pre_allocated_outputs = pre_allocated
         if pre_allocated:
-            capacity = n_points * options.padded_to
 
             def allocate(name, shape, dtype):
                 array = empty_array_fn(shape, dtype=dtype, device_like=points)
@@ -373,7 +403,20 @@ class NeighborList:
         n_pairs = self._neighbors.length
 
         if pre_allocated:
-            assert n_pairs == pairs.shape[0]
+            if self._fixed_n_pairs > 0:
+                # vesin only wrote the first `n_pairs` pairs, the remaining ones are
+                # filled with `(-1, -1)` pseudo-pairs and zero shifts, distances and
+                # vectors
+                pairs[n_pairs:] = -1
+                if shifts is not None:
+                    shifts[n_pairs:] = 0
+                if distances is not None:
+                    distances[n_pairs:] = 0.0
+                if vectors is not None:
+                    vectors[n_pairs:] = 0.0
+            else:
+                assert n_pairs == pairs.shape[0]
+
             if distances is not None:
                 distances = to_dtype_fn(distances, output_float_dtype)
             if vectors is not None:

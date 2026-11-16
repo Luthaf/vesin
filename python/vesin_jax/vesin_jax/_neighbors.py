@@ -19,12 +19,17 @@ class NeighborList:
     A neighbor list calculator that can be used with JAX.
 
     The calculation is compatible with :py:func:`jax.jit` and :py:func:`jax.vmap` when
-    ``padded_to`` is set to a positive integer. The number of pairs is then a known,
-    static shape (``n_points * padded_to``), with missing pairs padded with pseudo-pairs
-    ``(i, -1)`` carrying a zero shift.
+    either ``padded_to`` or ``fixed_n_pairs`` is set, since the number of pairs
+    is then a known, static shape:
 
-    If ``padded_to`` is ``None``, the number of pairs is dynamic, and the calculation
-    only works outside of :py:func:`jax.jit` and :py:func:`jax.vmap`.
+    - with ``padded_to``, there are ``n_points * padded_to`` pairs, with missing pairs
+      for each point padded with pseudo-pairs ``(i, -1)`` carrying a zero shift;
+    - with ``fixed_n_pairs``, there are ``fixed_n_pairs`` pairs, the
+      actual pairs coming first, followed by pseudo-pairs ``(-1, -1)`` carrying a zero
+      shift.
+
+    If both are ``None``, the number of pairs is dynamic, and the calculation only works
+    outside of :py:func:`jax.jit` and :py:func:`jax.vmap`.
     """
 
     def __init__(
@@ -34,6 +39,7 @@ class NeighborList:
         full_list: bool,
         sorted: bool = False,
         padded_to: Optional[int] = None,
+        fixed_n_pairs: Optional[int] = None,
         algorithm: str = "auto",
         skin: float = 0.0,
         n_threads: int = 0,
@@ -48,8 +54,12 @@ class NeighborList:
         :param padded_to: pad full lists so every point has exactly this many outgoing
             pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
             Computing the list fails if a point has more neighbors than this. If set to
-            ``None``, no padding is applied, and the number of pairs is only known
-            after the calculation, which is not compatible with ``jax.jit``.
+            ``None``, no padding is applied, and the number of pairs is only known after
+            the calculation, which is not compatible with ``jax.jit``.
+        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs
+            in total, adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and
+            vector after the actual pairs. Computing the list fails if there are more
+            pairs than this. This can not be used together with ``padded_to``.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
@@ -71,6 +81,18 @@ class NeighborList:
             if not full_list:
                 raise ValueError("`padded_to != None` requires `full_list = true`")
 
+        if fixed_n_pairs is not None:
+            fixed_n_pairs = int(fixed_n_pairs)
+            if fixed_n_pairs <= 0:
+                raise ValueError(
+                    f"`fixed_n_pairs` must be positive or None, got {fixed_n_pairs}"
+                )
+
+            if padded_to is not None:
+                raise ValueError(
+                    "`padded_to` and `fixed_n_pairs` can not be used together"
+                )
+
         if int(n_threads) < 0:
             raise ValueError("n_threads must be zero or a positive integer")
 
@@ -84,7 +106,8 @@ class NeighborList:
         self._cutoff = float(cutoff)
         self._full_list = bool(full_list)
         self._sorted = bool(sorted)
-        self._padded_to = padded_to
+        self._padded_to = padded_to if padded_to is not None else 0
+        self._fixed_n_pairs = fixed_n_pairs if fixed_n_pairs is not None else 0
         self._algorithm = algorithm
         self._skin = float(skin)
         self._n_threads = int(n_threads)
@@ -116,7 +139,16 @@ class NeighborList:
     @property
     def padded_to(self) -> Optional[int]:
         """Number of outgoing pairs each point is padded to, or ``None``."""
+        if self._padded_to == 0:
+            return None
         return self._padded_to
+
+    @property
+    def fixed_n_pairs(self) -> Optional[int]:
+        """Total number of pairs the neighbor list is padded to, or ``None``."""
+        if self._fixed_n_pairs == 0:
+            return None
+        return self._fixed_n_pairs
 
     @property
     def algorithm(self) -> str:
@@ -201,7 +233,8 @@ class NeighborList:
             self._cutoff,
             self._full_list,
             self._sorted,
-            self._padded_to if self._padded_to is not None else 0,
+            self._padded_to,
+            self._fixed_n_pairs,
             self._skin,
             _ALGORITHMS[self._algorithm],
             self._n_threads,
@@ -214,7 +247,7 @@ class NeighborList:
         else:
             ffi_points, ffi_box = points.astype(jnp.float32), box.astype(jnp.float32)
 
-        if self._padded_to is not None:
+        if self._padded_to != 0 or self._fixed_n_pairs != 0:
             pairs, shifts = vesin_jax_compute(ffi_points, ffi_box, options)
         else:
             n_pairs = vesin_jax_compute_dynamic(ffi_points, ffi_box, options)
@@ -223,13 +256,14 @@ class NeighborList:
         pairs = jnp.asarray(pairs)
         shifts = jnp.asarray(shifts)
 
-        # pseudo-pairs `(i, -1)` should have a zero shift, distance and vector;
-        # also prevents out-of-bounds indexing below
+        # pseudo-pairs `(i, -1)` and `(-1, -1)` should have a zero shift, distance
+        # and vector; this also prevents out-of-bounds indexing below
         mask = pairs[:, 1] >= 0
+        i_index = jnp.where(mask, pairs[:, 0], 0)
         j_index = jnp.where(mask, pairs[:, 1], 0)
 
         # r_ij = r_j - r_i + S @ H
-        vectors = points[j_index] - points[pairs[:, 0]] + shifts.astype(box.dtype) @ box
+        vectors = points[j_index] - points[i_index] + shifts.astype(box.dtype) @ box
         vectors = jnp.where(mask[:, None], vectors, 0.0)
         distances = jnp.linalg.vector_norm(vectors, axis=1)
 

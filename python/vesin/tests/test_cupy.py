@@ -331,8 +331,8 @@ def test_dtype(dtype):
     calculator = NeighborList(cutoff=1, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 
-    assert i.dtype == cp.uint64
-    assert j.dtype == cp.uint64
+    assert i.dtype == cp.int64
+    assert j.dtype == cp.int64
     assert s.dtype == cp.int32
     assert D.dtype == dtype
     assert d.dtype == dtype

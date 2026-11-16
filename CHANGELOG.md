@@ -35,6 +35,8 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 - `vesin.NeighborList` and `vesin_torch.NeighborList` run CUDA calculations on
   the current stream of cupy or torch. With `vesin_torch`, using a non-default
   stream requires torch 2.11 or later.
+- `vesin.NeighborList` now returns the pairs indexes (`"i"`, `"j"` and `"P"`) as
+  `int64` arrays instead of `uint64`.
 
 ### Removed
 

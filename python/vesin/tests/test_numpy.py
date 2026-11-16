@@ -351,8 +351,8 @@ def test_dtype(dtype):
     calculator = NeighborList(cutoff=4, full_list=True)
     i, j, s, D, d = calculator.compute(points, box, True, "ijSDd")
 
-    assert i.dtype == np.uint64
-    assert j.dtype == np.uint64
+    assert i.dtype == np.int64
+    assert j.dtype == np.int64
     assert s.dtype == np.int32
     assert D.dtype == dtype
     assert d.dtype == dtype
@@ -380,8 +380,8 @@ def test_integer_input_float_outputs():
     calculator = NeighborList(cutoff=2, full_list=True)
     i, j, D, d = calculator.compute(points, box, False, "ijDd")
 
-    assert i.dtype == np.uint64
-    assert j.dtype == np.uint64
+    assert i.dtype == np.int64
+    assert j.dtype == np.int64
     assert D.dtype == np.float64
     assert d.dtype == np.float64
     assert np.allclose(d, [1.0, 1.0])
@@ -650,7 +650,7 @@ def test_pad_neighbors():
     assert len(j) == 18
     assert np.all(np.bincount(i, minlength=6) == 3)
 
-    padding = j == np.iinfo(np.uint64).max
+    padding = j == -1
     assert np.sum(padding) == 10
     assert np.all(S[padding] == 0)
     assert np.all(D[padding] == 0.0)
@@ -683,7 +683,7 @@ def test_pad_neighbors_errors():
     # the same calculator can still be used after an error
     i, j = nl.compute(points[:1], box, periodic=False)
     np.testing.assert_array_equal(i, [0])
-    np.testing.assert_array_equal(j, [np.iinfo(np.uint64).max])
+    np.testing.assert_array_equal(j, [-1])
 
 
 def test_padded_outputs_are_independent():
@@ -731,7 +731,7 @@ def test_padded_matches_unpadded(system, skin):
         assert len(pi) == len(system.points) * padded_to
         assert np.all(pi == np.repeat(np.arange(len(system.points)), padded_to))
 
-        padding = pj == np.iinfo(np.uint64).max
+        padding = pj == -1
         assert np.all(
             np.bincount(pi[padding], minlength=len(counts)) == padded_to - counts
         )

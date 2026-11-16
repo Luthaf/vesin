@@ -32,6 +32,9 @@ Vesin: we are all neighbors
 .. |logo-torch| image:: /static/images/logo-torch.png
     :height: 1.2em
 
+.. |logo-jax| image:: /static/images/logo-jax.png
+    :height: 1.2em
+
 .. list-table::
     :align: center
     :widths: auto
@@ -55,10 +58,10 @@ Vesin: we are all neighbors
       * vicino
 
 
-``vesin`` is a lightweight neighbor list calculator for molecular systems and
-three-dimensional graphs. It is written in C++ and can be used as a standalone
-library from C or Python. ``vesin`` is designed to be :ref:`fast <benchmarks>`
-and easy to use.
+``vesin`` is a neighbor list calculator for molecular systems and
+three-dimensional graphs. It is written in C++ and CUDA and can be used as a
+standalone library from C, C++, Fortran, Python, Jax and PyTorch. ``vesin`` is
+designed to be :ref:`fast <benchmarks>` and easy to use.
 
 Installation
 ------------
@@ -80,7 +83,16 @@ Installation
 
         .. code-block:: bash
 
-            pip install vesin[torch]
+            pip install vesin-torch
+
+        |logo-jax| **Jax:**
+
+        The Jax bindings can be installed with:
+
+        .. code-block:: bash
+
+            pip install vesin-jax
+
 
     .. tab-item:: |logo-c| |logo-cxx| |logo-fortran| CMake
         :sync: cxx
@@ -275,8 +287,8 @@ Usage example
             import numpy as np
             from vesin import NeighborList
 
-            # positions can be anything compatible with numpy's ndarray
-            positions = [
+            # points can be anything compatible with numpy's ndarray
+            points = [
                 (0, 0, 0),
                 (0, 1.3, 1.3),
             ]
@@ -338,14 +350,19 @@ Usage example
                     {0.0, 3.2, 0.0},
                     {0.0, 0.0, 3.2},
                 };
-                bool periodic = true;
+                // periodic boundary conditions, one value for each dimension
+                bool periodic[3] = {true, true, true};
 
                 // calculation setup
                 VesinOptions options;
                 options.cutoff = 4.2;
                 options.full = true;
                 options.sorted = false;
+                options.padded_to = 0;  // no padding
                 options.algorithm = VesinAutoAlgorithm;
+                options.skin = 0.0;     // no Verlet caching
+                options.n_threads = 0;  // use all available threads
+                options.pre_allocated_outputs = false;
 
                 // decide what quantities should be computed
                 options.return_shifts = true;
@@ -365,7 +382,7 @@ Usage example
                     NULL,  // stream, must be NULL on CPU
                     options,
                     &neighbors,
-                    &error_message,
+                    &error_message
                 );
 
                 if (status != EXIT_SUCCESS) {
@@ -374,7 +391,7 @@ Usage example
                 }
 
                 // use neighbors as needed
-                printf("we have %d pairs\n", neighbors.length);
+                printf("we have %zu pairs\n", neighbors.length);
 
                 vesin_free(&neighbors);
 
@@ -400,7 +417,7 @@ Usage example
                 stream,      // cudaStream_t, or NULL for the default stream
                 options,
                 &neighbors,
-                &error_message,
+                &error_message
             );
 
         The data in the ``neighbors`` structure will be directly allocated on
@@ -416,12 +433,13 @@ Usage example
         .. code-block:: fortran
 
             program main
+                use iso_fortran_env, only: real64
                 use vesin, only: NeighborList
 
                 implicit none
 
-                real :: points(:,:)
-                real :: box(3,3)
+                real(real64), allocatable :: points(:,:)
+                real(real64) :: box(3,3)
                 integer :: i, ierr
                 type(NeighborList) :: neighbor_list
 
@@ -429,7 +447,7 @@ Usage example
                 points = reshape([                      &
                     0.0_real64, 0.0_real64, 0.0_real64, &
                     0.0_real64, 1.3_real64, 1.3_real64  &
-                ], [2, 3])
+                ], [3, 2])
 
                 box = reshape([                         &
                     3.2_real64, 0.0_real64, 0.0_real64, &
@@ -438,10 +456,10 @@ Usage example
                 ], [3, 3])
 
                 ! initialize `neighbor_list` with some options
-                neighbor_list = NeighborList(cutoff=4.2, full=.true., sorted=.true.)
+                neighbor_list = NeighborList(cutoff=4.2_real64, full=.true., sorted=.true.)
 
                 ! run the calculation
-                call neighbor_list%compute(points, box, periodic=.true., status=ierr)
+                call neighbor_list%compute(points, box, periodic=[.true., .true., .true.], status=ierr)
                 if (ierr /= 0) then
                     write(*, *) neighbor_list%errmsg
                     stop
@@ -454,16 +472,16 @@ Usage example
 
                 ! release allocated memory
                 call neighbor_list%free()
-                deallocate(positions)
+                deallocate(points)
             end program main
 
 
     .. tab-item:: |logo-torch| TorchScript
 
         The entry point for the TorchScript API is the
-        :py:class:`vesin_torch.NeighborList` class in Python, modeled after
-        vesin's Python API. This class can be used with TorchScript and
-        ``torch.compile``.
+        :py:class:`vesin_torch.NeighborList` class, with the same API as
+        :py:class:`vesin.NeighborList`. This class can be used with TorchScript
+        and ``torch.compile``.
 
         The code is integrated with PyTorch autograd framework, meaning if the
         ``points`` or ``box`` argument have ``requires_grad=True``, then the
@@ -491,6 +509,30 @@ Usage example
                 quantities="ijSd"
             )
 
+    .. tab-item:: |logo-jax| Jax
+
+        The entry point for the Jax API is the
+        :py:class:`vesin_jax.NeighborList` class, with the same API as
+        :py:class:`vesin.NeighborList`. This class can be used with
+        :py:func:`jax.jit`, :py:func:`jax.grad`, and other Jax transformations.
+
+        .. code-block:: Python
+
+            import jax
+            import jax.numpy as jnp
+            from vesin_jax import NeighborList
+
+            points = jnp.array([[0.0, 0.0, 0.0], [0.0, 1.3, 1.3]], dtype=jnp.float64)
+            box = 3.2 * jnp.eye(3, dtype=jnp.float64)
+
+            calculator = NeighborList(cutoff=4.2, full_list=True)
+            i, j, S, d = calculator.compute(
+                points=points,
+                box=box,
+                periodic=True,
+                quantities="ijSd"
+            )
+
 
 API Reference
 -------------
@@ -506,6 +548,7 @@ API Reference
 
     python-api
     torch-api
+    jax-api
     c-api
     fortran-api
     metatomic

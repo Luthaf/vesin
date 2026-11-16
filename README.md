@@ -9,13 +9,15 @@
 
 
 Vesin is a fast and easy to use library computing neighbor lists for atomistic
-system. We provide an interface for the following programing languages:
+systems, with CPU and GPU support. We provide an interface for the following
+programing languages and frameworks:
 
-- C (also compatible with C++). The project can be installed and used as a
-  library with your own build system, or included as a single file and built
-  directly by your own build system;
+- C (compatible with C++). The code can be used as an external library, or
+  included as a single file and built directly by your own build system;
+- Fortran;
 - Python;
-- TorchScript, with both a C++ and Python interface;
+- PyTorch, supporting both `torch.compile` and TorchScript;
+- Jax
 
 ### Installation
 
@@ -23,10 +25,12 @@ To use the code from Python, you can install it with `pip`:
 
 ```
 pip install vesin
+pip install vesin-torch  # for PyTorch support
+pip install vesin-jax    # for Jax support
 ```
 
 See the [documentation](https://luthaf.fr/vesin/latest/index.html#installation)
-for more information on how to install the code to use it from C or C++.
+for more information on how to install the code and use it.
 
 ### Usage instruction
 
@@ -52,20 +56,6 @@ i, j, S, d = calculator.compute(
 )
 ```
 
-We also provide a function with drop-in compatibility to ASE's neighbor list:
-
-```py
-import ase
-from vesin import ase_neighbor_list
-
-atoms = ase.Atoms(...)
-
-i, j, S, d = ase_neighbor_list("ijSd", atoms, cutoff=4.2)
-```
-
-See the [documentation](https://luthaf.fr/vesin/latest/c-api.html) for more
-information on how to use the code from C or C++.
-
 ### Benchmarks
 
 You can find below benchmark result computing neighbor lists for increasingly
@@ -87,21 +77,21 @@ same license.
 
 ## Citation
 
-If you found ``vesin`` useful, you can cite the pre-print where it was presented
-(<https://doi.org/10.48550/arXiv.2508.15704>) as
+If you found ``vesin`` useful, you can cite the article where it was presented
+(<http://doi.org/10.1063/5.0304911>) as
 
 ```bibtex
-@misc{metatensor-and-metatomic,
-    title = {Metatensor and Metatomic: Foundational Libraries for Interoperable Atomistic
-    Machine Learning},
-    shorttitle = {Metatensor and Metatomic},
-    author = {Bigi, Filippo and Abbott, Joseph W. and Loche, Philip and Mazitov, Arslan
-    and Tisi, Davide and Langer, Marcel F. and Goscinski, Alexander and Pegolo, Paolo
-    and Chong, Sanggyu and Goswami, Rohit and Chorna, Sofiia and Kellner, Matthias and
-    Ceriotti, Michele and Fraux, Guillaume},
-    year = {2025},
-    month = aug,
-    publisher = {arXiv},
-    doi = {10.48550/arXiv.2508.15704},
+@article{metatensor-and-metatomic,
+  title = {Metatensor and Metatomic: Foundational Libraries for Interoperable Atomistic Machine Learning},
+  volume = {164},
+  ISSN = {1089-7690},
+  url = {http://doi.org/10.1063/5.0304911},
+  DOI = {10.1063/5.0304911},
+  number = {6},
+  journal = {The Journal of Chemical Physics},
+  publisher = {AIP Publishing},
+  author = {Bigi,  Filippo and Abbott,  Joseph W. and Loche,  Philip and Mazitov,  Arslan and Tisi,  Davide and Langer,  Marcel F. and Goscinski,  Alexander and Pegolo,  Paolo and Chong,  Sanggyu and Goswami,  Rohit and Febrer,  Pol and Chorna,  Sofiia and Kellner,  Matthias and Ceriotti,  Michele and Fraux,  Guillaume},
+  year = {2026},
+  month = Feb
 }
 ```

@@ -19,22 +19,34 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 
 ### Added
 
-- `vesin_torch.NeighborList` can now be used with `torch.compile`, including
-  with `fullgraph=True`, and supports higher order derivatives.
-- `vesin_torch.NeighborList` can now be serialized with `pickle`,
-  `copy.deepcopy` and `torch.save`.
-- Models using `vesin_torch.NeighborList` can now be exported with
-  `torch.export`, and compiled with AOTInductor to run from C++.
-- `VesinOptions::pre_allocated_outputs` in the C API, to write the neighbor
-  list directly in output arrays allocated by the caller.
+#### C API
+
+- new option `padded_to` that creates the specified number of pairs per point,
+  padding with invalid pairs `(i, SIZE_MAX)` if needed.
+- new option `pre_allocated_outputs` to write the neighbor list directly in
+  output arrays allocated by the caller.
+- `vesin_neighbors()` takes a new `stream` argument, giving the CUDA stream on
+  which to run the calculation, or `nullptr` on CPU.
+
+#### vesin-torch
+
+- `vesin_torch.NeighborList` can now be used with `torch.compile` and
+  `torch.export`.
+- The `padded_to` option is now supported for fixed-size neighbor lists, padding
+  the pairs with invalid pairs `(i, -1)` if needed.
+
+#### vesin-jax
+
+- Added a new `vesin-jax` package, which provides JAX-compatible bindings to
+  vesin. The neighbor list calculation is compatible with JIT compilation and
+  other JAX transformations.
 
 ### Changed
 
-- `vesin_neighbors()` in the C API takes a new `stream` argument, giving the
-  CUDA stream on which to run the calculation, or `nullptr` on CPU.
 - `vesin.NeighborList` and `vesin_torch.NeighborList` run CUDA calculations on
   the current stream of cupy or torch. With `vesin_torch`, using a non-default
   stream requires torch 2.11 or later.
+
 - `vesin.NeighborList` now returns the pairs indexes (`"i"`, `"j"` and `"P"`) as
   `int64` arrays instead of `uint64`.
 
@@ -43,9 +55,9 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 - Support for Python 3.10. The minimal supported version is now Python 3.11.
 - The `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable and the
   `VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT` compile-time option. Neither is needed
-  any more: when the CUDA brute force search finds more pairs than it reserved
-  room for, it now runs again with enough room for the number it counted, and
-  keeps that allocation for all subsequent calls.
+  any more: when the code finds more pairs than it reserved room for, it now
+  runs again with enough room for the number it counted, and keeps that
+  allocation for all subsequent calls.
 - The C++ API of `vesin-torch` (the `vesin_torch.hpp` header and
   `vesin_torch::NeighborListHolder` class) was removed. `vesin-torch` is now
   only available from Python and TorchScript.

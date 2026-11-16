@@ -6,6 +6,7 @@ a ``run`` method performing the neighbor list computation.
 """
 
 from ._ase import ASENeighborList
+from ._kups import KUPSNeighborList
 from ._lammps import LAMMPSNeighborList
 from ._matscipy import MatscipyNeighborList
 from ._mlipops import MLipopsNeighborList
@@ -25,6 +26,7 @@ from ._vesin import (
 
 __all__ = [
     "ASENeighborList",
+    "KUPSNeighborList",
     "LAMMPSNeighborList",
     "MLipopsNeighborList",
     "MatscipyNeighborList",
@@ -60,6 +62,7 @@ _IMPLEMENTATIONS = {
         NValchemiNeighborList,
         NNPOpsNeighborList,
         MLipopsNeighborList,
+        KUPSNeighborList,
     )
 }
 

@@ -6,3 +6,4 @@ ase
 nvalchemi-toolkit-ops
 NNPops @ git+https://github.com/openmm/NNPOps@v0.7#subdirectory=src
 zstandard
+kups

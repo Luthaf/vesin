@@ -232,13 +232,24 @@ static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
     auto log_small = std::log(std::pow(static_cast<double>(SMALL_SIDE), 3.0));
     auto log_large = std::log(std::pow(static_cast<double>(LARGE_SIDE), 3.0));
 
-    // The cell list should start out behind and end up ahead. If this is not
-    // the case, we fallback to the default crossover values.
+    // The line needs to fall, since brute force grows as `n^2` against the
+    // cell list's `n`, and the cell list needs to be ahead by LARGE_SIDE,
+    // which puts the crossing at or below that size. Those two are enough.
+    //
+    // Also requiring the crossing to lie *between* the two sizes throws the
+    // measurement away on any device whose crossover is below SMALL_SIDE, and
+    // leaves DEFAULT_CROSSOVERS deciding every search on it. Extrapolating the
+    // same line down is a better answer there than a constant.
+    //
+    // A cell list still behind at LARGE_SIDE is another matter: that would
+    // extrapolate upwards, towards MAX_CROSSOVER_POINTS and a brute force
+    // search of tens of thousands of points, on two timings that never saw the
+    // cell list win. That case keeps the fallback.
     auto interpolate = [&](double at_small, double at_large) {
         if (std::isnan(at_small) || std::isnan(at_large)) {
             return QUIET_NAN;
         }
-        if (at_small <= 0.0 || at_large >= 0.0) {
+        if (!(at_large < at_small) || at_large >= 0.0) {
             return QUIET_NAN;
         }
         return std::exp(

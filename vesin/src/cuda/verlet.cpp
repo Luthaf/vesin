@@ -253,6 +253,12 @@ void VerletCache::rebuild_cache(
     build_options.cutoff = options.cutoff + options.skin;
     build_options.full = options.full;
     build_options.sorted = false;
+    // Not `options.algorithm`. The candidate list is built with
+    // `cutoff + skin`, which can need more periodic images than the brute
+    // force kernels accept even where the caller's own cutoff does not, so
+    // carrying the caller's choice over here would make a brute force search
+    // with a skin fail on boxes where it works today. `vesin.h` says on the
+    // option that it does not apply to a cached build.
     build_options.algorithm = VesinCellList;
     build_options.return_shifts = true;
     build_options.return_distances = false;

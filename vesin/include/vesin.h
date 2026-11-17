@@ -66,7 +66,11 @@ struct VesinOptions {
     /// any point has more neighbors than `padded_to`, the calculation will
     /// fail.
     size_t padded_to;
-    /// Which algorithm to use for the calculation
+    /// Which algorithm to use for the calculation.
+    ///
+    /// On CUDA this is only used when `skin` is zero. Where the skin enables
+    /// caching, the cached topology is built with the cell list whatever this
+    /// says.
     VesinAlgorithm algorithm;
     /// Skin size for Verlet caching. A positive value enables caching: vesin
     /// builds the cached topology with `cutoff + skin` and reuses it until an

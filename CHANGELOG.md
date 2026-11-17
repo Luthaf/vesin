@@ -52,6 +52,13 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 
 ### Fixed
 
+- The CUDA choice between the brute force and cell list algorithms no longer
+  depends on the unit the caller's coordinates are in. The crossover was a
+  number of points per unit of cutoff, so one system described in nm and in
+  Angstrom gave two crossovers a factor of 10 apart; it is now set by the
+  cutoff measured against the mean distance between points, which is the same
+  number either way.
+
 - The CUDA crossover between the brute force and cell list algorithms is now
   extrapolated when the two calibration sizes do not bracket it, instead of
   being discarded in favour of the built-in defaults. On a device whose

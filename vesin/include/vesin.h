@@ -70,7 +70,7 @@ struct VesinOptions {
     ///
     /// On CUDA this is only used when `skin` is zero. Where the skin enables
     /// caching, the cached topology is built with the cell list whatever this
-    /// says.
+    /// says, since that list is searched with `cutoff + skin`.
     VesinAlgorithm algorithm;
     /// Skin size for Verlet caching. A positive value enables caching: vesin
     /// builds the cached topology with `cutoff + skin` and reuses it until an

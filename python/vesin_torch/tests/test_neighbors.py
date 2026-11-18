@@ -374,6 +374,74 @@ def test_fixed_n_pairs_errors():
     assert j.tolist() == [-1, -1, -1, -1]
 
 
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("requires_grad", [False, True])
+def test_n_pairs(device, requires_grad):
+    # each point has 2 neighbors, for 6 pairs in total
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=requires_grad,
+    )
+    box = torch.eye(3, dtype=torch.float64, device=device)
+
+    def check_n_pairs(n, expected):
+        assert n.device == points.device
+        assert n.shape == ()
+        assert n.dtype == torch.int64
+        assert n.item() == expected
+
+    nl = NeighborList(cutoff=1.5, full_list=True)
+    i, n = nl.compute(points, box, False, "in")
+    assert i.shape == (6,)
+    check_n_pairs(n, 6)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=10)
+    i, n = nl.compute(points, box, False, "in")
+    assert i.shape == (10,)
+    check_n_pairs(n, 6)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=4)
+    i, n = nl.compute(points, box, False, "in")
+    assert i.shape == (12,)
+    check_n_pairs(n, 12)
+
+    # without enough room, the calculation does not fail and only returns padding
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=4)
+    P, S, D, d, n = nl.compute(points, box, False, "PSDdn")
+    check_n_pairs(n, 6)
+    assert torch.all(P == -1)
+    assert torch.all(S == 0)
+    assert torch.all(D == 0)
+    assert torch.all(d == 0)
+
+    if requires_grad:
+        # gradients of the padding are zero
+        d.sum().backward()
+        assert torch.all(points.grad == 0)
+
+    # it still fails if the number of pairs is not requested
+    message = (
+        "the pre-allocated output arrays can hold 4 pairs, "
+        "but this calculation needs 6 pairs"
+    )
+    with pytest.raises(RuntimeError, match=message):
+        nl.compute(points, box, False, "P")
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=1)
+    P, n = nl.compute(points, box, False, "Pn")
+    check_n_pairs(n, 6)
+    assert P.shape == (3, 2)
+    assert torch.all(P == -1)
+
+    # using `n` to get a large enough `padded_to`
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=n.item() // len(points))
+    j, n = nl.compute(points, box, False, "jn")
+    check_n_pairs(n, 6)
+    assert torch.all(j >= 0)
+
+
 def test_padded_outputs_are_independent():
     # with padding, vesin writes directly in tensors allocated for each call
     points = torch.tensor(

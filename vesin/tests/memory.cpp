@@ -30,7 +30,7 @@ TEST_CASE("Re-use allocations") {
             &neighbors,
             &error_message
         );
-        REQUIRE(status == EXIT_SUCCESS);
+        REQUIRE(status == VESIN_SUCCESS);
         REQUIRE(error_message == nullptr);
     };
 

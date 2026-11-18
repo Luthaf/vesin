@@ -344,6 +344,45 @@ def test_fixed_n_pairs(device):
     assert torch.all(d[6:] == 0)
 
 
+@pytest.mark.parametrize("device", DEVICES)
+def test_n_pairs(device):
+    # each point has 2 neighbors, for 6 pairs in total
+    points = torch.tensor(
+        [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]],
+        dtype=torch.float64,
+        device=device,
+    )
+    box = torch.eye(3, dtype=torch.float64, device=device)
+
+    def check_n_pairs(n, expected):
+        assert isinstance(n, torch.Tensor)
+        assert n.device == points.device
+        assert n.shape == ()
+        assert n.dtype == torch.int64
+        assert n.item() == expected
+
+    nl = NeighborList(cutoff=1.5, full_list=True)
+    _, n = nl.compute(points, box, False, "in")
+    check_n_pairs(n, 6)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=10)
+    _, n = nl.compute(points, box, False, "in")
+    check_n_pairs(n, 6)
+
+    # without enough room, the calculation does not fail and only returns padding
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=4)
+    P, d, n = nl.compute(points, box, False, "Pdn")
+    check_n_pairs(n, 6)
+    assert torch.all(P == -1)
+    assert torch.all(d == 0)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=1)
+    P, n = nl.compute(points, box, False, "Pn")
+    check_n_pairs(n, 6)
+    assert P.shape == (3, 2)
+    assert torch.all(P == -1)
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 @pytest.mark.parametrize("device", DEVICES)
 def test_dtype_empty_neighbors(dtype, device):

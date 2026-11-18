@@ -9,6 +9,8 @@
 
 #include "vesin.h"
 
+#include "./outputs.hpp"
+
 #include "./cpu/neighbors.hpp"
 #include "./cuda/neighbors.hpp"
 
@@ -51,67 +53,67 @@ extern "C" int32_t vesin_neighbors(
     const char** error_message
 ) {
     if (error_message == nullptr) {
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (n_points == 0) {
         neighbors->length = 0;
-        return EXIT_SUCCESS;
+        return VESIN_SUCCESS;
     }
 
     if (points == nullptr) {
         *error_message = "`points` can not be a NULL pointer";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (box == nullptr) {
         *error_message = "`cell` can not be a NULL pointer";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (neighbors == nullptr) {
         *error_message = "`neighbors` can not be a NULL pointer";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (!std::isfinite(options.cutoff) || options.cutoff <= 0) {
         *error_message = "cutoff must be a finite, positive number";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (options.cutoff <= 1e-6) {
         *error_message = "cutoff is too small";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (!std::isfinite(options.skin)) {
         *error_message = "skin must be a finite number";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (options.n_threads < 0) {
         *error_message = "n_threads must be zero or a positive integer";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (options.padded_to > 0 && !options.full) {
         *error_message = "`padded_to` requires `full=true`";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (neighbors->device.type != VesinUnknownDevice && neighbors->device.type != device.type) {
         *error_message = "`neighbors` device and data `device` do not match, free the neighbors first";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (device.type == VesinUnknownDevice) {
         *error_message = "got an unknown device type";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (device.type == VesinCPU && stream != nullptr) {
         *error_message = "`stream` must be NULL for CPU devices";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     if (neighbors->device.type == VesinUnknownDevice) {
@@ -119,7 +121,7 @@ extern "C" int32_t vesin_neighbors(
         neighbors->device = device;
     } else if (neighbors->device.type != device.type) {
         *error_message = "`neighbors.device` and `device` do not match, free the neighbors first";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
     try {
@@ -166,20 +168,25 @@ extern "C" int32_t vesin_neighbors(
         } else {
             throw std::runtime_error("unknown device " + std::to_string(device.type));
         }
+    } catch (const vesin::OutputTooSmall& e) {
+        neighbors->length = e.needed;
+        LAST_ERROR = e.what();
+        *error_message = LAST_ERROR.c_str();
+        return VESIN_OUTPUT_TOO_SMALL;
     } catch (const std::bad_alloc&) {
         LAST_ERROR = "failed to allocate memory";
         *error_message = LAST_ERROR.c_str();
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     } catch (const std::exception& e) {
         LAST_ERROR = e.what();
         *error_message = LAST_ERROR.c_str();
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     } catch (...) {
         *error_message = "fatal error: unknown type thrown as exception";
-        return EXIT_FAILURE;
+        return VESIN_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    return VESIN_SUCCESS;
 }
 
 extern "C" void vesin_free(VesinNeighborList* neighbors) {

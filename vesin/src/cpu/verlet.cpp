@@ -212,6 +212,7 @@ void VerletList::filter(
     buffers_.block_counts.resize(n_blocks);
     buffers_.block_offsets.resize(n_blocks + 1);
     buffers_.block_overflow.resize(n_blocks);
+    buffers_.block_max_neighbors.resize(n_blocks);
 
     buffers_.candidates_distances_sq.resize(n_candidates);
     if (options.return_vectors) {
@@ -223,6 +224,7 @@ void VerletList::filter(
         auto* shifts = buffers_.candidates.shifts;
 
         buffers_.block_overflow[block] = std::numeric_limits<size_t>::max();
+        buffers_.block_max_neighbors[block] = 0;
 
         size_t count = 0;
         for (size_t point = buffers_.block_points[block]; point < buffers_.block_points[block + 1]; point++) {
@@ -257,9 +259,11 @@ void VerletList::filter(
                 }
             }
 
-            if (options.padded_to > 0 && point_count > options.padded_to &&
-                buffers_.block_overflow[block] == std::numeric_limits<size_t>::max()) {
-                buffers_.block_overflow[block] = point;
+            if (options.padded_to > 0 && point_count > options.padded_to) {
+                if (buffers_.block_overflow[block] == std::numeric_limits<size_t>::max()) {
+                    buffers_.block_overflow[block] = point;
+                }
+                buffers_.block_max_neighbors[block] = std::max(buffers_.block_max_neighbors[block], point_count);
             }
 
             count += point_count;
@@ -294,10 +298,21 @@ void VerletList::filter(
         // should already be checked
         assert(options.full);
 
+        // blocks are in point order, so the first block with an overflow
+        // contains the first point with too many neighbors
+        auto first_block = std::numeric_limits<size_t>::max();
+        size_t max_neighbors = 0;
         for (size_t block = 0; block < n_blocks; block++) {
             if (buffers_.block_overflow[block] != std::numeric_limits<size_t>::max()) {
-                throw too_many_neighbors_error(buffers_.block_overflow[block], options.padded_to);
+                if (first_block == std::numeric_limits<size_t>::max()) {
+                    first_block = block;
+                }
+                max_neighbors = std::max(max_neighbors, buffers_.block_max_neighbors[block]);
             }
+        }
+
+        if (first_block != std::numeric_limits<size_t>::max()) {
+            throw_too_many_neighbors(buffers_.block_overflow[first_block], max_neighbors, n_points, options);
         }
 
         // Each point gets exactly `padded_to` slots in the output array, the

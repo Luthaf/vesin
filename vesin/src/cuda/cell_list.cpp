@@ -469,6 +469,7 @@ void vesin::cuda::cell_list_neighbors(
         options.full,
         static_cast<int32_t>(options.padded_to),
         extras->d_padding_overflow,
+        extras->d_padding_max_neighbors,
         cl.d_counts
     );
 
@@ -477,7 +478,7 @@ void vesin::cuda::cell_list_neighbors(
         // Each atom gets exactly `padded_to` slots in the output, there is no
         // need for the prefix sum. The slots not used by actual neighbors are
         // filled with padding in the second pass.
-        vesin::cuda::check_padding_overflow(neighbors, options);
+        vesin::cuda::check_padding_overflow(neighbors, n_points, options);
         n_pairs = n_points * options.padded_to;
     } else {
         // Device-side exclusive prefix sum of d_counts → d_write_offsets.

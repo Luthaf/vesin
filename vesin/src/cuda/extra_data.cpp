@@ -21,6 +21,7 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
         GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
         GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
         GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
+        GPULITE_CUDART_CALL(cudaFree(this->d_padding_max_neighbors));
         GPULITE_CUDART_CALL(cudaFree(this->d_pairs_per_point));
 
         if (this->last_call != nullptr) {
@@ -50,6 +51,7 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
             GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
             GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
             GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
+            GPULITE_CUDART_CALL(cudaFree(this->d_padding_max_neighbors));
             GPULITE_CUDART_CALL(cudaFree(this->d_pairs_per_point));
 
             if (this->last_call != nullptr) {
@@ -84,6 +86,9 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
 
         this->d_padding_overflow = other.d_padding_overflow;
         other.d_padding_overflow = nullptr;
+
+        this->d_padding_max_neighbors = other.d_padding_max_neighbors;
+        other.d_padding_max_neighbors = nullptr;
 
         this->d_pairs_per_point = other.d_pairs_per_point;
         other.d_pairs_per_point = nullptr;

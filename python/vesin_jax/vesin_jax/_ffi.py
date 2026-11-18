@@ -2,13 +2,17 @@ import jax
 import jax.numpy as jnp
 
 
-def vesin_jax_compute(points, box, options):
+def vesin_jax_compute(points, box, options, return_n_pairs):
     """
-    Run ``vesin_jax_compute``, returning the pairs and shifts. ``options`` is a tuple of
-    static parameters.
+    Run ``vesin_jax_compute``, returning the pairs, shifts, and number of pairs needed
+    by the neighbor list. ``options`` is a tuple of static parameters.
 
-    The pairs are ``int64`` if 64-bit arrays are enabled in JAX, and ``int32``
-    otherwise.
+    If ``return_n_pairs`` is ``True``, too many pairs for the outputs is not an error,
+    and all the returned pairs are padding instead. The caller should then check the
+    number of pairs needed.
+
+    The pairs and number of pairs are ``int64`` if 64-bit arrays are enabled in JAX,
+    and ``int32`` otherwise.
     """
     (
         state,
@@ -40,11 +44,13 @@ def vesin_jax_compute(points, box, options):
                 (n_pairs, 2), jax.dtypes.canonicalize_dtype(jnp.int64)
             ),
             jax.ShapeDtypeStruct((n_pairs, 3), jnp.int32),
+            jax.ShapeDtypeStruct((), jax.dtypes.canonicalize_dtype(jnp.int64)),
         ),
         has_side_effect=True,
         vmap_method="sequential",
     )
-    pairs, shifts = compute(
+
+    return compute(
         jax.lax.stop_gradient(points),
         jax.lax.stop_gradient(box),
         jnp.array([periodic_x, periodic_y, periodic_z], dtype=jnp.bool_),
@@ -57,8 +63,8 @@ def vesin_jax_compute(points, box, options):
         skin=skin,
         algorithm=algorithm,
         n_threads=n_threads,
+        return_n_pairs=return_n_pairs,
     )
-    return pairs, shifts
 
 
 ########################################################################################

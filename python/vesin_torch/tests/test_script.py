@@ -141,3 +141,22 @@ def test_script_save_load(tmp_path):
     points.requires_grad_(True)
     loaded(points, box).backward()
     assert points.grad is not None
+
+
+class NPairsModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.calculator = NeighborList(cutoff=1.1, full_list=True, fixed_n_pairs=2)
+
+    def forward(self, points: torch.Tensor, box: torch.Tensor) -> torch.Tensor:
+        (n_pairs,) = self.calculator.compute(points, box, True, "n")
+        return n_pairs
+
+
+def test_script_n_pairs():
+    scripted = torch.jit.script(NPairsModel())
+
+    # there are more pairs than `fixed_n_pairs`, which is not an error when
+    # requesting the number of pairs
+    points, box = _system()
+    assert scripted(points, box).item() == 6

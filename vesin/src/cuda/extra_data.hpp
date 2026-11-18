@@ -28,6 +28,7 @@ struct PinnedReadback {
     int32_t overflow;
     int32_t rebuild;
     int32_t padding_overflow;
+    int32_t padding_max_neighbors;
 };
 
 /// Extra CUDA allocation metadata stored in `VesinNeighborList::opaque`.
@@ -56,6 +57,9 @@ struct CudaNeighborListExtras {
     int32_t* d_overflow_flag = nullptr;
     /// GPU-side first point with more than `padded_to` neighbors
     int32_t* d_padding_overflow = nullptr;
+    /// GPU-side largest number of neighbors of the points with more than
+    /// `padded_to` neighbors
+    int32_t* d_padding_max_neighbors = nullptr;
 
     /// Per-point number of pairs written so far, used with `padded_to` by the
     /// paths writing pairs with atomics (brute force and Verlet)

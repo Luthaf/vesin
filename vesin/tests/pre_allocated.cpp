@@ -30,10 +30,13 @@ struct System {
     };
     bool periodic[3] = {true, true, true};
 
+    /// Status of the last call to `compute`
+    int32_t status = VESIN_SUCCESS;
+
     /// Run the calculation, returning the error message or an empty string
     std::string compute(VesinNeighborList& neighbors, VesinOptions options) {
         const char* error_message = nullptr;
-        auto status = vesin_neighbors(
+        status = vesin_neighbors(
             reinterpret_cast<const double (*)[3]>(points.data()),
             points.size(),
             box,
@@ -45,7 +48,7 @@ struct System {
             &error_message
         );
 
-        if (status != EXIT_SUCCESS) {
+        if (status != VESIN_SUCCESS) {
             REQUIRE(error_message != nullptr);
             return error_message;
         }
@@ -165,12 +168,14 @@ TEST_CASE("Pre-allocated output arrays") {
             REQUIRE(system.compute(neighbors, options).empty());
             CHECK(Results(neighbors, options) == expected);
 
-            // too small
+            // too small, the needed size is given back in `length`
             arrays.set(neighbors, n_pairs - 1);
             CHECK(system.compute(neighbors, options) == (
                 "the pre-allocated output arrays can hold " + std::to_string(n_pairs - 1) +
                 " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
             ));
+            CHECK(system.status == VESIN_OUTPUT_TOO_SMALL);
+            CHECK(neighbors.length == n_pairs);
 
             // one of the requested arrays is missing
             arrays.set(neighbors, capacity);
@@ -186,6 +191,51 @@ TEST_CASE("Pre-allocated output arrays") {
             // reported by sanitizers)
             vesin_free(&neighbors);
         }
+    }
+}
+
+TEST_CASE("Pre-allocated output arrays with too small padded_to") {
+    auto system = System();
+    auto n_points = system.points.size();
+
+    for (double skin : {0.0, 0.3}) {
+        auto options = default_options();
+        options.skin = skin;
+        options.padded_to = 10;
+        options.pre_allocated_outputs = true;
+
+        auto arrays = Arrays(n_points * 18);
+        auto neighbors = VesinNeighborList();
+
+        // all points have 18 neighbors, the needed size is given back in
+        // `length` as `n_points * max_neighbors`
+        arrays.set(neighbors, n_points * 10);
+        auto expected = std::string("point 0 has more neighbors than the requested `padded_to` (10)");
+        CHECK(system.compute(neighbors, options) == expected);
+        CHECK(system.status == VESIN_OUTPUT_TOO_SMALL);
+        CHECK(neighbors.length == n_points * 18);
+
+        // same if the arrays are also too small for `padded_to`
+        arrays.set(neighbors, n_points * 10 - 1);
+        CHECK(system.compute(neighbors, options) == expected);
+        CHECK(system.status == VESIN_OUTPUT_TOO_SMALL);
+        CHECK(neighbors.length == n_points * 18);
+
+        // using the needed size works
+        options.padded_to = 18;
+        arrays.set(neighbors, n_points * 18);
+        CHECK(system.compute(neighbors, options).empty());
+        CHECK(neighbors.length == n_points * 18);
+
+        // without pre-allocated outputs, this is a regular error
+        options.padded_to = 10;
+        options.pre_allocated_outputs = false;
+        auto allocated = VesinNeighborList();
+        CHECK(system.compute(allocated, options) == expected);
+        CHECK(system.status == VESIN_FAILURE);
+
+        vesin_free(&neighbors);
+        vesin_free(&allocated);
     }
 }
 

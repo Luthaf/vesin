@@ -93,7 +93,7 @@ static void check_neighbors(
         &neighbors,
         &error_message
     );
-    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(status == VESIN_SUCCESS);
     REQUIRE(error_message == nullptr);
 
     auto n = neighbors.length;
@@ -258,7 +258,7 @@ TEST_CASE("padded_to") {
         &error_message
     );
 
-    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(status == VESIN_SUCCESS);
     REQUIRE(error_message == nullptr);
     REQUIRE(neighbors.length == 18);
 
@@ -300,7 +300,7 @@ TEST_CASE("padded_to") {
         &neighbors,
         &error_message
     );
-    REQUIRE(status == EXIT_FAILURE);
+    REQUIRE(status == VESIN_FAILURE);
     REQUIRE(error_message != nullptr);
     std::string expected = "point 0 has more neighbors than the requested `padded_to` (1)";
     CHECK(std::string(error_message) == expected);
@@ -524,7 +524,7 @@ TEST_CASE("Slanted box") {
         &neighbors,
         &error_message
     );
-    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(status == VESIN_SUCCESS);
 
     REQUIRE(neighbors.length == 90);
     auto previously_missing = std::vector<std::array<int32_t, 3>>{

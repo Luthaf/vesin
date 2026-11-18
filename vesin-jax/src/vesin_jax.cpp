@@ -412,6 +412,7 @@ static ffi::Error run_vesin(
     int64_t algorithm,
     int64_t n_threads,
     bool pre_allocated_outputs,
+    bool allow_output_too_small,
     VesinNeighborList* neighbors
 ) {
     VesinOptions options;
@@ -447,8 +448,46 @@ static ffi::Error run_vesin(
         &error_message
     );
 
-    if (status != 0) {
+    // with `allow_output_too_small`, the caller detects too small outputs by
+    // comparing `neighbors->length` with the size of the outputs
+    if (status == VESIN_OUTPUT_TOO_SMALL && allow_output_too_small) {
+        return ffi::Error::Success();
+    }
+
+    if (status != VESIN_SUCCESS) {
         return ffi::Error::Internal(error_message);
+    }
+
+    return ffi::Error::Success();
+}
+
+/// Write `length` in the `n_pairs` buffer, which must contain a single 32 or
+/// 64-bit integer
+static ffi::Error write_n_pairs(
+    VesinDevice device,
+    void* stream,
+    ffi::Result<ffi::AnyBuffer>& n_pairs,
+    size_t length
+) {
+    if (n_pairs->element_count() != 1) {
+        return ffi::Error::Internal("`n_pairs` output buffer has the wrong shape");
+    }
+
+    if (n_pairs->element_type() == ffi::S64) {
+        auto length_64 = static_cast<int64_t>(length);
+        copy_to_device(device, stream, n_pairs->untyped_data(), &length_64, sizeof(int64_t), /*src_on_host=*/true);
+    } else if (n_pairs->element_type() == ffi::S32) {
+        if (length > static_cast<size_t>(INT32_MAX)) {
+            return ffi::Error::Internal(
+                "the neighbor list contains too many pairs (" + std::to_string(length) +
+                ") to be used without 64-bit arrays, please enable them with "
+                "`jax.config.update('jax_enable_x64', True)`"
+            );
+        }
+        auto length_32 = static_cast<int32_t>(length);
+        copy_to_device(device, stream, n_pairs->untyped_data(), &length_32, sizeof(int32_t), /*src_on_host=*/true);
+    } else {
+        return ffi::Error::Internal("`n_pairs` output buffer must contain 32 or 64-bit integers");
     }
 
     return ffi::Error::Success();
@@ -463,6 +502,7 @@ static ffi::Error vesin_jax_compute_impl(
     ffi::BufferR1<ffi::PRED> periodic,
     ffi::Result<ffi::AnyBuffer> pairs,
     ffi::Result<ffi::BufferR2<ffi::S32>> shifts,
+    ffi::Result<ffi::AnyBuffer> n_pairs,
     int64_t state,
     double cutoff,
     bool full,
@@ -471,7 +511,8 @@ static ffi::Error vesin_jax_compute_impl(
     int64_t fixed_n_pairs,
     double skin,
     int64_t algorithm,
-    int64_t n_threads
+    int64_t n_threads,
+    bool return_n_pairs
 ) {
     auto error = check_inputs(points, box, periodic);
     if (error.failure()) {
@@ -513,38 +554,49 @@ static ffi::Error vesin_jax_compute_impl(
 
     error = run_vesin(
         device, stream, workspace, points, box, periodic, cutoff, full, sorted,
-        padded_to, skin, algorithm, n_threads, /*pre_allocated_outputs=*/true, &neighbors
+        padded_to, skin, algorithm, n_threads, /*pre_allocated_outputs=*/true,
+        /*allow_output_too_small=*/return_n_pairs, &neighbors
     );
 
     if (error.failure()) {
         return error;
     }
 
-    if (padded_to > 0 && neighbors.length != capacity) {
+    // `length` is larger than the outputs if they are too small, and then
+    // contains the number of pairs they should be able to hold
+    auto too_small = neighbors.length > capacity;
+    if (padded_to > 0 && !too_small && neighbors.length != capacity) {
         return ffi::Error::Internal(
             "vesin returned an unexpected number of pairs: expected " +
             std::to_string(capacity) + ", got " + std::to_string(neighbors.length)
         );
     }
 
-    if (!pairs_are_int64) {
-        copy_pairs(device, stream, pairs, neighbors.pairs, neighbors.length);
+    error = write_n_pairs(device, stream, n_pairs, neighbors.length);
+    if (error.failure()) {
+        return error;
     }
 
-    // With `fixed_n_pairs`, vesin only wrote the first `length` pairs. The
+    // number of pairs vesin wrote in the outputs
+    auto n_written = too_small ? 0 : neighbors.length;
+    if (!pairs_are_int64) {
+        copy_pairs(device, stream, pairs, neighbors.pairs, n_written);
+    }
+
+    // With `fixed_n_pairs`, vesin only wrote the first `n_written` pairs. The
     // remaining ones are filled with `(-1, -1)` pseudo-pairs (all bits set to
     // 1 in two's complement) and zero shifts.
-    auto n_padding = capacity - neighbors.length;
+    auto n_padding = capacity - n_written;
     auto pair_size = 2 * ffi::ByteWidth(pairs->element_type());
     fill_bytes(
         device, stream,
-        static_cast<char*>(pairs->untyped_data()) + neighbors.length * pair_size,
+        static_cast<char*>(pairs->untyped_data()) + n_written * pair_size,
         0xFF,
         n_padding * pair_size
     );
     fill_bytes(
         device, stream,
-        shifts->typed_data() + 3 * neighbors.length,
+        shifts->typed_data() + 3 * n_written,
         0,
         n_padding * sizeof(int32_t[3])
     );
@@ -573,17 +625,13 @@ static ffi::Error vesin_jax_compute_dynamic_impl(
         return error;
     }
 
-    if (n_pairs->element_count() != 1) {
-        return ffi::Error::Internal("`n_pairs` output buffer has the wrong shape");
-    }
-
     auto& data = extract_state(state)->get(device);
     auto lock = data.lock();
 
     error = run_vesin(
         device, stream, workspace, points, box, periodic, cutoff, full, sorted,
         /*padded_to=*/0, skin, algorithm, n_threads, /*pre_allocated_outputs=*/false,
-        &data.neighbors
+        /*allow_output_too_small=*/false, &data.neighbors
     );
     if (error.failure()) {
         return error;
@@ -592,25 +640,7 @@ static ffi::Error vesin_jax_compute_dynamic_impl(
     // the neighbor list is kept inside the state, it will be copied to the
     // output buffers by a later call to `vesin_jax_copy_out`, once the number
     // of pairs is known
-    auto length = data.neighbors.length;
-    if (n_pairs->element_type() == ffi::S64) {
-        auto length_64 = static_cast<int64_t>(length);
-        copy_to_device(device, stream, n_pairs->untyped_data(), &length_64, sizeof(int64_t), /*src_on_host=*/true);
-    } else if (n_pairs->element_type() == ffi::S32) {
-        if (length > static_cast<size_t>(INT32_MAX)) {
-            return ffi::Error::Internal(
-                "the neighbor list contains too many pairs (" + std::to_string(length) +
-                ") to be used without 64-bit arrays, please enable them with "
-                "`jax.config.update('jax_enable_x64', True)`"
-            );
-        }
-        auto length_32 = static_cast<int32_t>(length);
-        copy_to_device(device, stream, n_pairs->untyped_data(), &length_32, sizeof(int32_t), /*src_on_host=*/true);
-    } else {
-        return ffi::Error::Internal("`n_pairs` output buffer must contain 32 or 64-bit integers");
-    }
-
-    return ffi::Error::Success();
+    return write_n_pairs(device, stream, n_pairs, data.neighbors.length);
 }
 
 // `n_pairs` is the output of `vesin_jax_compute_dynamic`. It is not used here,
@@ -695,6 +725,7 @@ static auto compute_binding(Binding binding) {
         .template Arg<ffi::BufferR1<ffi::PRED>>()
         .template Ret<ffi::AnyBuffer>()
         .template Ret<ffi::BufferR2<ffi::S32>>()
+        .template Ret<ffi::AnyBuffer>()
         .template Attr<int64_t>("state")
         .template Attr<double>("cutoff")
         .template Attr<bool>("full")
@@ -703,7 +734,8 @@ static auto compute_binding(Binding binding) {
         .template Attr<int64_t>("fixed_n_pairs")
         .template Attr<double>("skin")
         .template Attr<int64_t>("algorithm")
-        .template Attr<int64_t>("n_threads");
+        .template Attr<int64_t>("n_threads")
+        .template Attr<bool>("return_n_pairs");
 }
 
 template <typename Binding>

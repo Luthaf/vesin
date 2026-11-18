@@ -598,6 +598,48 @@ def test_fixed_n_pairs():
 
 
 @pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force", "verlet"])
+def test_n_pairs(gpu_algorithm):
+    if gpu_algorithm == "verlet":
+        algorithm, skin = "cell_list", 0.5
+    else:
+        algorithm, skin = gpu_algorithm, 0.0
+
+    # each point has 2 neighbors, for 6 pairs in total
+    points = cp.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    box = cp.eye(3, dtype=cp.float64)
+
+    def check_n_pairs(n, expected):
+        assert isinstance(n, cp.ndarray)
+        assert n.device == points.device
+        assert n.shape == ()
+        assert n.dtype == cp.int64
+        assert int(n) == expected
+
+    options = {"cutoff": 1.5, "full_list": True, "algorithm": algorithm, "skin": skin}
+
+    nl = NeighborList(**options)
+    _, n = nl.compute(points, box, False, "in")
+    check_n_pairs(n, 6)
+
+    nl = NeighborList(**options, fixed_n_pairs=10)
+    _, n = nl.compute(points, box, False, "in")
+    check_n_pairs(n, 6)
+
+    # without enough room, the calculation does not fail and only returns padding
+    nl = NeighborList(**options, fixed_n_pairs=4)
+    P, S, n = nl.compute(points, box, False, "PSn")
+    check_n_pairs(n, 6)
+    assert cp.all(P == -1)
+    assert cp.all(S == 0)
+
+    nl = NeighborList(**options, padded_to=1)
+    P, n = nl.compute(points, box, False, "Pn")
+    check_n_pairs(n, 6)
+    assert P.shape == (3, 2)
+    assert cp.all(P == -1)
+
+
+@pytest.mark.parametrize("gpu_algorithm", ["cell_list", "brute_force", "verlet"])
 def test_gpu_padded_errors(gpu_algorithm):
     if gpu_algorithm == "verlet":
         algorithm, skin = "cell_list", 0.5

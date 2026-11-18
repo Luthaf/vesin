@@ -55,6 +55,10 @@ struct VerletBuffersCPU {
     /// Scratch buffer containing, for each block, the first point with more
     /// than `padded_to` neighbors, or `SIZE_MAX` if there are none.
     std::vector<size_t> block_overflow;
+    /// Scratch buffer containing, for each block, the largest number of
+    /// neighbors of a point with more than `padded_to` neighbors, or 0 if
+    /// there are none.
+    std::vector<size_t> block_max_neighbors;
     /// Scratch buffer containing pair vectors for matching candidates
     std::vector<Vector> candidates_vectors;
     /// Scratch buffer containing squared distances for all candidates

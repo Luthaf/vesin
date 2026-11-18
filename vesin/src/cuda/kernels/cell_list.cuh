@@ -122,6 +122,7 @@ __global__ void count_neighbors_cell_list(
     bool full_list,
     int32 padded_to,
     int32* padding_overflow,
+    int32* padding_max_neighbors,
     int32* counts
 );
 

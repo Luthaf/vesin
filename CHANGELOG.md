@@ -60,10 +60,10 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   number either way.
 
 - The CUDA crossover between the brute force and cell list algorithms is now
-  extrapolated when the two calibration sizes do not bracket it, instead of
+  extrapolated when it falls below the smaller calibration size, instead of
   being discarded in favour of the built-in defaults. On a device whose
-  crossover is below the smaller calibration size, the measurement was
-  previously thrown away and `VesinAutoAlgorithm` ran on the defaults alone.
+  crossover is below that size, the measurement was previously thrown away for
+  every system and `VesinAutoAlgorithm` ran on the defaults alone.
 
 ### Removed
 

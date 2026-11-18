@@ -2,10 +2,10 @@
 #include <cstdint>
 
 #include <limits>
-#include <stdexcept>
-#include <string>
 
 #include <gpulite/gpulite.hpp>
+
+#include "../outputs.hpp"
 
 #include "./extra_data.hpp"
 #include "./neighbors.hpp"
@@ -32,23 +32,27 @@ void vesin::cuda::reset_padding_overflow(VesinNeighborList& neighbors) {
         extras->d_padding_overflow, &extras->pinned->padding_overflow,
         sizeof(int32_t), cudaMemcpyHostToDevice, extras->stream
     ));
+    GPULITE_CUDART_CALL(cudaMemsetAsync(extras->d_padding_max_neighbors, 0, sizeof(int32_t), extras->stream));
 }
 
-void vesin::cuda::check_padding_overflow(VesinNeighborList& neighbors, VesinOptions options) {
+void vesin::cuda::check_padding_overflow(VesinNeighborList& neighbors, size_t n_points, VesinOptions options) {
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
 
     GPULITE_CUDART_CALL(cudaMemcpyAsync(
         &extras->pinned->padding_overflow, extras->d_padding_overflow,
         sizeof(int32_t), cudaMemcpyDeviceToHost, extras->stream
     ));
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        &extras->pinned->padding_max_neighbors, extras->d_padding_max_neighbors,
+        sizeof(int32_t), cudaMemcpyDeviceToHost, extras->stream
+    ));
     GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     auto point = extras->pinned->padding_overflow;
     if (point != std::numeric_limits<int32_t>::max()) {
-        throw std::runtime_error(
-            "point " + std::to_string(point) +
-            " has more neighbors than the requested `padded_to` (" +
-            std::to_string(options.padded_to) + ")"
+        auto max_neighbors = extras->pinned->padding_max_neighbors;
+        vesin::throw_too_many_neighbors(
+            static_cast<size_t>(point), static_cast<size_t>(max_neighbors), n_points, options
         );
     }
 }
@@ -99,6 +103,7 @@ void vesin::cuda::finish_padding(
         n_points,
         static_cast<int32_t>(options.padded_to),
         extras->d_padding_overflow,
+        extras->d_padding_max_neighbors,
         options.return_shifts,
         options.return_distances,
         options.return_vectors,
@@ -108,6 +113,6 @@ void vesin::cuda::finish_padding(
         neighbors.vectors
     );
 
-    vesin::cuda::check_padding_overflow(neighbors, options);
+    vesin::cuda::check_padding_overflow(neighbors, n_points, options);
     neighbors.length = n_slots;
 }

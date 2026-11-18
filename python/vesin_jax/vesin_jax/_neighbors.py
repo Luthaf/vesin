@@ -53,13 +53,13 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param padded_to: pad full lists so every point has exactly this many outgoing
             pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
-            Computing the list fails if a point has more neighbors than this. If set to
-            ``None``, no padding is applied, and the number of pairs is only known after
-            the calculation, which is not compatible with ``jax.jit``.
-        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs
-            in total, adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and
-            vector after the actual pairs. Computing the list fails if there are more
-            pairs than this. This can not be used together with ``padded_to``.
+            Computing the list fails if a point has more neighbors than this, unless
+            ``"n"`` is part of the requested ``quantities`` in :py:meth:`compute`.
+        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs in total,
+            adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and vector after
+            the actual pairs. Computing the list fails if there are more pairs than
+            this, unless ``"n"`` is part of the requested ``quantities`` in
+            :py:meth:`compute`. This can not be used together with ``padded_to``.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
@@ -184,6 +184,13 @@ class NeighborList:
         - ``"S"`` to get the periodic shift of the pair
         - ``"d"`` to get the distance between points in the pair
         - ``"D"`` to get the distance vector between points in the pair
+        - ``"n"`` to get the number of pairs in the neighbor list. If either
+          ``fixed_n_pairs`` or ``padded_to`` are set and result in a capacity that is
+          too small, the returned value of ``"n"`` is the required total capacity to
+          hold all pairs, and all other outputs are filled with pseudo-pairs ``(-1,
+          -1)`` and zero shifts, distances and vectors. This can be used inside
+          :py:func:`jax.jit` to detect when the neighbor list needs to be re-created
+          with a larger size.
 
         The distances and distance vectors are always recomputed from the pairs and
         shifts with JAX operations, making the calculation differentiable with respect
@@ -205,7 +212,7 @@ class NeighborList:
         :return: tuple of :py:class:`jax.Array` as indicated by ``quantities``.
         """
         for q in quantities:
-            if q not in "ijPSdD":
+            if q not in "ijPSdDn":
                 raise ValueError(f"unexpected character in `quantities`: {q}")
 
         points = jnp.asarray(points)
@@ -248,10 +255,13 @@ class NeighborList:
             ffi_points, ffi_box = points.astype(jnp.float32), box.astype(jnp.float32)
 
         if self._padded_to != 0 or self._fixed_n_pairs != 0:
-            pairs, shifts = vesin_jax_compute(ffi_points, ffi_box, options)
+            pairs, shifts, n_pairs = vesin_jax_compute(
+                ffi_points, ffi_box, options, return_n_pairs=("n" in quantities)
+            )
         else:
             n_pairs = vesin_jax_compute_dynamic(ffi_points, ffi_box, options)
             pairs, shifts = vesin_jax_copy_out(self._state, n_pairs)
+            n_pairs = n_pairs[0]
 
         pairs = jnp.asarray(pairs)
         shifts = jnp.asarray(shifts)
@@ -281,5 +291,7 @@ class NeighborList:
                 results.append(distances)
             elif q == "D":
                 results.append(vectors)
+            elif q == "n":
+                results.append(n_pairs)
 
         return tuple(results)

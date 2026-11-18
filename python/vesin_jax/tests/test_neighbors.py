@@ -198,6 +198,51 @@ def test_fixed_n_pairs(points, box, full_list):
     assert np.all(np.asarray(j) == np.asarray(ref_j))
 
 
+def test_n_pairs(points, box, x64):
+    # each point has 2 neighbors, for 8 pairs in total
+    def check_n_pairs(n, expected):
+        assert isinstance(n, jax.Array)
+        assert n.devices() == points.devices()
+        assert n.shape == ()
+        assert n.dtype == (jnp.int64 if x64 else jnp.int32)
+        assert int(n) == expected
+
+    calculator = NeighborList(cutoff=2.1, full_list=True)
+    i, n = calculator.compute(points, box, True, "in")
+    assert i.shape == (8,)
+    check_n_pairs(n, 8)
+
+    calculator = NeighborList(cutoff=2.1, full_list=True, fixed_n_pairs=20)
+    i, n = calculator.compute(points, box, True, "in")
+    assert i.shape == (20,)
+    check_n_pairs(n, 8)
+
+    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
+    i, n = calculator.compute(points, box, True, "in")
+    assert i.shape == (18,)
+    check_n_pairs(n, 18)
+
+    # without enough room, the calculation does not fail and only returns padding
+    calculator = NeighborList(cutoff=2.1, full_list=True, fixed_n_pairs=4)
+    P, S, D, d, n = calculator.compute(points, box, True, "PSDdn")
+    check_n_pairs(n, 8)
+    assert np.all(np.asarray(P) == -1)
+    assert np.all(np.asarray(S) == 0)
+    assert np.all(np.asarray(D) == 0)
+    assert np.all(np.asarray(d) == 0)
+
+    calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=1)
+    P, n = calculator.compute(points, box, True, "Pn")
+    check_n_pairs(n, 12)
+    assert P.shape == (6, 2)
+    assert np.all(np.asarray(P) == -1)
+
+    # it still fails if the number of pairs is not requested
+    message = "point 0 has more neighbors than the requested `padded_to` \\(1\\)"
+    with pytest.raises(RuntimeError, match=message):
+        calculator.compute(points, box, True, "P")
+
+
 def test_half_list(points, box):
     calculator = NeighborList(cutoff=2.1, full_list=True)
     i, j = calculator.compute(points, box, True, "ij")

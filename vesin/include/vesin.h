@@ -32,6 +32,16 @@
 extern "C" {
 #endif
 
+/// The calculation succeeded
+#define VESIN_SUCCESS 0
+/// The calculation failed, the error message contains more information
+#define VESIN_FAILURE 1
+/// The calculation failed because the output arrays pre-allocated by the
+/// caller are too small (see `VesinOptions::pre_allocated_outputs`). The
+/// `length` of the `VesinNeighborList` is set to the number of pairs the arrays
+/// should be able to hold for the calculation to succeed.
+#define VESIN_OUTPUT_TOO_SMALL 2
+
 /// Algorithm to use for neighbor list construction
 enum VesinAlgorithm {
     /// Automatically select algorithm based on system characteristics (number
@@ -94,8 +104,13 @@ struct VesinOptions {
     /// (`pairs`, and `shifts`, `distances` or `vectors`) must be set in
     /// `VesinNeighborList` before the call, and its `length` must be set to the
     /// number of pairs these arrays can hold. vesin writes the pairs directly
-    /// in these arrays, and the calculation fails if they are too small. These
-    /// arrays stay owned by the caller, and are never released by vesin.
+    /// in these arrays. These arrays stay owned by the caller, and are never
+    /// released by vesin.
+    ///
+    /// If the arrays are too small (including when a point has more neighbors
+    /// than `padded_to`), `vesin_neighbors` returns `VESIN_OUTPUT_TOO_SMALL`
+    /// and sets `VesinNeighborList::length` to the number of pairs needed. The
+    /// content of the arrays is then unspecified.
     ///
     /// If this is `false` (the default), vesin allocates the output arrays
     /// itself, and re-uses them across calls. The pointers to these arrays must
@@ -163,9 +178,14 @@ struct VESIN_API VesinNeighborList {
         vectors(nullptr) {}
 #endif
 
-    /// Number of pairs in this neighbor list. When using
-    /// `VesinOptions::pre_allocated_outputs`, this must be set before each call
-    /// to the number of pairs the pre-allocated arrays can hold.
+    /// Number of pairs in this neighbor list.
+    ///
+    /// When using `VesinOptions::pre_allocated_outputs`, this must be set
+    /// before each call to the number of pairs the pre-allocated arrays can
+    /// hold.
+    ///
+    /// If the call returns `VESIN_OUTPUT_TOO_SMALL`, this contains the number
+    /// of pairs the arrays must be able to hold for a calculation to succeed.
     size_t length;
     /// Device used for the data allocations
     VesinDevice device;
@@ -225,6 +245,10 @@ void VESIN_API vesin_free(struct VesinNeighborList* neighbors);
 /// @param error_message Pointer to a `char*` that wil be set to the error
 ///     message if this function fails. This does not need to be freed when no
 ///     longer needed.
+/// @returns `VESIN_SUCCESS` if the calculation succeeded, `VESIN_OUTPUT_TOO_SMALL`
+///     if the arrays pre-allocated by the caller are too small (see
+///     `VesinOptions::pre_allocated_outputs`), and `VESIN_FAILURE` for all
+///     other errors.
 int32_t VESIN_API vesin_neighbors(
     const double (*points)[3],
     size_t n_points,

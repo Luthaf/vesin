@@ -70,12 +70,43 @@ inline void check_output_arrays(
     }
 }
 
+/// Error thrown when the output arrays pre-allocated by the caller are too
+/// small. This becomes `VESIN_OUTPUT_TOO_SMALL` in the C API.
+class OutputTooSmall: public std::runtime_error {
+public:
+    OutputTooSmall(const std::string& message, size_t needed):
+        std::runtime_error(message), needed(needed) {}
+
+    /// Number of pairs the output arrays should be able to hold
+    size_t needed;
+};
+
 /// Error for pre-allocated output arrays which are too small
-inline std::runtime_error pre_allocated_too_small(size_t capacity, size_t n_pairs) {
-    return std::runtime_error(
+inline OutputTooSmall pre_allocated_too_small(size_t capacity, size_t n_pairs) {
+    return OutputTooSmall(
         "the pre-allocated output arrays can hold " + std::to_string(capacity) +
-        " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
+        " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs",
+        n_pairs
     );
+}
+
+/// Error for a point with more than `padded_to` neighbors. `max_neighbors` is
+/// the largest number of neighbors of any point. With pre-allocated outputs,
+/// this is an `OutputTooSmall` error, asking for `max_neighbors` slots for
+/// each point.
+[[noreturn]] inline void throw_too_many_neighbors(
+    size_t point,
+    size_t max_neighbors,
+    size_t n_points,
+    VesinOptions options
+) {
+    auto message = "point " + std::to_string(point) +
+                   " has more neighbors than the requested `padded_to` (" +
+                   std::to_string(options.padded_to) + ")";
+    if (options.pre_allocated_outputs) {
+        throw OutputTooSmall(message, n_points * max_neighbors);
+    }
+    throw std::runtime_error(message);
 }
 
 } // namespace vesin

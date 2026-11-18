@@ -11,7 +11,8 @@
 // owns the slots `[i * padded_to, (i + 1) * padded_to)` and `pairs_per_point[i]`
 // is how many neighbors it tried to write there. The smallest index of a point
 // with more than `padded_to` neighbors is stored in `padding_overflow` (which
-// must be initialized to INT_MAX).
+// must be initialized to INT_MAX), and the largest number of neighbors of such
+// points in `padding_max_neighbors` (which must be initialized to 0).
 //
 // This uses one thread per output slot.
 __global__ void pad_neighbors(
@@ -19,6 +20,7 @@ __global__ void pad_neighbors(
     size_t n_points,
     int32 padded_to,
     int32* padding_overflow,
+    int32* padding_max_neighbors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,

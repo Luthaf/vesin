@@ -773,6 +773,63 @@ def test_fixed_n_pairs_errors():
     np.testing.assert_array_equal(j, [-1, -1, -1, -1])
 
 
+def test_n_pairs():
+    # each point has 2 neighbors, for 6 pairs in total
+    points = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    box = np.eye(3)
+
+    def check_n_pairs(n, expected):
+        assert isinstance(n, np.ndarray)
+        assert n.shape == ()
+        assert n.dtype == np.int64
+        assert n == expected
+
+    # without padding
+    nl = NeighborList(cutoff=1.5, full_list=True)
+    i, n = nl.compute(points, box, False, "in")
+    assert i.shape == (6,)
+    check_n_pairs(n, 6)
+
+    # with enough room for all pairs
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=10)
+    i, n = nl.compute(points, box, False, "in")
+    assert i.shape == (10,)
+    check_n_pairs(n, 6)
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=4)
+    i, n = nl.compute(points, box, False, "in")
+    assert i.shape == (12,)
+    check_n_pairs(n, 12)
+
+    # without enough room, the calculation does not fail and only returns padding
+    nl = NeighborList(cutoff=1.5, full_list=True, fixed_n_pairs=4)
+    P, S, D, d, n = nl.compute(points, box, False, "PSDdn")
+    check_n_pairs(n, 6)
+    np.testing.assert_array_equal(P, -np.ones((4, 2)))
+    np.testing.assert_array_equal(S, np.zeros((4, 3)))
+    np.testing.assert_array_equal(D, np.zeros((4, 3)))
+    np.testing.assert_array_equal(d, np.zeros(4))
+
+    # it still fails if the number of pairs is not requested
+    message = (
+        "the pre-allocated output arrays can hold 4 pairs, "
+        "but this calculation needs 6 pairs"
+    )
+    with pytest.raises(RuntimeError, match=message):
+        nl.compute(points, box, False, "P")
+
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=1)
+    P, n = nl.compute(points, box, False, "Pn")
+    check_n_pairs(n, 6)
+    np.testing.assert_array_equal(P, -np.ones((3, 2)))
+
+    # using `n` to get a large enough `padded_to`
+    nl = NeighborList(cutoff=1.5, full_list=True, padded_to=int(n) // len(points))
+    j, n = nl.compute(points, box, False, "jn")
+    check_n_pairs(n, 6)
+    assert np.all(j >= 0)
+
+
 def test_padded_outputs_are_independent():
     # with padding, vesin writes directly in arrays allocated for each call
     points = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])

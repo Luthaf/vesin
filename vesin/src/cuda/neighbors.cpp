@@ -197,6 +197,10 @@ static void allocate_scratch_buffers(CudaNeighborListExtras* extras) {
     if (extras->d_padding_overflow == nullptr) {
         GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_padding_overflow, sizeof(int32_t), extras->stream));
     }
+
+    if (extras->d_padding_max_neighbors == nullptr) {
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_padding_max_neighbors, sizeof(int32_t), extras->stream));
+    }
 }
 
 void vesin::cuda::allocate_output_buffers(

@@ -230,10 +230,14 @@ void vesin::cpu::cell_list_neighbors(
         // Each point gets exactly `padded_to` slots in the output array, the
         // ones not used by actual neighbors are filled with padding in the
         // second pass.
-        for (size_t i = 0; i < n_points; i++) {
-            if (buffers.count[i + 1] > options.padded_to) {
-                throw too_many_neighbors_error(i, options.padded_to);
-            }
+        auto max_neighbors = *std::max_element(buffers.count.begin(), buffers.count.end());
+        if (max_neighbors > options.padded_to) {
+            auto first = std::find_if(buffers.count.begin(), buffers.count.end(), [&](size_t count) {
+                return count > options.padded_to;
+            });
+            // `count[i + 1]` is the number of neighbors of point `i`
+            auto point = static_cast<size_t>(first - buffers.count.begin()) - 1;
+            throw_too_many_neighbors(point, max_neighbors, n_points, options);
         }
 
         for (size_t i = 0; i <= n_points; i++) {

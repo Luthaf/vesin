@@ -938,6 +938,7 @@ __global__ void count_neighbors_cell_list(
     bool full_list,
     int32 padded_to,
     int32* __restrict__ padding_overflow,
+    int32* __restrict__ padding_max_neighbors,
     int32* __restrict__ counts  // [n_points] output
 ) {
     __shared__ int32 shared_counts[VESIN_PARTICLES_PER_BLOCK];
@@ -981,9 +982,10 @@ __global__ void count_neighbors_cell_list(
         counts[point_i] = point_count;
 
         // Record the first point with too many neighbors, so the error message
-        // does not depend on scheduling
+        // does not depend on scheduling, and the largest number of neighbors
         if (padded_to > 0 && point_count > padded_to) {
             atomicMin(padding_overflow, point_i);
+            atomicMax(padding_max_neighbors, point_count);
         }
     }
 }

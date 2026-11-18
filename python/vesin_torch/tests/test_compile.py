@@ -98,6 +98,55 @@ def test_compile_forward_fixed_n_pairs(backend, full_list):
 
 
 @pytest.mark.parametrize("backend", ["eager", "inductor", "aot_eager"])
+@pytest.mark.parametrize("fixed_n_pairs", [20, 4])
+def test_compile_n_pairs(backend, fixed_n_pairs):
+    calculator = NeighborList(cutoff=2.1, full_list=True, fixed_n_pairs=fixed_n_pairs)
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.calculator = calculator
+
+        def forward(self, points, box):
+            (j, distances, n_pairs) = self.calculator.compute(
+                points=points,
+                box=box,
+                periodic=torch.tensor(True),
+                quantities="jdn",
+            )
+            return j, distances.sum(), n_pairs
+
+    model = Model()
+    compiled = torch.compile(model, backend=backend, fullgraph=True)
+
+    points = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [-6.0, 0.0, 0.0],
+            [-6.0, -2.0, 0.0],
+            [-6.0, 0.0, -2.0],
+        ],
+        dtype=torch.float64,
+    )
+    box = torch.diag(torch.tensor([54.0, 54.0, 54.0], dtype=torch.float64))
+
+    expected_j, expected, expected_n = model(points, box)
+    actual_j, actual, actual_n = compiled(points, box)
+
+    assert torch.equal(actual_j, expected_j)
+    assert torch.allclose(actual, expected)
+    assert torch.equal(actual_n, expected_n)
+
+    assert actual_n.shape == ()
+    assert actual_n.item() == 8
+    if fixed_n_pairs < 8:
+        # too many pairs, only padding is returned
+        assert torch.all(actual_j == -1)
+
+
+@pytest.mark.parametrize("backend", ["eager", "inductor", "aot_eager"])
 def test_compile_forward_padded(backend):
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
 

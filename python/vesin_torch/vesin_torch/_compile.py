@@ -31,6 +31,7 @@ def _neighbors_fake(
     return_shifts: bool,
     return_distances: bool,
     return_vectors: bool,
+    return_n_pairs: bool,
     copy: bool,
 ):
     """
@@ -57,7 +58,10 @@ def _neighbors_fake(
     n_vectors = n_pairs if return_vectors else 0
     vectors = torch.empty((n_vectors, 3), dtype=torch.float64, device=device)
 
-    return pairs, shifts, distances, vectors
+    n_pairs_shape = () if return_n_pairs else (0,)
+    n_pairs = torch.empty(n_pairs_shape, dtype=torch.int64, device=device)
+
+    return pairs, shifts, distances, vectors, n_pairs
 
 
 TORCH_VERSION = tuple(int(v) for v in torch.__version__.split(".")[:2])

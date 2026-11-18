@@ -113,17 +113,25 @@ VesinAlgorithm algorithm_from_string(const std::string& algorithm) {
     }
 }
 
+using NeighborsOutput = std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>;
+
 /// Compute the neighbor list with the given `options`, without any autograd
 /// integration. Pairs are always returned, the other outputs are empty tensors
 /// if not requested in `options`. If `fixed_n_pairs` is positive, the
 /// outputs always contain this many pairs, padded with `(-1, -1)` pseudo-pairs.
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_neighbors(
+///
+/// If `return_n_pairs` is true, the last output is a scalar tensor containing
+/// the number of pairs needed by the neighbor list, and output arrays that are
+/// too small for `fixed_n_pairs` or `padded_to` are not an error: they are
+/// filled with `(-1, -1)` pseudo-pairs instead.
+NeighborsOutput compute_neighbors(
     VesinNeighborList* data,
     torch::Tensor points,
     torch::Tensor box,
     torch::Tensor periodic,
     VesinOptions options,
     int64_t fixed_n_pairs,
+    bool return_n_pairs,
     bool copy
 ) {
     // check input data
@@ -245,31 +253,38 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         &error_message
     );
 
-    if (status != EXIT_SUCCESS) {
+    // when the caller asks for the number of pairs, too small outputs are not
+    // an error, they can look at the number of pairs to detect it
+    auto too_small = status == VESIN_OUTPUT_TOO_SMALL && return_n_pairs;
+    if (status != VESIN_SUCCESS && !too_small) {
         throw std::runtime_error(std::string("failed to compute neighbors: ") + error_message);
     }
 
+    // if the outputs are too small, this is the number of pairs they should
+    // be able to hold
+    auto length = static_cast<int64_t>(data->length);
+    auto n_pairs = torch::empty({0}, int64_options);
+    if (return_n_pairs) {
+        n_pairs = torch::tensor(length, torch::TensorOptions().dtype(torch::kInt64)).to(device);
+    }
+
     if (options.pre_allocated_outputs) {
-        if (fixed_n_pairs > 0) {
-            // vesin only wrote the first `length` pairs, the remaining ones
-            // are filled with `(-1, -1)` pseudo-pairs and zero shifts,
-            // distances and vectors
-            auto start = static_cast<int64_t>(data->length);
-            auto n_padding = capacity - start;
-            pairs.narrow(0, start, n_padding).fill_(-1);
-            if (options.return_shifts) {
-                shifts.narrow(0, start, n_padding).zero_();
-            }
-            if (options.return_distances) {
-                distances.narrow(0, start, n_padding).zero_();
-            }
-            if (options.return_vectors) {
-                vectors.narrow(0, start, n_padding).zero_();
-            }
-        } else {
-            assert(pairs.size(0) == static_cast<int64_t>(data->length));
+        // vesin only wrote the first `length` pairs (or none of them if the
+        // outputs are too small), the remaining ones are filled with `(-1, -1)`
+        // pseudo-pairs and zero shifts, distances and vectors.
+        auto start = too_small ? 0 : length;
+        auto n_padding = capacity - start;
+        pairs.narrow(0, start, n_padding).fill_(-1);
+        if (options.return_shifts) {
+            shifts.narrow(0, start, n_padding).zero_();
         }
-        return {pairs, shifts, distances, vectors};
+        if (options.return_distances) {
+            distances.narrow(0, start, n_padding).zero_();
+        }
+        if (options.return_vectors) {
+            vectors.narrow(0, start, n_padding).zero_();
+        }
+        return {pairs, shifts, distances, vectors, n_pairs};
     }
 
     // wrap vesin data in tensors
@@ -282,7 +297,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         C10_THROW_ERROR(ValueError, "could not determine torch dtype matching size_t");
     }
 
-    auto length = static_cast<int64_t>(data->length);
     pairs = torch::from_blob(data->pairs, {length, 2}, size_t_options).to(torch::kInt64);
 
     if (options.return_shifts) {
@@ -306,10 +320,10 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> compute_n
         }
     }
 
-    return {pairs, shifts, distances, vectors};
+    return {pairs, shifts, distances, vectors, n_pairs};
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors(
+NeighborsOutput neighbors(
     c10::intrusive_ptr<State> state,
     torch::Tensor points,
     torch::Tensor box,
@@ -325,6 +339,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
+    bool return_n_pairs,
     bool copy
 ) {
     if (n_threads == 0) {
@@ -352,6 +367,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> neighbors
         std::move(periodic),
         options,
         fixed_n_pairs,
+        return_n_pairs,
         copy
     );
 }
@@ -381,11 +397,24 @@ TORCH_LIBRARY(vesin, m) {
 
     m.def(
         "neighbors("
-            "__torch__.torch.classes.vesin.State state, Tensor points, Tensor box, Tensor periodic, "
-            "float cutoff, bool full_list, bool sorted, int padded_to, int fixed_n_pairs, "
-            "str algorithm, float skin, int n_threads, "
-            "bool return_shifts, bool return_distances, bool return_vectors, bool copy"
-        ") -> (Tensor pairs, Tensor shifts, Tensor distances, Tensor vectors)"
+            "__torch__.torch.classes.vesin.State state, "
+            "Tensor points, "
+            "Tensor box, "
+            "Tensor periodic, "
+            "float cutoff, "
+            "bool full_list, "
+            "bool sorted, "
+            "int padded_to, "
+            "int fixed_n_pairs, "
+            "str algorithm, "
+            "float skin, "
+            "int n_threads, "
+            "bool return_shifts, "
+            "bool return_distances, "
+            "bool return_vectors, "
+            "bool return_n_pairs, "
+            "bool copy"
+        ") -> (Tensor pairs, Tensor shifts, Tensor distances, Tensor vectors, Tensor n_pairs)"
     );
 }
 

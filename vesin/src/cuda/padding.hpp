@@ -19,13 +19,14 @@ void prepare_padding(VesinNeighborList& neighbors, size_t n_points, VesinOptions
 /// neighbors.
 void finish_padding(VesinNeighborList& neighbors, size_t n_points, VesinOptions options);
 
-/// Reset the device-side "first point with too many neighbors" to "no point",
-/// before launching the kernels that update it with `atomicMin`.
+/// Reset the device-side record of points with too many neighbors to "no
+/// point", before launching the kernels that update it with atomics.
 void reset_padding_overflow(VesinNeighborList& neighbors);
 
-/// Throw an error if any point had more than `padded_to` neighbors. This
-/// synchronizes the stream.
-void check_padding_overflow(VesinNeighborList& neighbors, VesinOptions options);
+/// Throw an error if any point had more than `padded_to` neighbors. This is
+/// an `OutputTooSmall` error with pre-allocated outputs. This synchronizes the
+/// stream.
+void check_padding_overflow(VesinNeighborList& neighbors, size_t n_points, VesinOptions options);
 
 } // namespace vesin::cuda
 

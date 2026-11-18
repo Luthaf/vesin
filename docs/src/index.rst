@@ -385,7 +385,7 @@ Usage example
                     &error_message
                 );
 
-                if (status != EXIT_SUCCESS) {
+                if (status != VESIN_SUCCESS) {
                     fprintf(stderr, "error: %s\n", error_message);
                     return 1;
                 }

@@ -36,11 +36,15 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
   the pairs with invalid pairs `(i, -1)` if needed.
 - The `fixed_n_pairs` option returns exactly this many pairs in total,
   padding with invalid pairs `(-1, -1)` after the actual ones.
+- `quantities` now accept a `"n"` option, returning the total number of pairs
+  found.
 
 #### vesin (Python)
 
 - The `padded_to` and `fixed_n_pairs` options, with the same behavior
   as in `vesin-torch` and `vesin-jax`.
+- `quantities` now accept a `"n"` option, returning the total number of pairs
+  found.
 
 #### vesin-jax
 

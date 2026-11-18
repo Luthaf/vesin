@@ -6,6 +6,8 @@ import numpy as np
 import numpy.typing as npt
 
 from ._c_api import (
+    VESIN_OUTPUT_TOO_SMALL,
+    VESIN_SUCCESS,
     VesinAutoAlgorithm,
     VesinBruteForce,
     VesinCellList,
@@ -111,12 +113,14 @@ class NeighborList:
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param padded_to: pad full lists so every point has exactly this many outgoing
             pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
-            Computing the list fails if a point has more neighbors than this. If set to
-            ``None``, no padding is applied.
-        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs
-            in total, adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and
-            vector after the actual pairs. Computing the list fails if there are more
-            pairs than this. This can not be used together with ``padded_to``.
+            Computing the list fails if a point has more neighbors than this, unless
+            ``"n"`` is part of the requested ``quantities`` in :py:meth:`compute`. If
+            set to ``None``, no padding is applied.
+        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs in total,
+            adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and vector after
+            the actual pairs. Computing the list fails if there are more pairs than
+            this, unless ``"n"`` is part of the requested ``quantities`` in
+            :py:meth:`compute`. This can not be used together with ``padded_to``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
             neighbor list until any atom moves farther than ``skin/2`` from its
             reference coordinates. A negative value sets the skin to an unspecified
@@ -225,6 +229,11 @@ class NeighborList:
         - ``"S"`` to get the periodic shift of the pair
         - ``"d"`` to get the distance between points in the pair
         - ``"D"`` to get the distance vector between points in the pair
+        - ``"n"`` to get the number of pairs in the neighbor list. If either
+          ``fixed_n_pairs`` or ``padded_to`` are set and result in a capacity that is
+          too small, the returned value of ``"n"`` is the required total capacity to
+          hold all pairs, and all other outputs are filled with pseudo-pairs ``(-1,
+          -1)`` and zero shifts, distances and vectors.
 
         :param points: positions of all points in the system (this can be anything that
             can be converted to a numpy or cupy array)
@@ -396,26 +405,29 @@ class NeighborList:
             error_message,
         )
 
-        if status != 0:
+        # when the caller asks for the number of pairs, too small outputs are not an
+        # error, they can look at the number of pairs to detect it
+        too_small = status == VESIN_OUTPUT_TOO_SMALL and "n" in quantities
+        if status != VESIN_SUCCESS and not too_small:
             raise RuntimeError(error_message.value.decode("utf8"))
 
-        # Create arrays for the output data
+        # Create arrays for the output data. If the outputs are too small, this is
+        # the number of pairs they should be able to hold.
         n_pairs = self._neighbors.length
 
         if pre_allocated:
-            if self._fixed_n_pairs > 0:
-                # vesin only wrote the first `n_pairs` pairs, the remaining ones are
-                # filled with `(-1, -1)` pseudo-pairs and zero shifts, distances and
-                # vectors
-                pairs[n_pairs:] = -1
-                if shifts is not None:
-                    shifts[n_pairs:] = 0
-                if distances is not None:
-                    distances[n_pairs:] = 0.0
-                if vectors is not None:
-                    vectors[n_pairs:] = 0.0
-            else:
-                assert n_pairs == pairs.shape[0]
+            # vesin only wrote the first `n_pairs` pairs (or none of them if the
+            # outputs are too small), the remaining ones are filled with `(-1, -1)`
+            # pseudo-pairs and zero shifts, distances and vectors. With `padded_to`,
+            # vesin wrote all the pairs, and there is nothing to do here.
+            n_written = 0 if too_small else n_pairs
+            pairs[n_written:] = -1
+            if shifts is not None:
+                shifts[n_written:] = 0
+            if distances is not None:
+                distances[n_written:] = 0.0
+            if vectors is not None:
+                vectors[n_written:] = 0.0
 
             if distances is not None:
                 distances = to_dtype_fn(distances, output_float_dtype)
@@ -478,6 +490,10 @@ class NeighborList:
         # assemble output
 
         data = []
+        if "n" in quantities:
+            n_pairs_array = empty_array_fn((), dtype=int64_dtype, device_like=points)
+            n_pairs_array[...] = n_pairs
+
         for quantity in quantities:
             if quantity == "P":
                 if copy_owned:
@@ -514,6 +530,9 @@ class NeighborList:
                     data.append(copy_array_fn(vectors))
                 else:
                     data.append(vectors)
+
+            elif quantity == "n":
+                data.append(n_pairs_array)
 
             else:
                 raise ValueError(f"unexpected character in `quantities`: {quantity}")

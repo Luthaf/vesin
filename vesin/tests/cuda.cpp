@@ -71,7 +71,7 @@ void run_cuda_test(int32_t device_id) {
     );
 
     REQUIRE(error_message == nullptr);
-    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(status == VESIN_SUCCESS);
 
     CHECK(neighbors.length == 5);
     CHECK(neighbors.pairs != nullptr);
@@ -232,7 +232,7 @@ TEST_CASE("Test CUDA Verlet skin cache") {
         &error_message
     );
     REQUIRE(error_message == nullptr);
-    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(status == VESIN_SUCCESS);
 
     // second call with small displacement to hit the cache filter kernels
     double moved_points[][3] = {
@@ -255,7 +255,7 @@ TEST_CASE("Test CUDA Verlet skin cache") {
         &error_message
     );
     REQUIRE(error_message == nullptr);
-    REQUIRE(status == EXIT_SUCCESS);
+    REQUIRE(status == VESIN_SUCCESS);
 
     vesin_free(&neighbors);
     check_cuda(cudaFree(d_points));
@@ -306,9 +306,10 @@ TEST_CASE("CUDA pre-allocated output arrays") {
     check_cuda(cudaMalloc(&d_periodic, sizeof(bool) * 3));
     check_cuda(cudaMemcpy(d_periodic, periodic, sizeof(bool) * 3, cudaMemcpyHostToDevice));
 
+    int32_t status = VESIN_SUCCESS;
     auto compute = [&](VesinNeighborList& neighbors, VesinOptions options) -> std::string {
         const char* error_message = nullptr;
-        auto status = vesin_neighbors(
+        status = vesin_neighbors(
             d_points,
             n_points,
             d_box,
@@ -319,7 +320,7 @@ TEST_CASE("CUDA pre-allocated output arrays") {
             &neighbors,
             &error_message
         );
-        if (status != EXIT_SUCCESS) {
+        if (status != VESIN_SUCCESS) {
             return error_message;
         }
         return "";
@@ -383,6 +384,19 @@ TEST_CASE("CUDA pre-allocated output arrays") {
                     "the pre-allocated output arrays can hold " + std::to_string(n_pairs - 1) +
                     " pairs, but this calculation needs " + std::to_string(n_pairs) + " pairs"
                 ));
+                CHECK(status == VESIN_OUTPUT_TOO_SMALL);
+                CHECK(neighbors.length == n_pairs);
+
+                if (padded_to > 0) {
+                    // all points have 18 neighbors, the needed size is given
+                    // back as `n_points * max_neighbors`
+                    options.padded_to = 10;
+                    set_arrays(n_points * 10);
+                    CHECK(compute(neighbors, options) == "point 0 has more neighbors than the requested `padded_to` (10)");
+                    CHECK(status == VESIN_OUTPUT_TOO_SMALL);
+                    CHECK(neighbors.length == n_points * 18);
+                    options.padded_to = padded_to;
+                }
 
                 // vesin never releases pre-allocated arrays
                 vesin_free(&neighbors);
@@ -493,14 +507,14 @@ TEST_CASE("CUDA streams") {
                         auto status = vesin_neighbors(
                             d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, stream, options, &neighbors, &error_message
                         );
-                        if (status != EXIT_SUCCESS) {
+                        if (status != VESIN_SUCCESS) {
                             FAIL(error_message);
                         }
                         // call a second time, to use the Verlet cache if any
                         status = vesin_neighbors(
                             d_points, n_points, d_box, d_periodic, {VesinCUDA, 0}, stream, options, &neighbors, &error_message
                         );
-                        if (status != EXIT_SUCCESS) {
+                        if (status != VESIN_SUCCESS) {
                             FAIL(error_message);
                         }
 
@@ -571,7 +585,7 @@ TEST_CASE("CUDA current device") {
             auto status = vesin_neighbors(
                 d_points, n_points, d_box, d_periodic, {VesinCUDA, data_device}, nullptr, options, &neighbors, &error_message
             );
-            if (status != EXIT_SUCCESS) {
+            if (status != VESIN_SUCCESS) {
                 FAIL(error_message);
             }
 

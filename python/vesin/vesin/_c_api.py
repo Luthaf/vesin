@@ -7,6 +7,10 @@ VesinUnknownDevice = 0
 VesinCPU = 1
 VesinCUDA = 2
 
+VESIN_SUCCESS = 0
+VESIN_FAILURE = 1
+VESIN_OUTPUT_TOO_SMALL = 2
+
 VesinAlgorithm = ctypes.c_int
 VesinAutoAlgorithm = 0
 VesinBruteForce = 1

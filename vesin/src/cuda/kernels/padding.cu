@@ -5,6 +5,7 @@ __global__ void pad_neighbors(
     size_t n_points,
     int32 padded_to,
     int32* padding_overflow,
+    int32* padding_max_neighbors,
     bool return_shifts,
     bool return_distances,
     bool return_vectors,
@@ -19,11 +20,12 @@ __global__ void pad_neighbors(
     }
 
     size_t point = slot / padded_to;
-    int32 index_in_point = static_cast<int32>(slot % padded_to);
+    auto index_in_point = static_cast<int32>(slot % padded_to);
     int32 count = pairs_per_point[point];
 
     if (index_in_point == 0 && count > padded_to) {
         atomicMin(padding_overflow, static_cast<int32>(point));
+        atomicMax(padding_max_neighbors, count);
     }
 
     if (index_in_point < count) {

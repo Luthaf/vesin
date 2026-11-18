@@ -3,8 +3,6 @@
 
 #include <cstddef>
 #include <limits>
-#include <stdexcept>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -231,15 +229,6 @@ inline void set_padding_pair(VesinNeighborList& neighbors, size_t index, size_t 
         neighbors.vectors[index][1] = 0.0;
         neighbors.vectors[index][2] = 0.0;
     }
-}
-
-/// Error thrown when `point` has more than `options.padded_to` neighbors
-inline std::runtime_error too_many_neighbors_error(size_t point, size_t padded_to) {
-    return std::runtime_error(
-        "point " + std::to_string(point) +
-        " has more neighbors than the requested `padded_to` (" +
-        std::to_string(padded_to) + ")"
-    );
 }
 
 /// Wrapper around `VesinNeighborList` that manages the output buffers,

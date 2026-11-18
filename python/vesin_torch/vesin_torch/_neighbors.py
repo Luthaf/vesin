@@ -26,12 +26,14 @@ class NeighborList:
             second point index (``j``) and shifts in the list of pairs is unspecified.
         :param padded_to: pad full lists so every point has exactly this many outgoing
             pairs, using ``(i, -1)`` pseudo-pairs with zero shift, distance and vector.
-            Computing the list fails if a point has more neighbors than this. If set to
-            ``None``, no padding is applied.
-        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs
-            in total, adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and
-            vector after the actual pairs. Computing the list fails if there are more
-            pairs than this. This can not be used together with ``padded_to``.
+            Computing the list fails if a point has more neighbors than this, unless
+            ``"n"`` is part of the requested ``quantities`` in :py:meth:`compute`. If
+            set to ``None``, no padding is applied.
+        :param fixed_n_pairs: pad the neighbor list to exactly this many pairs in total,
+            adding ``(-1, -1)`` pseudo-pairs with zero shift, distance and vector after
+            the actual pairs. Computing the list fails if there are more pairs than
+            this, unless ``"n"`` is part of the requested ``quantities`` in
+            :py:meth:`compute`. This can not be used together with ``padded_to``.
         :param algorithm: algorithm to use when computing the neighbor list. One of
             ``"auto"``, ``"brute_force"``, or ``"cell_list"``.
         :param skin: skin size for Verlet caching. A positive value enables caching the
@@ -194,6 +196,11 @@ class NeighborList:
         - ``"S"`` to get the periodic shift of the pair
         - ``"d"`` to get the distance between points in the pair
         - ``"D"`` to get the distance vector between points in the pair
+        - ``"n"`` to get the number of pairs in the neighbor list. If either
+          ``fixed_n_pairs`` or ``padded_to`` are set and result in a capacity that is
+          too small, the returned value of ``"n"`` is the required total capacity to
+          hold all pairs, and all other outputs are filled with pseudo-pairs ``(-1,
+          -1)`` and zero shifts, distances and vectors.
 
         :param points: positions of all points in the system
         :param box: bounding box of the system
@@ -219,7 +226,7 @@ class NeighborList:
             )
 
         for q in quantities:
-            if q not in "ijPSdD":
+            if q not in "ijPSdDn":
                 raise ValueError(f"unexpected character in `quantities`: {q}")
 
         # check the device here, since meta tensors would otherwise be sent to the
@@ -236,6 +243,7 @@ class NeighborList:
         return_shifts = "S" in quantities
         return_distances = "d" in quantities
         return_vectors = "D" in quantities
+        return_n_pairs = "n" in quantities
 
         requires_grad = (
             torch.is_grad_enabled()
@@ -253,23 +261,24 @@ class NeighborList:
             # traceable by `torch.compile` and `torch.export`. The shifts are used in
             # the backward pass, and must not be invalidated by the next call, so we
             # always copy them.
-            pairs, shifts, _, _ = torch.ops.vesin.neighbors(
-                self._state,
-                points_f64.detach(),
-                box_f64.detach(),
-                periodic,
-                self._cutoff,
-                self._full_list,
-                self._sorted,
-                self._padded_to,
-                self._fixed_n_pairs,
-                self._algorithm,
-                self._skin,
-                self._n_threads,
-                True,
-                False,
-                False,
-                True,
+            pairs, shifts, _, _, n_pairs = torch.ops.vesin.neighbors(
+                state=self._state,
+                points=points_f64.detach(),
+                box=box_f64.detach(),
+                periodic=periodic,
+                cutoff=self._cutoff,
+                full_list=self._full_list,
+                sorted=self._sorted,
+                padded_to=self._padded_to,
+                fixed_n_pairs=self._fixed_n_pairs,
+                algorithm=self._algorithm,
+                skin=self._skin,
+                n_threads=self._n_threads,
+                return_shifts=True,
+                return_distances=False,
+                return_vectors=False,
+                return_n_pairs=return_n_pairs,
+                copy=True,
             )
 
             first = pairs[:, 0]
@@ -297,23 +306,24 @@ class NeighborList:
             else:
                 distances = torch.linalg.vector_norm(vectors, dim=1)
         else:
-            pairs, shifts, distances, vectors = torch.ops.vesin.neighbors(
-                self._state,
-                points_f64,
-                box_f64,
-                periodic,
-                self._cutoff,
-                self._full_list,
-                self._sorted,
-                self._padded_to,
-                self._fixed_n_pairs,
-                self._algorithm,
-                self._skin,
-                self._n_threads,
-                return_shifts,
-                return_distances,
-                return_vectors,
-                copy,
+            pairs, shifts, distances, vectors, n_pairs = torch.ops.vesin.neighbors(
+                state=self._state,
+                points=points_f64,
+                box=box_f64,
+                periodic=periodic,
+                cutoff=self._cutoff,
+                full_list=self._full_list,
+                sorted=self._sorted,
+                padded_to=self._padded_to,
+                fixed_n_pairs=self._fixed_n_pairs,
+                algorithm=self._algorithm,
+                skin=self._skin,
+                n_threads=self._n_threads,
+                return_shifts=return_shifts,
+                return_distances=return_distances,
+                return_vectors=return_vectors,
+                return_n_pairs=return_n_pairs,
+                copy=copy,
             )
 
         results: List[torch.Tensor] = []
@@ -330,4 +340,6 @@ class NeighborList:
                 results.append(distances.to(initial_dtype))
             elif q == "D":
                 results.append(vectors.to(initial_dtype))
+            elif q == "n":
+                results.append(n_pairs)
         return results

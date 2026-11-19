@@ -58,9 +58,11 @@ void VerletList::clear_candidates() {
 }
 
 void VerletList::set_options(VesinOptions options) {
-    if (buffers_.options.cutoff != options.cutoff ||
-        buffers_.options.skin != options.skin ||
-        buffers_.options.full != options.full) {
+    if (buffers_.options.cutoff != options.cutoff
+        || buffers_.options.skin != options.skin
+        || buffers_.options.full != options.full
+        || buffers_.options.algorithm != options.algorithm
+    ) {
         this->clear_candidates();
     }
 
@@ -124,7 +126,7 @@ void VerletList::rebuild(
     build_options.cutoff = options.cutoff + options.skin;
     build_options.full = options.full;
     build_options.sorted = false;
-    build_options.algorithm = VesinCellList;
+    build_options.algorithm = options.algorithm;
     build_options.return_shifts = true;
     build_options.return_distances = false;
     build_options.return_vectors = false;

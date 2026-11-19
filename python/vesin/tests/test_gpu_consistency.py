@@ -171,3 +171,52 @@ def test_gpu_padded_matches_cpu(system, gpu_algorithm):
         assert np.array_equal(cpu_S, gpu_S), message
         assert np.allclose(cpu_D, gpu_D), message
         assert np.allclose(cpu_d, gpu_d), message
+
+
+@pytest.mark.parametrize("full_list", [False, True])
+@pytest.mark.parametrize("system", TEST_SYSTEMS, ids=[s.name for s in TEST_SYSTEMS])
+def test_gpu_verlet_brute_force_matches_cell_list(system, full_list):
+    cutoff = 5.0
+    skin = 0.5
+    if not algorithm_is_applicable(system, cutoff + skin, "brute_force"):
+        return
+
+    cell_list = NeighborList(
+        cutoff=cutoff, full_list=full_list, algorithm="cell_list", skin=skin
+    )
+    brute_force = NeighborList(
+        cutoff=cutoff, full_list=full_list, algorithm="brute_force", skin=skin
+    )
+
+    rng = np.random.default_rng(0xBADC0FFE)
+    # The first step builds the Verlet candidates, the second one moves points
+    # by less than skin/2 and re-uses them, and the last one moves points enough
+    # to force a rebuild.
+    for max_displacement in [0.0, 0.1, 1.0]:
+        displacement = rng.uniform(-1.0, 1.0, size=system.points.shape)
+        points = system.points + max_displacement / np.sqrt(3) * displacement
+
+        outputs = []
+        for calculator in [cell_list, brute_force]:
+            i, j, S, D, d = calculator.compute(
+                points=cp.asarray(points, dtype=cp.float64),
+                box=cp.asarray(system.box, dtype=cp.float64),
+                periodic=cp.asarray(system.periodic),
+                quantities="ijSDd",
+            )
+            i, j, S, D, d = (cp.asnumpy(x) for x in (i, j, S, D, d))
+            if not full_list:
+                i, j, S, D, d = canonicalize_half_pairs(i, j, S, D, d)
+            outputs.append(sort_neighbors(i, j, S, D, d))
+
+        (cl_i, cl_j, cl_S, cl_D, cl_d), (bf_i, bf_j, bf_S, bf_D, bf_d) = outputs
+
+        message = (
+            f"Verlet neighbors do not match between cell list and brute force "
+            f"for {system.name} (max displacement {max_displacement})"
+        )
+        assert np.array_equal(cl_i, bf_i), message
+        assert np.array_equal(cl_j, bf_j), message
+        assert np.array_equal(cl_S, bf_S), message
+        assert np.allclose(cl_D, bf_D), message
+        assert np.allclose(cl_d, bf_d), message

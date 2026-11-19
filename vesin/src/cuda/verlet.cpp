@@ -124,7 +124,8 @@ void VerletCache::free_buffers(cudaStream_t stream) {
 bool VerletCache::options_changed(VesinOptions options) const {
     return this->options_.cutoff != options.cutoff ||
            this->options_.skin != options.skin ||
-           this->options_.full != options.full;
+           this->options_.full != options.full ||
+           this->options_.algorithm != options.algorithm;
 }
 
 bool VerletCache::box_size_changed(const double h_box[9]) const {
@@ -253,7 +254,7 @@ void VerletCache::rebuild_cache(
     build_options.cutoff = options.cutoff + options.skin;
     build_options.full = options.full;
     build_options.sorted = false;
-    build_options.algorithm = VesinCellList;
+    build_options.algorithm = options.algorithm;
     build_options.return_shifts = true;
     build_options.return_distances = false;
     build_options.return_vectors = false;

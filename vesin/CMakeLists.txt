@@ -7,12 +7,14 @@ endif()
 
 file(READ "VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
+# CMake only accepts numeric versions, remove any pre-release suffix (e.g. -rc)
+string(REGEX REPLACE "^([0-9]+\\.[0-9]+\\.[0-9]+).*$" "\\1" VESIN_CMAKE_VERSION ${VESIN_VERSION})
 
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-project(vesin LANGUAGES C CXX VERSION ${VESIN_VERSION})
+project(vesin LANGUAGES C CXX VERSION ${VESIN_CMAKE_VERSION})
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(VESIN_MAIN_PROJECT ON)

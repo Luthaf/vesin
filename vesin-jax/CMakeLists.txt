@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 
 file(READ "vesin/VERSION" VESIN_VERSION)
 string(STRIP ${VESIN_VERSION} VESIN_VERSION)
+# CMake only accepts numeric versions, remove any pre-release suffix (e.g. -rc)
+string(REGEX REPLACE "^([0-9]+\\.[0-9]+\\.[0-9]+).*$" "\\1" VESIN_CMAKE_VERSION ${VESIN_VERSION})
 
-project(vesin-jax LANGUAGES CXX VERSION ${VESIN_VERSION})
+project(vesin-jax LANGUAGES CXX VERSION ${VESIN_CMAKE_VERSION})
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(VESIN_MAIN_PROJECT ON)

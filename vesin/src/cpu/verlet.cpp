@@ -137,7 +137,7 @@ void VerletList::rebuild(
 
     auto periodic = std::array<bool, 3>{box.periodic(0), box.periodic(1), box.periodic(2)};
     auto candidate_box = BoundingBox(box.matrix(), periodic.data());
-    candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points);
+    candidate_box.make_bounding_for(reinterpret_cast<const double (*)[3]>(points), n_points, build_options.cutoff);
 
     cpu::neighbors(points, n_points, std::move(candidate_box), build_options, buffers_.candidates);
 

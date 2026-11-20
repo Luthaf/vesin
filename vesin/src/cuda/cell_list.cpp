@@ -334,6 +334,7 @@ void vesin::cuda::cell_list_neighbors(
             config,
             d_points,
             n_points,
+            options.cutoff,
             cl.d_bbox_partials,
             cl.d_face_distances,
             cl.d_bounding_min
@@ -349,6 +350,7 @@ void vesin::cuda::cell_list_neighbors(
                 config,
                 cl.d_bbox_partials,
                 bbox_blocks,
+                options.cutoff,
                 cl.d_face_distances,
                 cl.d_bounding_min
             );

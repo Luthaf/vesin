@@ -154,11 +154,14 @@ public:
         return distances_between_faces_;
     }
 
-    void make_bounding_for(const double (*points)[3], size_t n_points) {
-        make_bounding_for(reinterpret_cast<const Vector*>(points), n_points);
+    /// Fit the bounding box around the points along non-periodic directions.
+    /// `cutoff` is used to give a finite width to the box when all points are
+    /// in the same plane or line.
+    void make_bounding_for(const double (*points)[3], size_t n_points, double cutoff) {
+        make_bounding_for(reinterpret_cast<const Vector*>(points), n_points, cutoff);
     }
 
-    void make_bounding_for(const Vector* points, size_t n_points) {
+    void make_bounding_for(const Vector* points, size_t n_points, double cutoff) {
         // find the min and max coordinates along each axis
         for (size_t i = 0; i < n_points; i++) {
             for (size_t spatial = 0; spatial < 3; spatial++) {
@@ -180,22 +183,18 @@ public:
         }
 
         for (int32_t dim = 0; dim < 3; dim++) {
-            // if all atoms have the same coordinate in this dimension, pretend
-            // that the bounding box is at least 1 unit wide to avoid numerical issues
-            if (max_positions_[dim] - min_positions_[dim] < 1e-6) {
-                max_positions_[dim] = min_positions_[dim] + 1;
-            }
-
             if (!periodic_[dim]) {
                 // add a 1% margin to make sure all points are strictly inside the
                 // bounding box
                 distances_between_faces_[dim] = (max_positions_[dim] - min_positions_[dim]) * 1.01;
 
-                // make sure the distance is not too small (to prevent searching
-                // too many cells down the line). This can happen if all point
-                // are in the same plane in this direction
-                if (distances_between_faces_[dim] < 1.0) {
-                    distances_between_faces_[dim] = 1.0;
+                // make sure the distance is not zero, which happens if all
+                // points are in the same plane in this direction. This is
+                // relative to the cutoff to be independent of the unit of
+                // length, and small enough that this direction always gets a
+                // single cell (we use at most 6 cells per cutoff).
+                if (distances_between_faces_[dim] < 0.1 * cutoff) {
+                    distances_between_faces_[dim] = 0.1 * cutoff;
                 }
             }
         }

@@ -99,6 +99,7 @@ __device__ inline void reduce_bounding_box_block(
 __device__ inline void write_bounding_box(
     const double* corner_min,
     const double* corner_max,
+    double cutoff,
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
 ) {
@@ -109,11 +110,13 @@ __device__ inline void write_bounding_box(
         // edge are included in cells
         face_distances[dim] = (corner_max[dim] - corner_min[dim]) * 1.01;
 
-        // make sure the distance is not too small (to prevent searching too
-        // many cells down the line). This can happen if all point are in
-        // the same plane in this direction
-        if (face_distances[dim] < 1.0) {
-            face_distances[dim] = 1.0;
+        // make sure the distance is not zero, which happens if all points
+        // are in the same plane in this direction. This is relative to the
+        // cutoff to be independent of the unit of length, and small enough
+        // that this direction always gets a single cell (we use at most 6
+        // cells per cutoff).
+        if (face_distances[dim] < 0.1 * cutoff) {
+            face_distances[dim] = 0.1 * cutoff;
         }
     }
 }
@@ -125,6 +128,7 @@ __device__ inline void write_bounding_box(
 __global__ void compute_bounding_box(
     const double (*__restrict__ points)[3],
     size_t n_points,
+    double cutoff,
     double* __restrict__ partials,
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
@@ -158,7 +162,7 @@ __global__ void compute_bounding_box(
     double corner_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
 
     if (gridDim.x == 1) {
-        write_bounding_box(corner_min, corner_max, face_distances, bounding_min);
+        write_bounding_box(corner_min, corner_max, cutoff, face_distances, bounding_min);
     } else {
         auto* out = partials + blockIdx.x * 6;
         for (int32 dim = 0; dim < 3; dim++) {
@@ -174,6 +178,7 @@ __global__ void compute_bounding_box(
 __global__ void reduce_bounding_box(
     const double* __restrict__ partials,
     size_t n_partials,
+    double cutoff,
     double* __restrict__ face_distances,
     double* __restrict__ bounding_min
 ) {
@@ -196,7 +201,7 @@ __global__ void reduce_bounding_box(
     if (threadIdx.x == 0) {
         double corner_min[3] = {shared_min[0][0], shared_min[1][0], shared_min[2][0]};
         double corner_max[3] = {shared_max[0][0], shared_max[1][0], shared_max[2][0]};
-        write_bounding_box(corner_min, corner_max, face_distances, bounding_min);
+        write_bounding_box(corner_min, corner_max, cutoff, face_distances, bounding_min);
     }
 }
 

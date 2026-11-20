@@ -38,6 +38,7 @@
 __global__ void compute_bounding_box(
     const double (*points)[3],
     size_t n_points,
+    double cutoff,
     double* partials,
     double* face_distances,
     double* bounding_min
@@ -47,6 +48,7 @@ __global__ void compute_bounding_box(
 __global__ void reduce_bounding_box(
     const double* partials,
     size_t n_partials,
+    double cutoff,
     double* face_distances,
     double* bounding_min
 );

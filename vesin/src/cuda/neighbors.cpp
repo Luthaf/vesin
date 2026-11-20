@@ -292,6 +292,7 @@ static bool use_cell_list(
             static_cast<double>(n_points),
             static_cast<double>(box_checks.n_images),
             options.cutoff,
+            box_checks.points_volume,
             options.sorted,
             device_id
         );
@@ -442,7 +443,12 @@ void vesin::cuda::neighbors(
         // no skin, free any remaining verlet buffers from a previous call
         extras->verlet_cache.free_buffers(extras->stream);
 
-        auto box_checks = vesin::cuda::check_box(neighbors, d_box, d_periodic, options.cutoff);
+        // The volume taken by the points is only needed to choose the
+        // algorithm automatically, and only if the brute force can run at all.
+        auto compute_volume = options.algorithm == VesinAutoAlgorithm && n_points <= VESIN_MAX_BRUTE_FORCE_POINTS;
+        auto box_checks = vesin::cuda::check_box(
+            neighbors, d_points, n_points, d_box, d_periodic, options.cutoff, compute_volume
+        );
         if (use_cell_list(box_checks, n_points, options, device_id)) {
             vesin::cuda::cell_list_neighbors(
                 d_points,

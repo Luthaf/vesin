@@ -27,9 +27,12 @@ static const char* CUDA_BRUTEFORCE_CODE = reinterpret_cast<const char*>(CUDA_BRU
 
 BoxChecks vesin::cuda::check_box(
     VesinNeighborList& neighbors,
+    const double (*d_points)[3],
+    size_t n_points,
     const double d_box[3][3],
     const bool d_periodic[3],
-    double cutoff
+    double cutoff,
+    bool compute_volume
 ) {
     BoxChecks results;
     auto* extras = static_cast<CudaNeighborListExtras*>(neighbors.opaque);
@@ -45,23 +48,29 @@ BoxChecks vesin::cuda::check_box(
         extras->d_inv_box = ptr;
     }
 
+    if (extras->d_points_volume == nullptr) {
+        GPULITE_CUDART_CALL(cudaMallocAsync((void**)&extras->d_points_volume, sizeof(double), extras->stream));
+    }
+
     auto* box_check_kernel = VESIN_BRUTEFORCE_KERNEL(factory, analyze_box);
 
-    // `analyze_box` is a single-thread kernel, there are only 18 numbers to
-    // look at and everything downstream needs the answer before it can start
     auto config = gpulite::LaunchConfig();
     config.stream = extras->stream;
     config.gridDim = dim3(1);
-    config.blockDim = dim3(1);
+    config.blockDim = dim3(VESIN_ANALYZE_BOX_BLOCK);
 
     box_check_kernel->launch(
         config,
         d_box,
         d_periodic,
         cutoff,
+        d_points,
+        n_points,
+        compute_volume,
         extras->d_all_periodic,
         extras->d_n_search,
-        extras->d_inv_box
+        extras->d_inv_box,
+        extras->d_points_volume
     );
 
     auto* pinned = extras->pinned;
@@ -73,6 +82,12 @@ BoxChecks vesin::cuda::check_box(
         pinned->n_search, extras->d_n_search,
         sizeof(int32_t) * 3, cudaMemcpyDeviceToHost, extras->stream
     ));
+    if (compute_volume) {
+        GPULITE_CUDART_CALL(cudaMemcpyAsync(
+            &pinned->points_volume, extras->d_points_volume,
+            sizeof(double), cudaMemcpyDeviceToHost, extras->stream
+        ));
+    }
     GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     results.all_periodic = pinned->all_periodic;
@@ -81,6 +96,10 @@ BoxChecks vesin::cuda::check_box(
     results.n_images = 1;
     for (size_t dim = 0; dim < 3; dim++) {
         results.n_images *= 2 * static_cast<size_t>(n_search[dim]) + 1;
+    }
+
+    if (compute_volume) {
+        results.points_volume = pinned->points_volume;
     }
 
     return results;

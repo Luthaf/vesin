@@ -31,7 +31,10 @@ using namespace vesin::cuda;
 // fact, so for sorted NL the crossover is smaller.
 namespace {
 struct Crossovers {
-    // Points per unit of cutoff, for unsorted output.
+    // Points per unit of reduced cutoff. The reduced cutoff is the cutoff
+    // divided by the typical distance between points, `(volume /
+    // n_points)^(1/3)`, which makes it independent of the unit of length used
+    // for the points and cutoff.
     double per_cutoff;
     // Points, with no cutoff term, for sorted output.
     double sorted;
@@ -42,7 +45,7 @@ struct Crossovers {
 //
 // The benchmarks put every crossing within a factor of a few of these, for
 // cutoffs from 2.5 to 12.
-static constexpr Crossovers DEFAULT_CROSSOVERS = {500.0, 2500.0};
+static constexpr Crossovers DEFAULT_CROSSOVERS = {1000.0, 2500.0};
 
 // Hard lower and upper bounds on the crossover, to avoid picking a cell list
 // for a few hundred points or a brute force for tens of thousands.
@@ -252,7 +255,7 @@ static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
         return std::nullopt;
     }
 
-    return Crossovers{plain / CUTOFF, sorted};
+    return Crossovers{plain / (CUTOFF / SPACING), sorted};
 }
 
 // Where the two algorithms cost the same on one device, measured the first time
@@ -286,6 +289,7 @@ bool vesin::cuda::auto_use_cell_list(
     double n_points,
     double n_images,
     double cutoff,
+    double points_volume,
     bool sorted,
     int32_t device_id
 ) {
@@ -296,7 +300,10 @@ bool vesin::cuda::auto_use_cell_list(
     }
 
     auto measured = crossovers(device_id).value_or(DEFAULT_CROSSOVERS);
-    auto crossover = sorted ? measured.sorted : measured.per_cutoff * cutoff;
+    auto spacing = std::cbrt(points_volume / n_points);
+    auto crossover = sorted ? measured.sorted : measured.per_cutoff * cutoff / spacing;
 
-    return n_points >= std::min(std::max(crossover, MIN_CROSSOVER_POINTS), MAX_CROSSOVER_POINTS);
+    // `fmin`/`fmax` ignore NaN, so a degenerate volume ends up on the lower
+    // bound, and picks the cell list, which can handle any system.
+    return n_points >= std::fmin(std::fmax(crossover, MIN_CROSSOVER_POINTS), MAX_CROSSOVER_POINTS);
 }

@@ -19,6 +19,7 @@ CudaNeighborListExtras::~CudaNeighborListExtras() {
         GPULITE_CUDART_CALL(cudaFree(this->d_all_periodic));
         GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
         GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
+        GPULITE_CUDART_CALL(cudaFree(this->d_points_volume));
         GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
         GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
         GPULITE_CUDART_CALL(cudaFree(this->d_padding_max_neighbors));
@@ -49,6 +50,7 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
             GPULITE_CUDART_CALL(cudaFree(this->d_all_periodic));
             GPULITE_CUDART_CALL(cudaFree(this->d_n_search));
             GPULITE_CUDART_CALL(cudaFree(this->d_inv_box));
+            GPULITE_CUDART_CALL(cudaFree(this->d_points_volume));
             GPULITE_CUDART_CALL(cudaFree(this->d_overflow_flag));
             GPULITE_CUDART_CALL(cudaFree(this->d_padding_overflow));
             GPULITE_CUDART_CALL(cudaFree(this->d_padding_max_neighbors));
@@ -80,6 +82,9 @@ CudaNeighborListExtras& CudaNeighborListExtras::operator=(CudaNeighborListExtras
 
         this->d_inv_box = other.d_inv_box;
         other.d_inv_box = nullptr;
+
+        this->d_points_volume = other.d_points_volume;
+        other.d_points_volume = nullptr;
 
         this->d_overflow_flag = other.d_overflow_flag;
         other.d_overflow_flag = nullptr;

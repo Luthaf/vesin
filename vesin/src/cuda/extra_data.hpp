@@ -23,6 +23,7 @@ struct PinnedReadback {
     bool all_periodic;
     size_t length;
     int32_t n_search[3];
+    double points_volume;
     int32_t last_offset;
     int32_t last_count;
     int32_t overflow;
@@ -75,6 +76,7 @@ struct CudaNeighborListExtras {
     /// Box parameters computed by `analyze_box`
     int32_t* d_n_search = nullptr;     // [3] periodic images to walk per direction
     double (*d_inv_box)[3] = nullptr;  // [3][3] inverse box matrix
+    double* d_points_volume = nullptr; // volume taken by the points
 
     /// Temporary buffers for on-device sorting
     SortBuffers sort_buffers;

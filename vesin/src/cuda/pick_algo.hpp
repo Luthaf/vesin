@@ -14,10 +14,15 @@ namespace vesin::cuda {
 /// Where exactly the two cross is measured on `device_id` the first time that
 /// device is asked about, by timing both algorithms on a pair of synthetic
 /// lattices, and kept for the rest of the process.
+///
+/// `points_volume` is the volume taken by the points (see `check_box`), used
+/// to compare the cutoff with the typical distance between points. This makes
+/// the choice independent of the unit of length.
 bool auto_use_cell_list(
     double n_points,
     double n_images,
     double cutoff,
+    double points_volume,
     bool sorted,
     int32_t device_id
 );

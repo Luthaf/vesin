@@ -388,27 +388,21 @@ __device__ void regularize_box(double3 rows[3], const bool periodic[3]) {
     }
 }
 
-// All the work is done by a single thread: there are only 18 numbers to look at,
-// and everything downstream needs the answer before it can start.
-__global__ void analyze_box(
+// Single-thread part of `analyze_box`, filling `rows` with the regularized box.
+__device__ void analyze_box_single_thread(
     const double (*__restrict__ box)[3],
     const bool* __restrict__ periodic,
     double cutoff,
+    double3 rows[3],
     bool* all_periodic,
     int32* n_search,
     double inv_box_out[3][3]
 ) {
-    if (threadIdx.x != 0 || blockIdx.x != 0) {
-        return;
-    }
-
     *all_periodic = periodic[0] && periodic[1] && periodic[2];
 
-    double3 rows[3] = {
-        make_double3(box[0][0], box[0][1], box[0][2]),
-        make_double3(box[1][0], box[1][1], box[1][2]),
-        make_double3(box[2][0], box[2][1], box[2][2]),
-    };
+    rows[0] = make_double3(box[0][0], box[0][1], box[0][2]);
+    rows[1] = make_double3(box[1][0], box[1][1], box[1][2]);
+    rows[2] = make_double3(box[2][0], box[2][1], box[2][2]);
     regularize_box(rows, periodic);
     invert_matrix(rows, reinterpret_cast<double3*>(inv_box_out));
 
@@ -448,5 +442,88 @@ __global__ void analyze_box(
         // comment on the constant.
         double shifts = ceil(cutoff / face_distances[d] + 0.5) - 1.0;
         n_search[d] = static_cast<int32>(min(max(shifts, 0.0), double(VESIN_MAX_N_SEARCH)));
+    }
+}
+
+// The box is analyzed by a single thread: there are only 18 numbers to look at,
+// and everything downstream needs the answer before it can start. The rest of
+// the block then measures the volume taken by the points, see `points_volume`
+// in bruteforce.cuh.
+__global__ void analyze_box(
+    const double (*__restrict__ box)[3],
+    const bool* __restrict__ periodic,
+    double cutoff,
+    const double (*__restrict__ points)[3],
+    size_t n_points,
+    bool compute_volume,
+    bool* all_periodic,
+    int32* n_search,
+    double inv_box_out[3][3],
+    double* points_volume
+) {
+    // Shared with the whole block for the volume measurement below.
+    __shared__ double3 rows[3];
+    __shared__ double shared_min[3][VESIN_ANALYZE_BOX_BLOCK];
+    __shared__ double shared_max[3][VESIN_ANALYZE_BOX_BLOCK];
+
+    if (blockIdx.x != 0) {
+        return;
+    }
+
+    if (threadIdx.x == 0) {
+        analyze_box_single_thread(box, periodic, cutoff, rows, all_periodic, n_search, inv_box_out);
+    }
+
+    if (!compute_volume) {
+        return;
+    }
+    __syncthreads();
+
+    // Extent of the points along the non-periodic directions. After
+    // `regularize_box`, the rows for these directions are unit vectors normal
+    // to every other row, so this is measured along them.
+    double local_min[3] = {1e300, 1e300, 1e300};
+    double local_max[3] = {-1e300, -1e300, -1e300};
+    const auto* pos3 = reinterpret_cast<const double3*>(points);
+    for (size_t idx = threadIdx.x; idx < n_points; idx += blockDim.x) {
+        double3 point = pos3[idx];
+        for (int32 d = 0; d < 3; d++) {
+            if (!periodic[d]) {
+                double projection = dot(point, rows[d]);
+                local_min[d] = min(local_min[d], projection);
+                local_max[d] = max(local_max[d], projection);
+            }
+        }
+    }
+
+    auto tid = static_cast<int32>(threadIdx.x);
+    for (int32 d = 0; d < 3; d++) {
+        shared_min[d][tid] = local_min[d];
+        shared_max[d][tid] = local_max[d];
+    }
+    __syncthreads();
+
+    for (int32 stride = static_cast<int32>(blockDim.x) / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            for (int32 d = 0; d < 3; d++) {
+                shared_min[d][tid] = min(shared_min[d][tid], shared_min[d][tid + stride]);
+                shared_max[d][tid] = max(shared_max[d][tid], shared_max[d][tid + stride]);
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        // The rows along non-periodic directions have unit length and are
+        // normal to all the others, so scaling them by the extent of the points
+        // scales the volume by the same factor. The extent is kept to at least
+        // one cutoff, so a flat or linear system still gets a finite density.
+        double volume = abs(dot(rows[0], cross(rows[1], rows[2])));
+        for (int32 d = 0; d < 3; d++) {
+            if (!periodic[d]) {
+                volume *= max(shared_max[d][0] - shared_min[d][0], cutoff);
+            }
+        }
+        *points_volume = volume;
     }
 }

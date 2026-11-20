@@ -59,13 +59,28 @@ __global__ void brute_force_full(
     int32* pairs_per_point
 );
 
+// Block size of `analyze_box`, which must be launched with a single block. This
+// must be a power of two for the reduction, and is used to size shared memory.
+#define VESIN_ANALYZE_BOX_BLOCK 256
+
+// Compute `all_periodic`, the number of periodic images to search (`n_search`)
+// and the (regularized) inverse box.
+//
+// When `compute_volume` is true, this also writes in `points_volume` the volume
+// taken by the points: the periodic part of the box, times the extent of the
+// points (at least `cutoff`) along each non-periodic direction. This is used to
+// estimate the typical distance between points.
 __global__ void analyze_box(
     const double box[3][3],
     const bool periodic[3],
     double cutoff,
+    const double (*points)[3],
+    size_t n_points,
+    bool compute_volume,
     bool* all_periodic,
     int32 n_search[3],
-    double inv_box_out[3][3]
+    double inv_box_out[3][3],
+    double* points_volume
 );
 
 #endif // VESIN_CUDA_BRUTEFORCE_CUH

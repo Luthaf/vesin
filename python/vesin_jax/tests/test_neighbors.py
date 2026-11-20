@@ -5,6 +5,14 @@ import pytest
 from vesin_jax import NeighborList
 
 
+DEVICES = jax.devices("cpu")
+try:
+    DEVICES += jax.devices("cuda")
+except RuntimeError:
+    # no cuda available
+    pass
+
+
 @pytest.fixture(autouse=True, params=[True, False], ids=["x64", "x32"])
 def x64(request):
     """Run all tests both with and without 64-bit arrays in JAX"""
@@ -115,7 +123,11 @@ def test_dtype(dtype, x64):
     assert d.dtype == dtype
 
 
-def test_neighbors(points, box):
+@pytest.mark.parametrize("device", DEVICES, ids=str)
+def test_neighbors(points, box, device):
+    points = jax.device_put(points, device)
+    box = jax.device_put(box, device)
+
     calculator = NeighborList(cutoff=2.1, full_list=True)
     i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
 
@@ -134,7 +146,11 @@ def test_neighbors(points, box):
     assert np.allclose(d, np.linalg.norm(np.asarray(D), axis=1))
 
 
-def test_pad_neighbors(points, box):
+@pytest.mark.parametrize("device", DEVICES, ids=str)
+def test_pad_neighbors(points, box, device):
+    points = jax.device_put(points, device)
+    box = jax.device_put(box, device)
+
     calculator = NeighborList(cutoff=2.1, full_list=True, padded_to=3)
     i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
 
@@ -162,43 +178,62 @@ def test_pad_neighbors(points, box):
     assert np.allclose(np.asarray(d)[keep], np.asarray(ref_d))
 
 
+@pytest.mark.parametrize("device", DEVICES, ids=str)
 @pytest.mark.parametrize("full_list", [True, False])
-def test_fixed_n_pairs(points, box, full_list):
+def test_fixed_n_pairs(points, box, device, full_list):
+    points = jax.device_put(points, device)
+    box = jax.device_put(box, device)
+
     calculator = NeighborList(cutoff=2.1, full_list=full_list, fixed_n_pairs=20)
-    i, j, S, D, d = calculator.compute(points, box, True, "ijSDd")
+    outputs = calculator.compute(points, box, True, "ijSDd")
+    for array in outputs:
+        assert array.devices() == {device}
+    i, j, S, D, d = (np.asarray(array) for array in outputs)
 
     assert len(i) == 20
     assert len(j) == 20
 
     # the actual pairs come first, followed by padding
     n_pairs = 8 if full_list else 4
-    padding = np.asarray(j) == -1
+    padding = j == -1
     assert not np.any(padding[:n_pairs])
     assert np.all(padding[n_pairs:])
 
-    assert np.all(np.asarray(i)[padding] == -1)
-    assert np.all(np.asarray(S)[padding] == 0)
-    assert np.all(np.asarray(D)[padding] == 0)
-    assert np.all(np.asarray(d)[padding] == 0)
+    assert np.all(i[padding] == -1)
+    assert np.all(S[padding] == 0)
+    assert np.all(D[padding] == 0)
+    assert np.all(d[padding] == 0)
 
     # actual pairs should match the calculation without padding
     reference = NeighborList(cutoff=2.1, full_list=full_list)
-    ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(points, box, True, "ijSDd")
+    ref_i, ref_j, ref_S, ref_D, ref_d = (
+        np.asarray(array) for array in reference.compute(points, box, True, "ijSDd")
+    )
 
-    assert np.all(np.asarray(i)[:n_pairs] == np.asarray(ref_i))
-    assert np.all(np.asarray(j)[:n_pairs] == np.asarray(ref_j))
-    assert np.all(np.asarray(S)[:n_pairs] == np.asarray(ref_S))
-    assert np.allclose(np.asarray(D)[:n_pairs], np.asarray(ref_D))
-    assert np.allclose(np.asarray(d)[:n_pairs], np.asarray(ref_d))
+    # the order of pairs is not deterministic on CUDA. There are no periodic
+    # images in this box, so `(i, j)` uniquely identifies a pair.
+    order = np.argsort(i[:n_pairs] * len(points) + j[:n_pairs])
+    ref_order = np.argsort(ref_i * len(points) + ref_j)
+
+    assert np.all(i[:n_pairs][order] == ref_i[ref_order])
+    assert np.all(j[:n_pairs][order] == ref_j[ref_order])
+    assert np.all(S[:n_pairs][order] == ref_S[ref_order])
+    assert np.allclose(D[:n_pairs][order], ref_D[ref_order])
+    assert np.allclose(d[:n_pairs][order], ref_d[ref_order])
 
     # exactly enough room for all pairs
     calculator = NeighborList(cutoff=2.1, full_list=full_list, fixed_n_pairs=n_pairs)
-    i, j = calculator.compute(points, box, True, "ij")
-    assert np.all(np.asarray(i) == np.asarray(ref_i))
-    assert np.all(np.asarray(j) == np.asarray(ref_j))
+    i, j = (np.asarray(array) for array in calculator.compute(points, box, True, "ij"))
+    order = np.argsort(i * len(points) + j)
+    assert np.all(i[order] == ref_i[ref_order])
+    assert np.all(j[order] == ref_j[ref_order])
 
 
-def test_n_pairs(points, box, x64):
+@pytest.mark.parametrize("device", DEVICES, ids=str)
+def test_n_pairs(points, box, x64, device):
+    points = jax.device_put(points, device)
+    box = jax.device_put(box, device)
+
     # each point has 2 neighbors, for 8 pairs in total
     def check_n_pairs(n, expected):
         assert isinstance(n, jax.Array)
@@ -243,7 +278,11 @@ def test_n_pairs(points, box, x64):
         calculator.compute(points, box, True, "P")
 
 
-def test_half_list(points, box):
+@pytest.mark.parametrize("device", DEVICES, ids=str)
+def test_half_list(points, box, device):
+    points = jax.device_put(points, device)
+    box = jax.device_put(box, device)
+
     calculator = NeighborList(cutoff=2.1, full_list=True)
     i, j = calculator.compute(points, box, True, "ij")
 

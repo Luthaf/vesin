@@ -297,19 +297,25 @@ def test_fixed_n_pairs(device, full_list):
     reference = NeighborList(cutoff=2.1, full_list=full_list, sorted=True)
     ref_i, ref_j, ref_S, ref_D, ref_d = reference.compute(points, box, True, "ijSDd")
 
-    assert torch.equal(i[:n_pairs], ref_i)
-    assert torch.equal(j[:n_pairs], ref_j)
-    assert torch.equal(S[:n_pairs], ref_S)
-    assert torch.equal(D[:n_pairs], ref_D)
-    assert torch.equal(d[:n_pairs], ref_d)
+    # the order of pairs is not deterministic on CUDA. There are no periodic
+    # images in this box, so `(i, j)` uniquely identifies a pair.
+    order = torch.argsort(i[:n_pairs] * len(points) + j[:n_pairs])
+    ref_order = torch.argsort(ref_i * len(points) + ref_j)
+
+    assert torch.equal(i[:n_pairs][order], ref_i[ref_order])
+    assert torch.equal(j[:n_pairs][order], ref_j[ref_order])
+    assert torch.equal(S[:n_pairs][order], ref_S[ref_order])
+    assert torch.equal(D[:n_pairs][order], ref_D[ref_order])
+    assert torch.equal(d[:n_pairs][order], ref_d[ref_order])
 
     # exactly enough room for all pairs
     calculator = NeighborList(
         cutoff=2.1, full_list=full_list, sorted=True, fixed_n_pairs=n_pairs
     )
     i, j = calculator.compute(points, box, True, "ij")
-    assert torch.equal(i, ref_i)
-    assert torch.equal(j, ref_j)
+    order = torch.argsort(i * len(points) + j)
+    assert torch.equal(i[order], ref_i[ref_order])
+    assert torch.equal(j[order], ref_j[ref_order])
 
 
 @pytest.mark.parametrize("device", DEVICES)

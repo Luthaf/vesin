@@ -293,7 +293,6 @@ static bool use_cell_list(
             static_cast<double>(box_checks.n_images),
             options.cutoff,
             box_checks.points_volume,
-            options.sorted,
             device_id
         );
     }

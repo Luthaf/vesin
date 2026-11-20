@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -22,34 +21,25 @@
 // `VesinAutoAlgorithm` should run. The cell list wins above a certain number of
 // points and the brute force below it, and where exactly that happens is
 // measured on the device in use the first time it is asked.
+//
+// Where the cell list starts to beat the brute force on one device is stored as
+// a number of points per unit of reduced cutoff: the crossover is assumed to
+// grow linearly with the reduced cutoff, i.e. the cutoff divided by the typical
+// distance between points `(volume / n_points)^(1/3)`. This makes it
+// independent of the unit of length used for the points and cutoff.
+//
+// `scripts/algorithms-crossover.py` measures this to update the default, and
+// must be updated if this model changes.
 
 using namespace vesin::cuda;
 
-// Where the cell list starts to beat the brute force on one device.
-//
-// The cell list is already sorted, while brute force has to sort after the
-// fact, so for sorted NL the crossover is smaller.
-namespace {
-struct Crossovers {
-    // Points per unit of reduced cutoff. The reduced cutoff is the cutoff
-    // divided by the typical distance between points, `(volume /
-    // n_points)^(1/3)`, which makes it independent of the unit of length used
-    // for the points and cutoff.
-    double per_cutoff;
-    // Points, with no cutoff term, for sorted output.
-    double sorted;
-};
-} // namespace
-
-// What to use when the device could not be measured.
-//
-// The benchmarks put every crossing within a factor of a few of these, for
-// cutoffs from 2.5 to 12.
-static constexpr Crossovers DEFAULT_CROSSOVERS = {1000.0, 2500.0};
+// What to use when the device could not be measured. Use
+// `scripts/algorithms-crossover.py` to re-measure it.
+static constexpr double FALLBACK_CROSSOVER = 500.0;
 
 // Hard lower and upper bounds on the crossover, to avoid picking a cell list
-// for a few hundred points or a brute force for tens of thousands.
-static constexpr double MIN_CROSSOVER_POINTS = 500.0;
+// for a couple hundred points or a brute force for tens of thousands.
+static constexpr double MIN_CROSSOVER_POINTS = 200.0;
 static constexpr double MAX_CROSSOVER_POINTS = 50000.0;
 
 // A simple cubic lattice filling `counts[dim] * spacing` in each direction,
@@ -119,7 +109,6 @@ static double time_neighbors(
     const double box[3][3],
     VesinAlgorithm algorithm,
     double cutoff,
-    bool sorted,
     int32_t n_iters
 ) {
     constexpr int32_t N_WARMUP = 1;
@@ -158,7 +147,7 @@ static double time_neighbors(
         auto options = VesinOptions();
         options.cutoff = cutoff;
         options.full = false;
-        options.sorted = sorted;
+        options.sorted = false;
         options.algorithm = algorithm;
         options.return_shifts = false;
         options.return_distances = false;
@@ -188,82 +177,77 @@ static double time_neighbors(
 
 // Measure where the two algorithms cost the same on one device.
 //
-// `log(cell list / brute force)` falls through zero with a slope close to -1,
-// brute force growing as `n^2` where the cell list grows as `n`, so two sizes
-// on both sides of the crossing are measured and the crossing is interpolated.
-static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
+// Both algorithms are timed on lattices of increasing size, until the cell list
+// becomes faster than the brute force. The crossing is then interpolated in
+// log-log space between the last two sizes. Interpolating over a wider range of
+// sizes is not accurate, since `log(cell list / brute force)` is far from linear
+// in `log(n_points)`: on large GPUs, both algorithms take a constant time for
+// small systems, before the brute force starts growing as `n_points^2`.
+static std::optional<double> measure_crossover(int32_t device_id) {
     constexpr double CUTOFF = 5.0;
     constexpr double SPACING = 2.0;
-    constexpr double QUIET_NAN = std::numeric_limits<double>::quiet_NaN();
 
-    struct LogRatios {
-        double plain;
-        double sorted;
-    };
+    // Number of points along each side of the lattices, from 216 to 32768
+    // points. The crossover is usually between 500 and 5000 points for this
+    // cutoff, and we stop as soon as the cell list is faster.
+    static constexpr int32_t SIDES[] = {6, 8, 10, 12, 14, 16, 20, 24, 28, 32};
 
-    auto log_ratios = [&](int32_t side, int32_t n_iters) {
+    // Stop the sweep once a single brute force run takes more than this (in
+    // microseconds), to bound the time spent here when the brute force stays
+    // faster for a long time (e.g. on a slow GPU).
+    constexpr double MAX_BRUTE_FORCE_TIME = 5000.0;
+
+    auto previous_log_n = 0.0;
+    auto previous_log_ratio = 0.0;
+    for (auto side : SIDES) {
+        auto log_n = 3.0 * std::log(static_cast<double>(side));
+
         int32_t counts[3] = {side, side, side};
         double box[3][3] = {};
         auto points = calibration_lattice(counts, box, SPACING);
 
-        auto brute = time_neighbors(
-            device_id, points, box, VesinBruteForce, CUTOFF, /*sorted=*/false, n_iters
-        );
-        auto brute_sorted = time_neighbors(
-            device_id, points, box, VesinBruteForce, CUTOFF, /*sorted=*/true, n_iters
-        );
-        // `neighbors` only sorts what the brute force and Verlet paths write,
-        // the cell list already filling its pairs in order, so a single timing
-        // covers the cell list both ways.
-        auto cell = time_neighbors(
-            device_id, points, box, VesinCellList, CUTOFF, /*sorted=*/false, n_iters
-        );
-
-        if (!(brute > 0.0) || !(brute_sorted > 0.0) || !(cell > 0.0)) {
-            return LogRatios{QUIET_NAN, QUIET_NAN};
+        // the brute force gets expensive for the largest systems
+        auto n_iters = side <= 20 ? 9 : 3;
+        auto brute = time_neighbors(device_id, points, box, VesinBruteForce, CUTOFF, n_iters);
+        auto cell = time_neighbors(device_id, points, box, VesinCellList, CUTOFF, n_iters);
+        if (!(brute > 0.0) || !(cell > 0.0)) {
+            return std::nullopt;
         }
 
-        return LogRatios{std::log(cell / brute), std::log(cell / brute_sorted)};
-    };
+        auto log_ratio = std::log(cell / brute);
+        if (log_ratio < 0.0) {
+            if (side == SIDES[0]) {
+                // the cell list is already faster for the smallest system, use
+                // its size as the crossover
+                return std::exp(log_n) / (CUTOFF / SPACING);
+            }
 
-    static constexpr int32_t SMALL_SIDE = 12;  // 1728 points
-    static constexpr int32_t LARGE_SIDE = 20;  // 8000 points
-
-    auto small = log_ratios(SMALL_SIDE, /*n_iters=*/9);
-    auto large = log_ratios(LARGE_SIDE, /*n_iters=*/3);
-
-    auto log_small = std::log(std::pow(static_cast<double>(SMALL_SIDE), 3.0));
-    auto log_large = std::log(std::pow(static_cast<double>(LARGE_SIDE), 3.0));
-
-    // The cell list should start out behind and end up ahead. If this is not
-    // the case, we fallback to the default crossover values.
-    auto interpolate = [&](double at_small, double at_large) {
-        if (std::isnan(at_small) || std::isnan(at_large)) {
-            return QUIET_NAN;
+            auto fraction = previous_log_ratio / (previous_log_ratio - log_ratio);
+            auto crossover = std::exp(previous_log_n + fraction * (log_n - previous_log_n));
+            return crossover / (CUTOFF / SPACING);
         }
-        if (at_small <= 0.0 || at_large >= 0.0) {
-            return QUIET_NAN;
-        }
-        return std::exp(
-            log_small + (log_large - log_small) * at_small / (at_small - at_large)
-        );
-    };
 
-    auto plain = interpolate(small.plain, large.plain);
-    auto sorted = interpolate(small.sorted, large.sorted);
-    if (std::isnan(plain) || std::isnan(sorted)) {
-        return std::nullopt;
+        if (brute > MAX_BRUTE_FORCE_TIME) {
+            // the brute force is still faster, but already slow enough that
+            // the cell list is a good choice above this size
+            return std::exp(log_n) / (CUTOFF / SPACING);
+        }
+
+        previous_log_n = log_n;
+        previous_log_ratio = log_ratio;
     }
 
-    return Crossovers{plain / (CUTOFF / SPACING), sorted};
+    // the brute force is still faster for the largest system, use its size as
+    // the crossover
+    return std::exp(previous_log_n) / (CUTOFF / SPACING);
 }
 
 // Where the two algorithms cost the same on one device, measured the first time
 // that device picks an algorithm and kept for the rest of the process. Empty if
 // they could not be measured at all.
-static const std::optional<Crossovers>& crossovers(int32_t device_id) {
+static const std::optional<double>& crossover(int32_t device_id) {
     static std::mutex mutex;
-    static std::map<int32_t, std::optional<Crossovers>> measured;
+    static std::map<int32_t, std::optional<double>> measured;
 
     auto guard = std::lock_guard<std::mutex>(mutex);
     auto it = measured.find(device_id);
@@ -271,9 +255,9 @@ static const std::optional<Crossovers>& crossovers(int32_t device_id) {
         return it->second;
     }
 
-    std::optional<Crossovers> measurement = std::nullopt;
+    std::optional<double> measurement = std::nullopt;
     try {
-        measurement = measure_crossovers(device_id);
+        measurement = measure_crossover(device_id);
     } catch (const std::exception& e) {
         std::fprintf(stderr,
             "vesin: failed to measure crossover on device %d: %s\n", device_id, e.what()
@@ -290,7 +274,6 @@ bool vesin::cuda::auto_use_cell_list(
     double n_images,
     double cutoff,
     double points_volume,
-    bool sorted,
     int32_t device_id
 ) {
     // Past the brute force kernels' own limits the cell list is the only one
@@ -299,11 +282,10 @@ bool vesin::cuda::auto_use_cell_list(
         return true;
     }
 
-    auto measured = crossovers(device_id).value_or(DEFAULT_CROSSOVERS);
     auto spacing = std::cbrt(points_volume / n_points);
-    auto crossover = sorted ? measured.sorted : measured.per_cutoff * cutoff / spacing;
+    auto n_crossover = crossover(device_id).value_or(FALLBACK_CROSSOVER) * cutoff / spacing;
 
     // `fmin`/`fmax` ignore NaN, so a degenerate volume ends up on the lower
     // bound, and picks the cell list, which can handle any system.
-    return n_points >= std::fmin(std::fmax(crossover, MIN_CROSSOVER_POINTS), MAX_CROSSOVER_POINTS);
+    return n_points >= std::fmin(std::fmax(n_crossover, MIN_CROSSOVER_POINTS), MAX_CROSSOVER_POINTS);
 }

@@ -23,7 +23,6 @@ bool auto_use_cell_list(
     double n_images,
     double cutoff,
     double points_volume,
-    bool sorted,
     int32_t device_id
 );
 

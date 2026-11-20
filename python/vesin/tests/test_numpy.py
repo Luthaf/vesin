@@ -221,6 +221,33 @@ def test_sorting():
     assert np.all(sorted_i == np.sort(sorted_i))
 
 
+@pytest.mark.parametrize("periodic", [True, False])
+def test_unit_independent(periodic):
+    # the same system expressed with a very small unit of length should give
+    # the same neighbors
+    atoms = ase.io.read(f"{CURRENT_DIR}/data/Cd2I4O12.xyz")
+    cutoff = 5.0
+    scale = 1e-9
+
+    calculator = NeighborList(cutoff=cutoff, full_list=True, sorted=True)
+    i, j, S, d = calculator.compute(
+        points=atoms.positions, box=atoms.cell[:], periodic=periodic, quantities="ijSd"
+    )
+
+    calculator = NeighborList(cutoff=cutoff * scale, full_list=True, sorted=True)
+    i_scaled, j_scaled, S_scaled, d_scaled = calculator.compute(
+        points=atoms.positions * scale,
+        box=atoms.cell[:] * scale,
+        periodic=periodic,
+        quantities="ijSd",
+    )
+
+    assert np.array_equal(i, i_scaled)
+    assert np.array_equal(j, j_scaled)
+    assert np.array_equal(S, S_scaled)
+    assert np.allclose(d * scale, d_scaled)
+
+
 def test_errors():
     points = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
     box = np.zeros((3, 3))
@@ -232,11 +259,6 @@ def test_errors():
         nl.compute(points, box, periodic=True, quantities="ij")
 
     box = np.eye(3, 3)
-    message = "cutoff is too small"
-    with pytest.raises(RuntimeError, match=message):
-        nl = NeighborList(cutoff=1e-12, full_list=True)
-        nl.compute(points, box, periodic=True, quantities="ij")
-
     message = "cutoff must be a finite, positive number"
     with pytest.raises(RuntimeError, match=message):
         nl = NeighborList(cutoff=0.0, full_list=True)

@@ -37,11 +37,11 @@ TEST_CASE("Verlet filter keeps allocation capacity for smaller output") {
     size_t output_capacity = 0;
 
     auto lot_of_pairs_box = vesin::cpu::BoundingBox(box_matrix, periodic);
-    lot_of_pairs_box.make_bounding_for(lot_of_pairs_points, 4);
+    lot_of_pairs_box.make_bounding_for(lot_of_pairs_points, 4, options.cutoff);
     verlet.rebuild(lot_of_pairs_points, 4, lot_of_pairs_box);
 
     auto few_pairs_box = vesin::cpu::BoundingBox(box_matrix, periodic);
-    few_pairs_box.make_bounding_for(few_pairs_points, 4);
+    few_pairs_box.make_bounding_for(few_pairs_points, 4, options.cutoff);
     REQUIRE_FALSE(verlet.needs_rebuild(few_pairs_points, 4, few_pairs_box));
 
     auto neighbors = VesinNeighborList();
@@ -90,7 +90,7 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
         {0.95, 0.11, 0.31},
     };
     auto ref_box = vesin::cpu::BoundingBox(box_matrix, periodic);
-    ref_box.make_bounding_for(initial_points, 2);
+    ref_box.make_bounding_for(initial_points, 2, options.cutoff);
 
     auto verlet_buffers = vesin::cpu::VerletBuffersCPU();
     auto state = vesin::cpu::VerletList(verlet_buffers);
@@ -104,7 +104,7 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
         {1.02, 0.11, 0.31},
     };
     auto small_displacement_box = vesin::cpu::BoundingBox(box_matrix, periodic);
-    small_displacement_box.make_bounding_for(small_displacement_points, 2);
+    small_displacement_box.make_bounding_for(small_displacement_points, 2, options.cutoff);
 
     REQUIRE_FALSE(state.needs_rebuild(small_displacement_points, 2, small_displacement_box));
 
@@ -114,6 +114,6 @@ TEST_CASE("Periodic systems use minimum-image distance for rebuild") {
         {1.11, 0.11, 0.31},
     };
     auto large_displacement_box = vesin::cpu::BoundingBox(box_matrix, periodic);
-    large_displacement_box.make_bounding_for(large_displacement_points, 2);
+    large_displacement_box.make_bounding_for(large_displacement_points, 2, options.cutoff);
     REQUIRE(state.needs_rebuild(large_displacement_points, 2, large_displacement_box));
 }

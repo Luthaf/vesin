@@ -81,11 +81,6 @@ extern "C" int32_t vesin_neighbors(
         return VESIN_FAILURE;
     }
 
-    if (options.cutoff <= 1e-6) {
-        *error_message = "cutoff is too small";
-        return VESIN_FAILURE;
-    }
-
     if (!std::isfinite(options.skin)) {
         *error_message = "skin must be a finite number";
         return VESIN_FAILURE;
@@ -146,7 +141,7 @@ extern "C" int32_t vesin_neighbors(
             }}};
 
             auto box = vesin::cpu::BoundingBox(matrix, periodic);
-            box.make_bounding_for(points, n_points);
+            box.make_bounding_for(points, n_points, options.cutoff);
 
             vesin::cpu::neighbors(
                 reinterpret_cast<const vesin::cpu::Vector*>(points),

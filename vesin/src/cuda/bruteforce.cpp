@@ -73,9 +73,22 @@ BoxChecks vesin::cuda::check_box(
         pinned->n_search, extras->d_n_search,
         sizeof(int32_t) * 3, cudaMemcpyDeviceToHost, extras->stream
     ));
+    // 72 bytes on a copy this function already has to wait for, so that the
+    // host can tell how dense the system is. `pick_algo` needs the volume.
+    GPULITE_CUDART_CALL(cudaMemcpyAsync(
+        pinned->box_for_volume, d_box, sizeof(double) * 9,
+        cudaMemcpyDeviceToHost, extras->stream
+    ));
     GPULITE_CUDART_CALL(cudaStreamSynchronize(extras->stream));
 
     results.all_periodic = pinned->all_periodic;
+
+    const double* box = pinned->box_for_volume;
+    results.volume = std::abs(
+        box[0] * (box[4] * box[8] - box[5] * box[7])
+        - box[1] * (box[3] * box[8] - box[5] * box[6])
+        + box[2] * (box[3] * box[7] - box[4] * box[6])
+    );
 
     const int32_t* n_search = pinned->n_search;
     results.n_images = 1;

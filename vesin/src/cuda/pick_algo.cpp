@@ -49,6 +49,12 @@ static constexpr Crossovers DEFAULT_CROSSOVERS = {500.0, 2500.0};
 static constexpr double MIN_CROSSOVER_POINTS = 500.0;
 static constexpr double MAX_CROSSOVER_POINTS = 50000.0;
 
+// The lattice `measure_crossovers` times the two algorithms on: a simple cubic
+// lattice of this spacing, searched with this cutoff. `auto_use_cell_list`
+// needs them too, to know what density the measurement it is handed describes.
+static constexpr double CALIBRATION_CUTOFF = 5.0;
+static constexpr double CALIBRATION_SPACING = 2.0;
+
 // A simple cubic lattice filling `counts[dim] * spacing` in each direction,
 // together with the box holding it.
 static std::vector<double> calibration_lattice(const int32_t counts[3], double box[3][3], double spacing) {
@@ -189,8 +195,8 @@ static double time_neighbors(
 // brute force growing as `n^2` where the cell list grows as `n`, so two sizes
 // on both sides of the crossing are measured and the crossing is interpolated.
 static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
-    constexpr double CUTOFF = 5.0;
-    constexpr double SPACING = 2.0;
+    constexpr double CUTOFF = CALIBRATION_CUTOFF;
+    constexpr double SPACING = CALIBRATION_SPACING;
     constexpr double QUIET_NAN = std::numeric_limits<double>::quiet_NaN();
 
     struct LogRatios {
@@ -232,13 +238,24 @@ static std::optional<Crossovers> measure_crossovers(int32_t device_id) {
     auto log_small = std::log(std::pow(static_cast<double>(SMALL_SIDE), 3.0));
     auto log_large = std::log(std::pow(static_cast<double>(LARGE_SIDE), 3.0));
 
-    // The cell list should start out behind and end up ahead. If this is not
-    // the case, we fallback to the default crossover values.
+    // The line needs to fall, since brute force grows as `n^2` against the
+    // cell list's `n`, and the cell list needs to be ahead by LARGE_SIDE,
+    // which puts the crossing at or below that size. Those two are enough.
+    //
+    // Also requiring the crossing to lie *between* the two sizes throws the
+    // measurement away on any device whose crossover is below SMALL_SIDE, and
+    // leaves DEFAULT_CROSSOVERS deciding every search on it. Extrapolating the
+    // same line down is a better answer there than a constant.
+    //
+    // A cell list still behind at LARGE_SIDE is another matter: that would
+    // extrapolate upwards, towards MAX_CROSSOVER_POINTS and a brute force
+    // search of tens of thousands of points, on two timings that never saw the
+    // cell list win. That case keeps the fallback.
     auto interpolate = [&](double at_small, double at_large) {
         if (std::isnan(at_small) || std::isnan(at_large)) {
             return QUIET_NAN;
         }
-        if (at_small <= 0.0 || at_large >= 0.0) {
+        if (!(at_large < at_small) || at_large >= 0.0) {
             return QUIET_NAN;
         }
         return std::exp(
@@ -286,6 +303,7 @@ bool vesin::cuda::auto_use_cell_list(
     double n_points,
     double n_images,
     double cutoff,
+    double volume,
     bool sorted,
     int32_t device_id
 ) {
@@ -296,7 +314,28 @@ bool vesin::cuda::auto_use_cell_list(
     }
 
     auto measured = crossovers(device_id).value_or(DEFAULT_CROSSOVERS);
-    auto crossover = sorted ? measured.sorted : measured.per_cutoff * cutoff;
+    auto crossover = measured.sorted;
+
+    if (!sorted) {
+        // `per_cutoff * cutoff` is a length in the caller's own unit, so it
+        // makes the crossover depend on that unit: one system described in nm
+        // and in Angstrom has the same pairs but two crossovers a factor of 10
+        // apart, and `auto` picks the slower algorithm on one of them.
+        //
+        // How many neighbors a point has is what the crossover follows, and
+        // that is the cutoff measured against the mean distance between
+        // points. Both are lengths in the caller's unit, so the ratio is a
+        // pure number. At `CALIBRATION_SPACING` this is `per_cutoff * cutoff`
+        // again, so only systems away from the calibration density move.
+        auto spacing = std::cbrt(volume / n_points);
+        if (volume > 0.0 && std::isfinite(spacing) && spacing > 0.0) {
+            crossover = measured.per_cutoff * CALIBRATION_SPACING * (cutoff / spacing);
+        } else {
+            // Not periodic in all three directions, so there is no volume to
+            // take a density from and nothing better than the cutoff alone.
+            crossover = measured.per_cutoff * cutoff;
+        }
+    }
 
     return n_points >= std::min(std::max(crossover, MIN_CROSSOVER_POINTS), MAX_CROSSOVER_POINTS);
 }

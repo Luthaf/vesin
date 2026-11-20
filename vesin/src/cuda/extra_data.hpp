@@ -19,6 +19,9 @@ namespace vesin::cuda {
 /// This is pinned memory, which makes `cudaMemcpyAsync` actually asynchronous.
 struct PinnedReadback {
     double box[9];
+    /// Separate from `box` on purpose: `check_box` runs inside the Verlet
+    /// cache's own rebuild, which holds a pointer into `box` across that call.
+    double box_for_volume[9];
     bool periodic[3];
     bool all_periodic;
     size_t length;

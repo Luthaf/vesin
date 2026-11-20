@@ -15,6 +15,10 @@ struct BoxChecks {
     /// walk. This is 1 for a box at least twice the cutoff in every periodic
     /// direction, and grows as the box gets smaller than that.
     size_t n_images = 1;
+    /// The volume of the box, i.e. the absolute value of its determinant. This
+    /// is 0 for a box with a zero-length or linearly dependent pair of
+    /// vectors, which includes the all-zero box a non-periodic search passes.
+    double volume = 0.0;
 };
 
 /// Look at the box and compute the parameters needed by the brute force

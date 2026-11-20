@@ -292,6 +292,7 @@ static bool use_cell_list(
             static_cast<double>(n_points),
             static_cast<double>(box_checks.n_images),
             options.cutoff,
+            box_checks.all_periodic ? box_checks.volume : 0.0,
             options.sorted,
             device_id
         );

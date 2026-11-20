@@ -61,6 +61,21 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 - `vesin.NeighborList` now returns the pairs indexes (`"i"`, `"j"` and `"P"`) as
   `int64` arrays instead of `uint64`.
 
+### Fixed
+
+- The CUDA choice between the brute force and cell list algorithms no longer
+  depends on the unit the caller's coordinates are in. The crossover was a
+  number of points per unit of cutoff, so one system described in nm and in
+  Angstrom gave two crossovers a factor of 10 apart; it is now set by the
+  cutoff measured against the mean distance between points, which is the same
+  number either way.
+
+- The CUDA crossover between the brute force and cell list algorithms is now
+  extrapolated when it falls below the smaller calibration size, instead of
+  being discarded in favour of the built-in defaults. On a device whose
+  crossover is below that size, the measurement was previously thrown away for
+  every system and `VesinAutoAlgorithm` ran on the defaults alone.
+
 ### Removed
 
 - Support for Python 3.10. The minimal supported version is now Python 3.11.

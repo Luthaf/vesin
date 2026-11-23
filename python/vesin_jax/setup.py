@@ -160,8 +160,8 @@ if __name__ == "__main__":
     # range. The upper bound should be updated after checking that new versions of JAX
     # work, even if the wheel is built with the oldest version.
     install_requires = [
-        "jax >=0.10,<0.12",
-        "jaxlib >=0.10,<0.12",
+        "jax >=0.10,<0.13",
+        "jaxlib >=0.10,<0.13",
     ]
 
     setup(

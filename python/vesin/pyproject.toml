@@ -65,6 +65,6 @@ filterwarnings = [
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:",
     # from ASE
     "ignore:Setting the shape on a NumPy array has been deprecated in NumPy 2.5:DeprecationWarning",
-        # Python 3.15 warning
+    # Python 3.15 warning
     "ignore:This process .* is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child:DeprecationWarning",
 ]

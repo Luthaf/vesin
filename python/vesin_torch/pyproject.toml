@@ -52,8 +52,9 @@ include = ["vesin_torch"]
 [tool.pytest.ini_options]
 filterwarnings = [
     "error",
-    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.load` is not supported in Python 3.14+:DeprecationWarning",
+    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:",
+    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:",
+    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:",
+    "ignore:`torch.jit.load` is not supported in Python 3.14+:",
+    "ignore:Skipping device Apple Paravirtual device that does not support Metal 2\\.0:UserWarning",
 ]

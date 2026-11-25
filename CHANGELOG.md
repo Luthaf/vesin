@@ -21,12 +21,15 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 
 - Support for Python 3.10. The minimal supported version is now Python 3.11.
 
+### Added
+
+- Added support for PyTorch v2.15 in the PyPI wheels
+
 ## [Version 0.6.2](https://github.com/Luthaf/vesin/releases/tag/v0.6.2) - 2026-09-28
 
 ### Added
 
 - Added support for PyTorch v2.14 in the `vesin-torch` wheels on PyPI
-
 
 ## [Version 0.6.1](https://github.com/Luthaf/vesin/releases/tag/v0.6.1) - 2026-07-29
 

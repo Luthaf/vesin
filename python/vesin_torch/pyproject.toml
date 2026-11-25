@@ -59,5 +59,8 @@ filterwarnings = [
     "ignore:`torch.jit.load` is not supported in Python 3.14+:",
     "ignore:`torch.jit.script_method` is not supported in Python 3.14+:",
     # emitted inside torch when compiling with AOTInductor
-    "ignore:`isinstance\\(treespec, LeafSpec\\)` is deprecated:FutureWarning",
+    "ignore:`isinstance\\(treespec, LeafSpec\\)` is deprecated, use `isinstance\\(treespec, TreeSpec\\) and treespec.is_leaf\\(\\)` instead:FutureWarning",
+    "ignore:Skipping device Apple Paravirtual device that does not support Metal 2.0:UserWarning",
+    # emitted inside torch.export.load with torch 2.10-2.12
+    "ignore:The given buffer is not writable, and PyTorch does not support non-writable tensors:UserWarning",
 ]

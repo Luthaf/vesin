@@ -29,7 +29,8 @@ jobs:
           - os: macos-15
             # We get a failure that looks like https://github.com/pytorch/pytorch/issues/200779
             # when using python 3.15 with torch 2.14, so we downgrade python here
-            # until we can upgrade torch everywhere
+            # until metatomic-torch supports torch 2.15 (metatomic-tests is
+            # still using torch 2.14)
             python-version: "3.14"
           - os: windows-2022
             python-version: "3.15"
@@ -49,7 +50,7 @@ jobs:
           python -m pip install tox
 
       - name: run tests
-        run: tox -e lint,numpy-tests,cupy-tests,pytorch-tests
+        run: tox -e lint,numpy-tests,cupy-tests,pytorch-tests,metatomic-tests
         env:
           # Use the CPU only version of torch when building/running the code
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu

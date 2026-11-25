@@ -1,10 +1,15 @@
 from typing import List
 
+import pytest
 import torch
-from metatensor.torch import TensorBlock
-from metatomic.torch import NeighborListOptions, System
 
-from vesin.metatomic import NeighborList, neighbor_lists_for_model
+
+mta = pytest.importorskip("metatomic.torch")
+
+from metatensor.torch import TensorBlock  # noqa: E402
+from metatomic.torch import NeighborListOptions, System  # noqa: E402
+
+from vesin.metatomic import NeighborList, neighbor_lists_for_model  # noqa: E402
 
 
 class SerializedNeighborListModule(torch.nn.Module):

@@ -20,22 +20,21 @@ jobs:
         include:
           - os: ubuntu-24.04
             python-version: "3.11"
-            torch-version: "2.3"
+            torch-version: "2.7"
           - os: ubuntu-24.04
             # TorchScript support is dropped in Python 3.14, so we keep a runner
             # for testing Python 3.13, making sure everything works fine there.
             python-version: "3.13"
-            torch-version: "2.14"
+            torch-version: "2.15"
           - os: ubuntu-24.04
-            # torch.compile is not supported with Python 3.15+ & Torch 2.14
-            python-version: "3.14"
-            torch-version: "2.14"
+            python-version: "3.15"
+            torch-version: "2.15"
           - os: macos-15
-            python-version: "3.14"
-            torch-version: "2.14"
+            python-version: "3.15"
+            torch-version: "2.15"
           - os: windows-2022
-            python-version: "3.14"
-            torch-version: "2.14"
+            python-version: "3.15"
+            torch-version: "2.15"
     steps:
       - uses: actions/checkout@v7
         with:

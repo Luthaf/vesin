@@ -10,8 +10,8 @@ from vesin_torch import NeighborList
 TORCH_VERSION = tuple(int(v) for v in torch.__version__.split(".")[:2])
 
 pytestmark = pytest.mark.skipif(
-    TORCH_VERSION < (2, 7),
-    reason="AOTInductor supports TorchBind objects since torch 2.7",
+    TORCH_VERSION < (2, 10),
+    reason="AOTInductor support requires torch 2.10",
 )
 
 if sys.platform == "win32":

@@ -37,7 +37,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
 add_subdirectory(vesin)
 
-find_package(Torch 2.3 REQUIRED)
+find_package(Torch 2.7 REQUIRED)
 
 add_library(vesin_torch SHARED src/vesin_torch.cpp)
 

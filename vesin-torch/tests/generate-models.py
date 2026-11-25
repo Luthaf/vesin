@@ -76,9 +76,11 @@ def main(output_dir):
     model = Energy()
     torch.jit.script(model).save(os.path.join(output_dir, "energy.pt"))
 
-    # AOTInductor supports TorchBind objects since torch 2.7
-    if TORCH_VERSION >= (2, 7):
-        points, box = system(n_points=40)
+    points, box = system(n_points=40)
+
+    # AOTInductor support requires torch 2.10, the corresponding C++ tests are
+    # not built with older versions
+    if TORCH_VERSION >= (2, 10):
         dynamic_shapes = ({0: torch.export.Dim("n_points", min=2)}, None)
 
         exported = torch.export.export(

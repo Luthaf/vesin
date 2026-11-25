@@ -11,9 +11,8 @@ FetchContent_Declare(Catch2
 set(CATCH_CONFIG_FAST_COMPILE ON)
 FetchContent_MakeAvailable(Catch2)
 
-# Make sure Catch2 uses the same C++ standard library ABI as torch (torch < 2.7
-# on Linux uses `-D_GLIBCXX_USE_CXX11_ABI=0`), otherwise the tests can not link
-# with Catch2.
+# pass the Torch CXX flags to Catch2, so that the tests are compiled with the
+# same flags as torch
 separate_arguments(TORCH_CXX_FLAGS_LIST UNIX_COMMAND "${TORCH_CXX_FLAGS}")
 target_compile_options(Catch2 PUBLIC ${TORCH_CXX_FLAGS_LIST})
 
@@ -54,8 +53,8 @@ file(GLOB ALL_TESTS *.cpp)
 foreach(_file_ ${ALL_TESTS})
     get_filename_component(_name_ ${_file_} NAME_WE)
 
-    if (${_name_} STREQUAL "aoti" AND ${Torch_VERSION} VERSION_LESS 2.7)
-        # AOTInductor supports TorchBind objects since torch 2.7
+    if (${_name_} STREQUAL "aoti" AND ${Torch_VERSION} VERSION_LESS 2.10)
+        # AOTInductor support requires torch 2.10
         message(STATUS "Skipping AOTInductor tests with torch v${Torch_VERSION}")
         continue()
     endif()

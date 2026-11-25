@@ -10,7 +10,8 @@ from vesin_torch import NeighborList
 TORCH_VERSION = tuple(int(v) for v in torch.__version__.split(".")[:2])
 
 pytestmark = pytest.mark.skipif(
-    TORCH_VERSION < (2, 5), reason="torch.compile support requires torch 2.5"
+    TORCH_VERSION < (2, 10),
+    reason="torch.compile and torch.export support requires torch 2.10",
 )
 
 

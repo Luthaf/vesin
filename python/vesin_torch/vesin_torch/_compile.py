@@ -66,14 +66,8 @@ def _neighbors_fake(
 
 TORCH_VERSION = tuple(int(v) for v in torch.__version__.split(".")[:2])
 
-# first version of torch where `torch.compile` and `torch.export` can be used with
-# vesin_torch. Older versions can still use it in eager mode and with TorchScript.
-MINIMAL_TORCH_VERSION_FOR_COMPILE = (2, 5)
-
 
 def register_compile_support():
-    if TORCH_VERSION < MINIMAL_TORCH_VERSION_FOR_COMPILE:
-        return
 
     torch._library.register_fake_class("vesin::State")(_FakeState)
     torch.library.register_fake("vesin::neighbors", _neighbors_fake)

@@ -30,14 +30,15 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 
 #### vesin-torch
 
-- `vesin_torch.NeighborList` can now be used with `torch.compile` and
-  `torch.export`.
+- `vesin_torch.NeighborList` can now be used with `torch.compile`,
+  `torch.export` and AOTInductor, with torch 2.10 or later.
 - The `padded_to` option is now supported for fixed-size neighbor lists, padding
   the pairs with invalid pairs `(i, -1)` if needed.
 - The `fixed_n_pairs` option returns exactly this many pairs in total,
   padding with invalid pairs `(-1, -1)` after the actual ones.
 - `quantities` now accept a `"n"` option, returning the total number of pairs
   found.
+- Added support for PyTorch v2.15 in the PyPI wheels
 
 #### vesin (Python)
 
@@ -64,6 +65,7 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 
 - Support for Python 3.10. The minimal supported version is now Python 3.11.
+- Support for PyTorch <2.7
 - The `VESIN_CUDA_MAX_PAIRS_PER_POINT` environment variable and the
   `VESIN_CUDA_AT_LEAST_PAIRS_PER_POINT` compile-time option. Neither is needed
   any more: when the code finds more pairs than it reserved room for, it now
@@ -78,7 +80,6 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Added
 
 - Added support for PyTorch v2.14 in the `vesin-torch` wheels on PyPI
-
 
 ## [Version 0.6.1](https://github.com/Luthaf/vesin/releases/tag/v0.6.1) - 2026-07-29
 

@@ -17,6 +17,10 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+### Removed
+
+- Support for Python 3.10. The minimal supported version is now Python 3.11.
+
 ## [Version 0.6.2](https://github.com/Luthaf/vesin/releases/tag/v0.6.2) - 2026-09-28
 
 ### Added

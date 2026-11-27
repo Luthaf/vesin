@@ -1,7 +1,7 @@
 [project]
 name = "vesin"
 dynamic = ["version"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
 ]
@@ -60,9 +60,11 @@ namespaces = false
 [tool.pytest.ini_options]
 filterwarnings = [
     "error",
-    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
-    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`:",
+    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:",
+    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:",
     # from ASE
     "ignore:Setting the shape on a NumPy array has been deprecated in NumPy 2.5:DeprecationWarning",
+        # Python 3.15 warning
+    "ignore:This process .* is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child:DeprecationWarning",
 ]

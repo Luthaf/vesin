@@ -77,7 +77,7 @@ jobs:
       - name: setup dependencies
         run: ${{ matrix.setup-dependencies }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -135,10 +135,10 @@ jobs:
           ctest --output-on-failure --build-config Debug --parallel 2
 
       - name: setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         if: matrix.container == null
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: install tox
         if: matrix.container == null

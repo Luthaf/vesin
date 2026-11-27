@@ -17,9 +17,12 @@ changelog](https://keepachangelog.com/en/1.1.0/) format. This project follows
 ### Removed
 -->
 
+## [Version 0.6.3](https://github.com/Luthaf/vesin/releases/tag/v0.6.3) - 2026-11-27
+
 ### Removed
 
 - Support for Python 3.10. The minimal supported version is now Python 3.11.
+- Support for older PyTorch. The minimal supported version is now PyTorch v2.7
 
 ### Added
 
